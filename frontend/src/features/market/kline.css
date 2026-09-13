@@ -1,0 +1,175 @@
+.kline-panel {
+  min-width: 0;
+  margin-bottom: 24px;
+}
+.kline-panel > .panel-header {
+  gap: 20px;
+  align-items: flex-start;
+}
+.kline-fund-picker {
+  display: flex;
+  gap: 8px;
+  flex-direction: column;
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 220px;
+}
+.kline-fund-picker select {
+  color: var(--ink);
+}
+.kline-identity {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.kline-identity strong {
+  font-size: 17px;
+  display: block;
+  margin-bottom: 5px;
+}
+.kline-identity span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.kline-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.kline-toolbar .tabs {
+  margin: 0;
+  border-bottom: 0;
+  flex-wrap: wrap;
+}
+.kline-toolbar .tabs button {
+  padding: 10px 13px;
+}
+.kline-dates {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.kline-dates .field {
+  flex: 1;
+  min-width: 140px;
+}
+.kline-dates p {
+  width: 100%;
+  margin: 0;
+}
+.kline-quote {
+  display: grid;
+  grid-template-columns: 1.3fr repeat(5, 1fr);
+  gap: 16px;
+  padding: 18px;
+  margin: 18px 0;
+  border: 1px solid #e3eaf2;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-variant-numeric: tabular-nums;
+}
+.kline-quote dt {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.kline-quote dd {
+  margin: 0;
+  font-weight: 600;
+  font-size: 15px;
+}
+.kline-quote .kline-close dd {
+  font-size: 22px;
+  line-height: 1;
+}
+.kline-quote small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.kline-legend {
+  display: flex;
+  gap: 12px 18px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.kline-legend label,
+.kline-candle-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.kline-candle-key i {
+  width: 6px;
+  height: 12px;
+  display: inline-block;
+}
+.kline-line {
+  width: 20px;
+  height: 0;
+  border-top: 2px solid;
+}
+.kline-line-dashed {
+  border-top-style: dashed;
+}
+.kline-line-dotted {
+  border-top-style: dotted;
+}
+.kline-caption {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+.kline-caption p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0;
+}
+.kline-caption a {
+  flex-shrink: 0;
+}
+@media (max-width: 1200px) {
+  .kline-quote {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 680px) {
+  .kline-panel > .panel-header {
+    flex-direction: column;
+  }
+  .kline-fund-picker {
+    width: 100%;
+    min-width: 0;
+  }
+  .kline-panel > .panel-body {
+    padding: 16px 10px;
+  }
+  .kline-identity {
+    flex-wrap: wrap;
+  }
+  .kline-toolbar {
+    align-items: flex-start;
+  }
+  .kline-toolbar .tabs button {
+    padding: 9px 10px;
+  }
+  .kline-quote {
+    grid-template-columns: repeat(2, 1fr);
+    padding: 14px;
+    gap: 18px 12px;
+  }
+  .kline-caption {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

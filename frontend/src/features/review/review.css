@@ -1,0 +1,338 @@
+.review-page {
+  display: grid;
+  gap: 22px;
+}
+.review-intro,
+.review-strategy-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 28px;
+  padding: 30px 32px;
+  border: 1px solid #dce7ef;
+  border-radius: 14px;
+  background: linear-gradient(110deg, #eef5fa 0%, #f7fafc 65%, #f0f5f2 100%);
+}
+.review-kicker {
+  color: #467188;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.7px;
+}
+.review-intro h2,
+.review-strategy-heading h2 {
+  font-size: 25px;
+  margin: 9px 0 10px;
+  letter-spacing: -0.5px;
+}
+.review-intro p,
+.review-strategy-heading p {
+  margin: 0;
+  color: #526779;
+  font-size: 13px;
+  line-height: 1.75;
+}
+.review-personal {
+  display: grid;
+  gap: 5px;
+  text-align: right;
+  font-size: 11px;
+  color: #536779;
+  min-width: 180px;
+}
+.review-personal strong {
+  font-size: 32px;
+  color: #243c50;
+  font-weight: 600;
+}
+.review-controlbar {
+  justify-content: space-between;
+}
+.review-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 13px;
+  color: #4c6275;
+  line-height: 1.6;
+}
+.review-check input {
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  accent-color: #315f9e;
+  flex: 0 0 auto;
+}
+.review-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #52677c;
+}
+.review-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 28px;
+}
+.review-facts > div {
+  display: grid;
+  gap: 8px;
+  flex: 1;
+  min-width: 145px;
+}
+.review-facts span {
+  font-size: 11px;
+  color: #596d80;
+}
+.review-facts b {
+  font-size: 12px;
+  color: #3f5468;
+  font-weight: 500;
+}
+.review-segment {
+  display: flex;
+  background: #f1f5f8;
+  border: 1px solid #e9eef3;
+  border-radius: 7px;
+  padding: 3px;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.review-segment button {
+  font-size: 11px;
+  border: 0;
+  padding: 7px 10px;
+  background: transparent;
+  color: #53677d;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.review-segment button.is-active {
+  background: white;
+  color: #315f9e;
+  box-shadow: 0 1px 4px #223c5614;
+}
+.review-chart-summary {
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 6px 0 0;
+}
+.review-mini-chart {
+  min-width: 0;
+}
+.review-mini-chart h3 {
+  font-size: 12px;
+  color: #4c6377;
+  font-weight: 500;
+}
+.review-period-detail {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  font-size: 12px;
+  margin: 18px 0;
+  padding-top: 16px;
+  border-top: 1px solid #eef1f5;
+}
+.review-period-detail > span {
+  color: #596d80;
+}
+.review-period-detail > b {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.review-difference,
+.review-text-button {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.review-text-button {
+  color: #35629b;
+}
+.review-difference:disabled {
+  color: #5d6f80;
+  cursor: not-allowed;
+}
+.review-readiness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 28px;
+  align-items: center;
+  font-size: 12px;
+  color: #52677a;
+}
+.review-readiness b {
+  margin-left: 6px;
+  color: #40566c;
+  font-weight: 500;
+}
+.review-readiness a {
+  margin-left: auto;
+}
+.review-diff-total {
+  display: flex;
+  justify-content: space-between;
+  padding: 20px 0;
+  border-bottom: 1px solid #e9edf2;
+  align-items: center;
+}
+.review-diff-total strong {
+  font-size: 26px;
+}
+.review-timeline {
+  padding: 6px 0 0 12px;
+}
+.review-timeline > div {
+  position: relative;
+  border-left: 1px solid #dfe7ef;
+  padding: 0 0 26px 24px;
+}
+.review-timeline > div::before {
+  position: absolute;
+  content: '';
+  width: 9px;
+  height: 9px;
+  border: 2px solid white;
+  background: #6887aa;
+  border-radius: 50%;
+  left: -6px;
+  top: 5px;
+  box-shadow: 0 0 0 1px #dce6f0;
+}
+.review-timeline > div:last-child {
+  padding-bottom: 2px;
+  border-color: transparent;
+}
+.review-timeline small {
+  display: block;
+  color: #596d7e;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.review-timeline b {
+  font-size: 14px;
+  color: #395167;
+  font-weight: 600;
+}
+.review-timeline p {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #546a7d;
+  margin: 8px 0;
+}
+.review-event-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+}
+.review-event-footer .muted {
+  font-size: 11px;
+}
+.review-observation {
+  padding: 4px 0;
+}
+.review-observation h3 {
+  font-size: 17px;
+  margin: 18px 0 12px;
+}
+.review-observation p {
+  line-height: 1.9;
+  font-size: 13px;
+}
+.review-observation a {
+  display: inline-block;
+  margin-top: 14px;
+  font-size: 12px;
+}
+.review-evidence {
+  display: grid;
+  grid-template-columns: 95px 1fr;
+  gap: 16px 10px;
+  margin: 20px 0;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.review-evidence span {
+  color: #5a6d7e;
+}
+.review-evidence p {
+  color: #4d6276;
+  margin: 0;
+}
+.review-validation {
+  background: #f6f8fb;
+  border: 1px solid #eaf0f4;
+  border-radius: 10px;
+  padding: 20px;
+}
+.review-validation h3 {
+  font-size: 14px;
+  margin: 15px 0 10px;
+}
+.review-validation p {
+  font-size: 12px;
+  line-height: 1.9;
+  color: #54697c;
+  margin: 0;
+}
+.review-modal-actions {
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+.review-line-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px 22px;
+  margin: 10px 0 16px;
+}
+.review-line-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #53677c;
+}
+.review-line-controls input {
+  width: 13px;
+  height: 13px;
+  accent-color: #35629b;
+}
+@media (max-width: 959px) {
+  .review-intro,
+  .review-strategy-heading {
+    padding: 24px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  .review-personal {
+    text-align: left;
+    min-width: 0;
+  }
+  .review-personal strong {
+    font-size: 25px;
+  }
+  .review-controlbar,
+  .review-control {
+    align-items: flex-start;
+  }
+  .review-readiness a {
+    margin-left: 0;
+  }
+  .review-segment {
+    max-width: 100%;
+  }
+  .review-evidence {
+    grid-template-columns: 75px 1fr;
+  }
+}
