@@ -48,6 +48,7 @@ npm run test:e2e
 - [产品目标与用户流程](docs/product-goals-and-user-flow.md)
 - [整体技术架构与选型依据](docs/technical-architecture.md)
 - [界面展示与交互开发文档](docs/ui-interaction-design.md)
+- [基金数据与存储开发文档](docs/fund-data-storage-design.md)
 - [界面测试报告](docs/ui-test-report.md)
 - [仓库协作与提交规范](agent.md)
 
