@@ -10,12 +10,13 @@
 
 ## 当前状态
 
-第一阶段的产品目标和用户大致使用流程已暂时确认，目前按单人项目、个人使用、仅本地部署推进。技术方案采用 React + TypeScript、Python + FastAPI、SQLite 和本机后台任务进程，尚未开始功能开发。
+第一阶段的产品目标和用户大致使用流程已暂时确认，目前按单人项目、个人使用、仅本地部署推进。技术方案采用 React + TypeScript、Python + FastAPI、SQLite 和本机后台任务进程。界面展示与交互开发文档已形成待审查草案，前后端基础目录已建立，尚未开始功能代码实现。
 
 ## 项目文档
 
 - [产品目标与用户流程](docs/product-goals-and-user-flow.md)
 - [整体技术架构与选型依据](docs/technical-architecture.md)
+- [界面展示与交互开发文档（待审查）](docs/ui-interaction-design.md)
 - [仓库协作与提交规范](agent.md)
 
 ## 远端仓库

@@ -1,0 +1,8 @@
+# Local runtime data and private configuration
+/runtime/
+.env
+.env.*
+!.env.example
+
+# macOS metadata
+.DS_Store
