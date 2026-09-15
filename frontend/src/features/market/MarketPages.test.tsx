@@ -13,7 +13,7 @@ function browse(path = '/funds') {
 
 describe('真实基金目录', () => {
   it('默认只显示总数与搜索案例，不列出基金', async () => {
-    const fetchMock = vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ items: [], total: 27843, catalog_total: 27843, updated_at: '2026-09-13T10:00:00Z' }), { status: 200 }));
+    const fetchMock = vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ items: [], page: 1, page_size: 20, total: 27843, catalog_total: 27843, updated_at: '2026-09-13T10:00:00Z' }), { status: 200 }));
     browse();
     await waitFor(() => expect(screen.getByText(/已收录 27843 条/)).toBeInTheDocument());
     expect(screen.getByText('搜索“510050”')).toBeInTheDocument();
@@ -22,8 +22,8 @@ describe('真实基金目录', () => {
   });
   it('提交搜索后展示真实结果并链接到详情', async () => {
     const fetchMock = vi.mocked(fetch)
-      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [], total: 27843, catalog_total: 27843, updated_at: null }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [{ share_id: 'share-1', code: '110011', name: '真实成长基金', fund_type: '混合型', source_id: 'catalog' }], total: 1, catalog_total: 27843, updated_at: '2026-09-13T10:00:00Z' }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [], page: 1, page_size: 20, total: 27843, catalog_total: 27843, updated_at: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [{ share_id: 'share-1', code: '110011', name: '真实成长基金', fund_type: '混合型', source_id: 'catalog' }], page: 1, page_size: 20, total: 1, catalog_total: 27843, updated_at: '2026-09-13T10:00:00Z' }), { status: 200 }));
     browse();
     await waitFor(() => expect(screen.getByRole('searchbox')).toBeInTheDocument());
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: '成长' } });
@@ -34,7 +34,7 @@ describe('真实基金目录', () => {
   });
   it('保存最近搜索、去重并支持复用和清除', async () => {
     const fetchMock = vi.mocked(fetch)
-      .mockImplementation(async () => new Response(JSON.stringify({ items: [], total: 0, catalog_total: 27843, updated_at: null }), { status: 200 }));
+      .mockImplementation(async () => new Response(JSON.stringify({ items: [], page: 1, page_size: 20, total: 0, catalog_total: 27843, updated_at: null }), { status: 200 }));
     browse();
     await waitFor(() => expect(screen.getByRole('searchbox')).toBeInTheDocument());
     const input = screen.getByRole('searchbox');
@@ -104,7 +104,7 @@ describe('真实基金详情', () => {
     }), { status: 200 }));
     browse('/funds/510050');
     await waitFor(() => expect(screen.getByRole('img', { name: '000016关联板块真实K线' })).toBeInTheDocument());
-    expect(screen.getByText('关联板块行情')).toBeInTheDocument();
+    expect(screen.getByText('关联指数行情')).toBeInTheDocument();
   });
   it('没有关联板块时不显示板块行情区块', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
