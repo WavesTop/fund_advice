@@ -1,0 +1,72 @@
+name: Market consistency repair
+on:
+  push:
+    branches: [fix/market-data-consistency-20260915]
+    paths: [scripts/apply_market_consistency_patch.py]
+permissions:
+  contents: write
+concurrency:
+  group: market-consistency-repair
+  cancel-in-progress: false
+jobs:
+  repair:
+    if: github.ref == 'refs/heads/fix/market-data-consistency-20260915'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Apply reviewed changes
+        run: python scripts/apply_market_consistency_patch.py
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked dependencies
+        id: install
+        continue-on-error: true
+        run: |
+          uv sync --locked
+          npm ci --prefix frontend
+      - name: Backend regression
+        id: backend
+        continue-on-error: true
+        run: uv run --locked --offline python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Frontend build
+        id: build
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run build
+      - name: Frontend regression
+        id: frontend
+        continue-on-error: true
+        working-directory: frontend
+        run: npm test -- --run
+      - name: Record verification and publish branch
+        env:
+          INSTALL_RESULT: ${{ steps.install.outcome }}
+          BACKEND_RESULT: ${{ steps.backend.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          FRONTEND_RESULT: ${{ steps.frontend.outcome }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          python scripts/apply_market_consistency_patch.py --record-results
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add backend scripts frontend docs README.md .github/workflows/market-consistency-fix.yml
+          git diff --cached --stat
+          git commit -m '【修复】【市场】统一行情、关系状态与真实图表口径' -m '修复范围计数、关联核验和部分刷新状态，补齐显式序列选择、来源精确行情下钻及联动展示。将实现和实际验证结果同步到原设计及计划，不将当前观察升级为投资推荐。'
+          git fetch origin fix/market-data-consistency-20260915
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          git push origin HEAD:refs/heads/fix/market-data-consistency-20260915
+          printf 'Install: %s\nBackend: %s\nBuild: %s\nFrontend: %s\n' "$INSTALL_RESULT" "$BACKEND_RESULT" "$BUILD_RESULT" "$FRONTEND_RESULT" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify outcomes
+        env:
+          INSTALL_RESULT: ${{ steps.install.outcome }}
+          BACKEND_RESULT: ${{ steps.backend.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          FRONTEND_RESULT: ${{ steps.frontend.outcome }}
+        run: test "$INSTALL_RESULT" = success && test "$BACKEND_RESULT" = success && test "$BUILD_RESULT" = success && test "$FRONTEND_RESULT" = success
