@@ -26,42 +26,39 @@ async function fillTrade(page: Page) {
   await expect(dialog).not.toBeVisible();
 }
 
-test('search, share identity, URL filters and browser back preserve context', async ({ page }) => {
+test('real fund search and browser back preserve context', async ({ page }) => {
+  await page.route('**/api/funds?*', async (route) => {
+    const query = new URL(route.request().url()).searchParams.get('q');
+    await route.fulfill({ json: query ? { items: [{ share_id: '005911', code: '005911', name: '广发双擎升级混合A', fund_type: '混合型-偏股', source_id: 'fund_catalog.eastmoney' }], page: 1, page_size: 20, total: 1, catalog_total: 27843, updated_at: '2026-09-13T10:00:00Z' } : { items: [], page: 1, page_size: 20, total: 27843, catalog_total: 27843, updated_at: '2026-09-13T10:00:00Z' } });
+  });
+  await page.route('**/api/funds/005911', (route) => route.fulfill({ json: { fund: { share_id: '005911', code: '005911', name: '广发双擎升级混合A', fund_type: '混合型-偏股', source_id: 'fund_catalog.eastmoney' }, series: null } }));
   await page.goto('/funds');
-  await expect(page.getByText('界面演示', { exact: true })).toBeVisible();
-  await page.getByLabel('搜索基金名称或代码', { exact: true }).fill('均衡成长');
-  await expect(page.locator('tbody tr')).toHaveCount(2);
-  await page.getByRole('link', { name: /示例均衡成长混合\s*C类/ }).click();
-  await expect(page).toHaveURL(/funds\/000002/);
+  await expect(page.getByText('真实基金数据', { exact: true })).toBeVisible();
+  await expect(page.getByText(/已收录 27843 条/)).toBeVisible();
+  await page.getByLabel('搜索本地真实基金').fill('005911');
+  await page.getByRole('button', { name: '搜索', exact: true }).click();
+  await page.getByRole('link', { name: '广发双擎升级混合A' }).click();
+  await expect(page).toHaveURL(/funds\/005911/);
   await page.goBack();
-  await expect(page.getByLabel('搜索基金名称或代码', { exact: true })).toHaveValue('均衡成长');
-  await expect(page.locator('tbody tr')).toHaveCount(2);
+  await expect(page.getByLabel('搜索本地真实基金')).toHaveValue('005911');
+  await expect(page.locator('tbody tr')).toHaveCount(1);
 });
 
-test('unknown fund lookup validates input and never invents an identity', async ({ page }) => {
+test('an empty real fund search does not invent an identity', async ({ page }) => {
+  await page.route('**/api/funds?*', (route) => route.fulfill({ json: { items: [], page: 1, page_size: 20, total: 0, catalog_total: 27843, updated_at: '2026-09-13T10:00:00Z' } }));
   await page.goto('/funds');
-  await page.getByRole('button', { name: '补充基金', exact: true }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('基金代码', { exact: true }).fill('12');
-  await dialog.getByRole('button', { name: '查询演示身份' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('6 位');
-  await dialog.getByLabel('基金代码', { exact: true }).fill('999998');
-  await dialog.getByRole('button', { name: '查询演示身份' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('无法确认名称');
-  await expect(dialog.getByRole('link', { name: /确认身份/ })).toHaveCount(0);
+  await page.getByLabel('搜索本地真实基金').fill('999998');
+  await page.getByRole('button', { name: '搜索', exact: true }).click();
+  await expect(page.getByText(/没有找到“999998”对应的基金/)).toBeVisible();
+  await expect(page.locator('tbody tr')).toHaveCount(0);
 });
 
-test('fund charts distinguish net value, traded OHLC and historical-only objects', async ({
-  page,
-}) => {
-  await page.goto('/funds/000001');
-  await expect(page.getByRole('img', { name: /净值/ }).first()).toBeVisible();
-  await page.goto('/funds/510300');
-  await expect(page.getByRole('heading', { name: /交易 K 线/ })).toBeVisible();
-  await expect(page.getByRole('img', { name: /虚构开高低收行情/ }).first()).toBeVisible();
-  await page.goto('/funds/009999');
-  await expect(page.getByText(/停止运作/).first()).toBeVisible();
-  await expect(page.getByRole('link', { name: '录入持仓', exact: true })).toHaveCount(0);
+test('fund detail renders only a persisted real price series', async ({ page }) => {
+  await page.route('**/api/funds/510050', (route) => route.fulfill({ json: { fund: { share_id: '510050', code: '510050', name: '上证50ETF华夏', fund_type: '指数型-股票', source_id: 'fund_catalog.eastmoney' }, series: { kind: 'price', source_id: 'exchange_daily.sina', policy_version: 'd0-test', updated_at: '2026-09-13T10:00:00Z', rows: [{ date: '2026-09-11', open: '2.900', high: '3.100', low: '2.800', close: '3.000', volume: '100', amount: '300' }] } } }));
+  await page.goto('/funds/510050');
+  await expect(page.getByRole('heading', { name: '真实 K 线' })).toBeVisible();
+  await expect(page.getByRole('img', { name: '510050真实K线' })).toBeVisible();
+  await expect(page.getByText(/模拟行情|演示行情/)).toHaveCount(0);
 });
 
 test('a decision does not change transactions; later linked trade persists after reload', async ({

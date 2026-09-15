@@ -87,6 +87,8 @@ function Shell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
   const isMarket = /^\/(funds|sectors)/.test(location.pathname);
+  const isRealFundArea = location.pathname === '/funds' || location.pathname.startsWith('/funds/');
+  const isSectorOpportunityArea = location.pathname === '/sectors';
   const active = navigation.find((item) =>
     item.to === '/funds' ? isMarket : location.pathname.startsWith(item.to),
   );
@@ -205,14 +207,18 @@ function Shell() {
           </Link>
         </header>
         <div className="demo-banner">
-          <span className="demo-tag">界面演示</span>
-          <span>虚构示例资料 · 输入仅保存在本浏览器的演示草稿中，请勿录入真实隐私或密钥。</span>
-          <Link to="/settings?tab=demo">
-            切换演示场景 <ArrowUpRight size={13} />
-          </Link>
+          <span className="demo-tag">{isRealFundArea ? '真实基金数据' : isSectorOpportunityArea ? '板块证据观察' : '界面演示'}</span>
+          <span>
+            {isRealFundArea
+              ? '基金目录及已采集序列来自本地数据库；未采集内容会明确留空。'
+              : isSectorOpportunityArea
+                ? '真实行情与已核验行业快照；请结合资料日期、适用范围和反证阅读。'
+                : '虚构示例资料 · 输入仅保存在本浏览器的演示草稿中，请勿录入真实隐私或密钥。'}
+          </span>
+          {!isRealFundArea && !isSectorOpportunityArea && <Link to="/settings?tab=demo">切换演示场景 <ArrowUpRight size={13} /></Link>}
         </div>
         <main id="main-content" className="main-content" tabIndex={-1}>
-          {state.scenario !== 'ready' && (
+          {state.scenario !== 'ready' && !isSectorOpportunityArea && (
             <Notice tone={state.scenario === 'error' ? 'error' : 'warning'}>
               {scenarioNotices[state.scenario]} <Link to="/settings?tab=demo">切换场景</Link>
             </Notice>
@@ -255,7 +261,7 @@ function Shell() {
         <footer className="app-footer">
           <span>知衡 · 让投资判断留下依据</span>
           <span>
-            <CircleHelp size={13} /> 3.1 界面阶段 · 数据与计算待后端接入
+            <CircleHelp size={13} /> {isRealFundArea ? '真实基金目录与本地时序数据' : '其他功能仍处于界面演示阶段'}
           </span>
         </footer>
       </div>

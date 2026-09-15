@@ -3,6 +3,27 @@
   gap: 24px;
   min-width: 0;
 }
+.real-fund-catalog {
+  padding: 0 !important;
+  overflow: hidden;
+}
+.real-fund-catalog .market-search-row { padding-bottom: 18px; }
+.catalog-progress {
+  display: flex;
+  gap: 18px;
+  padding: 0 24px 18px;
+  color: #71818d;
+  font-size: 12px;
+}
+.catalog-progress strong {
+  color: #344958;
+  font-variant-numeric: tabular-nums;
+  margin-left: 3px;
+}
+.real-fund-table { min-width: 720px; }
+.real-fund-table td { padding-top: 14px !important; padding-bottom: 14px !important; }
+.real-fund-table td strong { display: block; color: #263d4e; font-size: 13px; }
+.real-catalog-state { padding: 28px 24px; color: #667784; font-size: 13px; }
 .market-page .table-wrap {
   position: relative;
 }
@@ -120,6 +141,27 @@
 .market-search:focus-within {
   outline: 2px solid #568f9d;
   outline-offset: 2px;
+}
+.catalog-search-history {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 24px 18px;
+  font-size: 12px;
+}
+.catalog-search-history .button {
+  min-height: 28px;
+  padding: 5px 9px;
+  font-size: 12px;
+}
+.catalog-search-history .button-link {
+  border: 0;
+  background: none;
+  color: #628391;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 2px;
 }
 .market-search kbd {
   border: 1px solid #e0e6ea;

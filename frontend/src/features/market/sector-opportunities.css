@@ -1,0 +1,446 @@
+.sector-opportunities {
+  display: grid;
+  gap: 16px;
+}
+.sector-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.sector-toolbar p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+.sector-toolbar .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.sector-universe-meta,
+.sector-controls,
+.sector-pagination {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: #64748b;
+  font-size: 12px;
+}
+.sector-universe-meta {
+  padding: 10px 12px;
+  background: #f7fafb;
+  border: 1px solid #e5ecef;
+  border-radius: 8px;
+}
+.sector-universe-meta strong {
+  color: #3c5661;
+}
+.sector-advantage-section {
+  display: grid;
+  gap: 10px;
+}
+.sector-advantage-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 18px;
+}
+.sector-advantage-heading h2,
+.sector-advantage-heading p {
+  margin: 0;
+}
+.sector-advantage-heading h2 { font-size: 18px; color: #263d47; }
+.sector-advantage-heading p,
+.sector-advantage-heading small { color: #71838b; font-size: 12px; }
+.sector-advantage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.sector-advantage-panel .panel-body { display: grid; gap: 9px; }
+.sector-advantage-period { display: flex; justify-content: space-between; gap: 8px; }
+.sector-advantage-period strong,
+.sector-advantage-period small { display: block; }
+.sector-advantage-period small,
+.sector-advantage-period span,
+.sector-advantage-panel > .panel-body > p,
+.sector-advantage-empty { color: #71838b; font-size: 11px; }
+.sector-advantage-panel > .panel-body > p { margin: 0; min-height: 32px; }
+.sector-advantage-panel ol { margin: 0; padding-left: 22px; }
+.sector-advantage-panel li { color: #819199; }
+.sector-advantage-panel button {
+  width: 100%; border: 0; border-bottom: 1px solid #edf1f4; background: transparent;
+  padding: 7px 0; text-align: left; cursor: pointer;
+}
+.sector-advantage-panel button span { display: flex; justify-content: space-between; gap: 6px; }
+.sector-advantage-panel button b { color: #314b56; }
+.sector-advantage-panel button em { color: #56777e; font-size: 11px; font-style: normal; }
+.sector-advantage-panel button small { display: block; color: #778991; line-height: 1.45; }
+.sector-controls input,
+.sector-controls select {
+  min-height: 34px;
+  border: 1px solid #d5dfe4;
+  border-radius: 6px;
+  padding: 0 9px;
+  background: #fff;
+  color: #425861;
+}
+@media (max-width: 900px) {
+  .sector-advantage-grid { grid-template-columns: 1fr; }
+  .sector-advantage-heading { align-items: flex-start; flex-direction: column; }
+}
+.sector-controls input {
+  flex: 1 1 220px;
+}
+.sector-scope-note {
+  margin: -8px 0 0;
+  color: #78888f;
+  font-size: 12px;
+}
+.sector-pagination {
+  justify-content: flex-end;
+}
+.sector-pagination .button {
+  padding: 6px 10px;
+}
+.sector-spin {
+  animation: sector-spin 1s linear infinite;
+}
+@keyframes sector-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.sector-state {
+  padding: 38px 20px;
+  text-align: center;
+  color: #64748b;
+}
+.sector-opportunity-list {
+  display: grid;
+  gap: 16px;
+}
+.sector-opportunity-card .panel-body {
+  display: grid;
+  gap: 14px;
+}
+.sector-card-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+.sector-card-heading h2 {
+  margin: 0 0 3px;
+  font-size: 20px;
+}
+.sector-card-heading span,
+.sector-card-meta,
+.sector-observation {
+  color: #64748b;
+  font-size: 12px;
+}
+.sector-observation {
+  white-space: nowrap;
+}
+.sector-card-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #edf1f4;
+  padding-bottom: 12px;
+}
+.sector-membership {
+  border-bottom: 1px solid #edf1f4;
+  padding-bottom: 12px;
+  color: #60747d;
+  font-size: 12px;
+}
+.sector-membership summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.sector-membership p {
+  margin: 8px 0;
+  color: #7a8992;
+}
+.sector-member-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sector-member-list span {
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #f3f7f8;
+}
+.sector-member-list small {
+  color: #84939a;
+}
+.sector-periods {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.sector-period {
+  border: 1px solid #e6ebef;
+  border-radius: 10px;
+  padding: 13px;
+  background: #fbfcfd;
+}
+.sector-period-stale,
+.sector-period-insufficient {
+  background: #fafafa;
+}
+.sector-period-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 7px;
+}
+.sector-period-heading strong {
+  display: block;
+  color: #243641;
+}
+.sector-period-heading small {
+  color: #7a8992;
+  font-size: 11px;
+}
+.sector-period-reason {
+  min-height: 34px;
+  margin: 12px 0 10px;
+  color: #53656e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.sector-period-summary {
+  margin: 12px 0 8px;
+  color: #344c56;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sector-strength-line {
+  margin-top: 8px;
+  color: #4c646e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.sector-investment-line {
+  color: #65777e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.sector-investment-line .badge {
+  margin-right: 5px;
+}
+.sector-evidence-columns {
+  display: grid;
+  gap: 8px;
+  color: #596c74;
+  font-size: 13px;
+}
+.sector-evidence-columns small {
+  color: #7a8992;
+}
+.sector-evidence-columns ul {
+  margin: 5px 0 0;
+  padding-left: 15px;
+}
+.sector-evidence-columns li {
+  margin: 2px 0;
+}
+.sector-conditions {
+  color: #8a6639;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.sector-conditions ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+.sector-data-warning {
+  display: block;
+  color: #9a6f3c;
+  font-size: 10px;
+  margin-top: 3px;
+  text-align: right;
+}
+.sector-method-version {
+  display: block;
+  margin-top: 4px;
+  color: #839198;
+  font-size: 11px;
+}
+.sector-price-evidence {
+  margin-top: 8px;
+  border-top: 1px dashed #e2e8eb;
+  padding-top: 7px;
+  color: #6d7d84;
+  font-size: 11px;
+}
+.sector-price-evidence summary,
+.sector-industry-evidence summary {
+  cursor: pointer;
+  color: #60747d;
+}
+.sector-price-evidence p {
+  margin: 8px 0;
+}
+.sector-period-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+.sector-period-metrics span {
+  display: grid;
+  gap: 3px;
+}
+.sector-period-metrics small {
+  color: #7a8992;
+  font-size: 10px;
+}
+.sector-period-metrics b {
+  color: #263d47;
+  font-size: 13px;
+}
+.sector-risk {
+  margin-top: 11px;
+  font-size: 11px;
+  color: #65757d;
+}
+.sector-risk-elevated {
+  color: #a56532;
+}
+.sector-risk-unknown {
+  color: #8a959b;
+}
+.sector-missing {
+  padding: 18px;
+  color: #74828a;
+}
+.sector-related-funds {
+  display: grid;
+  gap: 7px;
+  border-top: 1px solid #edf1f4;
+  padding-top: 12px;
+  color: #60717a;
+  font-size: 12px;
+}
+.sector-related-funds div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sector-related-funds a {
+  color: #226979;
+  text-decoration: none;
+}
+.sector-related-funds a:hover {
+  text-decoration: underline;
+}
+.sector-related-funds small {
+  color: #82919a;
+}
+.sector-card-footnote {
+  margin: 0;
+  color: #8a969c;
+  font-size: 11px;
+}
+.sector-industry-evidence {
+  border-top: 1px solid #edf1f4;
+  padding-top: 12px;
+  color: #5c7078;
+  font-size: 12px;
+}
+.sector-industry-missing {
+  padding: 10px 0;
+  border-top: 1px solid #edf1f4;
+  color: #8a6639;
+  font-size: 12px;
+}
+.sector-industry-evidence p {
+  margin: 8px 0 4px;
+  line-height: 1.5;
+}
+.sector-evidence-metrics {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+.sector-evidence-metrics > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  background: #f8fafb;
+  border-radius: 6px;
+}
+.sector-evidence-metrics strong {
+  color: #354d57;
+}
+.sector-evidence-metrics span,
+.sector-evidence-metrics small {
+  color: #71828a;
+}
+.sector-evidence-metrics a,
+.sector-valuation a {
+  color: #226979;
+}
+.sector-valuation {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  border-top: 1px solid #edf1f4;
+  padding-top: 12px;
+  color: #677980;
+  font-size: 12px;
+}
+.sector-valuation strong {
+  color: #354d57;
+}
+.sector-valuation em {
+  flex-basis: 100%;
+  color: #829097;
+  font-style: normal;
+}
+.sector-method {
+  border-top: 1px solid #e4eaee;
+}
+.sector-method > button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 0;
+  padding: 15px 0;
+  background: transparent;
+  color: #405863;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.sector-chevron-open {
+  transform: rotate(180deg);
+}
+.sector-method-body {
+  padding: 0 0 12px;
+  color: #697980;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.sector-method-body p {
+  margin: 0 0 8px;
+}
+@media (max-width: 800px) {
+  .sector-periods {
+    grid-template-columns: 1fr;
+  }
+  .sector-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

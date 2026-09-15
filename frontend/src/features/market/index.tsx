@@ -31,6 +31,7 @@ import type { MarketFund } from './model';
 import type { Transaction } from '../../shared/types';
 import './market.css';
 import { KlinePanel, KlinePreview } from './KlineChart';
+import { SectorOpportunities } from './SectorOpportunities';
 
 const dateOf = (fund: MarketFund) => (fund.historical ? '2025-12-31' : DATA_DATE);
 const coverageTone = (coverage: string) =>
@@ -85,6 +86,151 @@ function MarketState() {
       </Notice>
     );
   return null;
+}
+
+type RealFund = {
+  share_id: string;
+  code: string;
+  name: string;
+  fund_type: string;
+  source_id: string;
+};
+
+type RealFundResponse = {
+  items: RealFund[];
+  page: number;
+  page_size: number;
+  total: number;
+  catalog_total: number;
+  collection?: {
+    collected: number;
+    failed: number;
+    pending: number;
+  } | null;
+  updated_at: string | null;
+};
+
+type RealPriceRow = {
+  date: string;
+  open: string | null;
+  high: string | null;
+  low: string | null;
+  close: string | null;
+  volume: string | null;
+  amount: string | null;
+};
+
+type RealNavRow = {
+  date: string;
+  unit_nav: string | null;
+  accumulated_nav?: string | null;
+  cumulative_nav?: string | null;
+};
+
+type RealFundSeriesResponse = {
+  kind: 'price' | 'nav' | null;
+  rows: RealPriceRow[] | RealNavRow[];
+  source_id: string | null;
+  policy_version: string | null;
+  updated_at: string | null;
+};
+
+type RealFundDetailResponse = {
+  fund: RealFund;
+  series: RealFundSeriesResponse | null;
+  related_market?: RelatedMarket | null;
+};
+
+type RelatedMarket = {
+  name: string;
+  code: string;
+  kind: 'index';
+  source_id: string;
+  rows: RealPriceRow[];
+};
+
+function RealFundCatalog() {
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState<RealFundResponse | null>(null);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('loading');
+  const [error, setError] = useState('');
+  const pageSize = 20;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setStatus('loading');
+    setError('');
+    const params = new URLSearchParams({ q: query, page: String(page), page_size: String(pageSize) });
+    fetch(`/api/funds?${params.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return (await response.json()) as RealFundResponse;
+      })
+      .then((data) => {
+        setResult(data);
+        setStatus('idle');
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        setStatus('error');
+        setError('本地真实基金目录暂时无法加载，请确认本地数据服务已启动。');
+      });
+    return () => controller.abort();
+  }, [query, page]);
+
+  const totalPages = Math.max(1, Math.ceil((result?.total ?? 0) / pageSize));
+  return (
+    <Panel className="real-fund-catalog">
+      <div className="market-list-heading">
+        <div>
+          <h2>本地真实基金目录 <span className="market-count">数据源目录</span></h2>
+          <p className="muted">来自本地数据服务的基金身份信息；不包含演示行情、净值或投资建议。</p>
+        </div>
+        <span className="market-date"><span className="market-dot" />本地数据服务</span>
+      </div>
+      <div className="market-search-row">
+        <label className="market-search">
+          <Search size={18} />
+          <input
+            type="search"
+            aria-label="搜索本地真实基金"
+            placeholder="搜索名称或代码"
+            value={query}
+            onChange={(event) => { setQuery(event.target.value); setPage(1); }}
+          />
+        </label>
+      </div>
+      {status === 'loading' && <div className="real-catalog-state" role="status">正在加载本地真实基金目录…</div>}
+      {status === 'error' && <div className="real-catalog-state" role="alert">{error}</div>}
+      {status === 'idle' && result && !result.items.length && (
+        <div className="real-catalog-state">没有找到匹配的本地真实基金。</div>
+      )}
+      {status === 'idle' && result && result.items.length > 0 && (
+        <>
+          <div className="table-wrap">
+            <table className="data-table real-fund-table">
+              <thead><tr><th>基金名称</th><th>代码</th><th>基金类型</th><th>来源</th><th>详情</th></tr></thead>
+              <tbody>{result.items.map((fund) => (
+                <tr key={fund.share_id}>
+                  <td><strong>{fund.name}</strong><small className="market-fund-meta">份额 ID：{fund.share_id}</small></td>
+                  <td>{fund.code}</td><td>{fund.fund_type || '—'}</td><td>{fund.source_id || '—'}</td>
+                  <td><span className="muted">详情待接入</span></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <div className="market-pagination">
+            <span>共 {result.total} 条 · 第 {result.page} / {totalPages} 页{result.updated_at ? ` · 更新于 ${result.updated_at}` : ''}</span>
+            <div>
+              <button className="button secondary" aria-label="本地目录上一页" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft size={16} /></button>
+              <button className="button secondary" aria-label="本地目录下一页" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}><ChevronRight size={16} /></button>
+            </div>
+          </div>
+        </>
+      )}
+    </Panel>
+  );
 }
 
 function AddFund({ initialCode, onClose }: { initialCode: string; onClose: () => void }) {
@@ -170,11 +316,11 @@ function AddFund({ initialCode, onClose }: { initialCode: string; onClose: () =>
   );
 }
 
-export function FundsPage() {
+function LegacyFundsPage() {
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
   const [adding, setAdding] = useState(false);
   const { state } = useDemo();
-  const location = useLocation();
   const held = useMemo(() => recordedFundCodes(state.transactions), [state.transactions]);
   const filters = {
     query: params.get('q') ?? '',
@@ -219,6 +365,7 @@ export function FundsPage() {
       />
       <MarketNavigation selected="funds" />
       <MarketState />
+      <RealFundCatalog />
       <KlinePreview />
       <div className="market-overview">
         <Stat
@@ -881,7 +1028,7 @@ function FundExposure({ fund }: { fund: MarketFund }) {
   );
 }
 
-export function FundDetailPage() {
+function LegacyFundDetailPage() {
   const { code } = useParams();
   const [params] = useSearchParams();
   const [fees, setFees] = useState(false);
@@ -1050,122 +1197,281 @@ export function FundDetailPage() {
   );
 }
 
+type CatalogFund = Pick<RealFund, 'share_id' | 'code' | 'name' | 'fund_type' | 'source_id'>;
+const FUND_SEARCH_HISTORY_KEY = 'fundAdvicer.realFundSearchHistory';
+const FUND_SEARCH_HISTORY_LIMIT = 8;
+
+function RealFundDirectory() {
+  const [urlParams, setUrlParams] = useSearchParams();
+  const initialQuery = urlParams.get('q') ?? '';
+  const [query, setQuery] = useState(initialQuery);
+  const [submittedQuery, setSubmittedQuery] = useState(initialQuery);
+  const [result, setResult] = useState<RealFundResponse | null>(null);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [page, setPage] = useState(1);
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FUND_SEARCH_HISTORY_KEY) || 'null');
+      return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string').slice(0, FUND_SEARCH_HISTORY_LIMIT) : [];
+    } catch { return []; }
+  });
+  const pageSize = 20;
+
+  const rememberSearch = (value: string) => {
+    const normalized = value.trim();
+    if (!normalized) return;
+    setSearchHistory((current) => {
+      const next = [normalized, ...current.filter((item) => item !== normalized)].slice(0, FUND_SEARCH_HISTORY_LIMIT);
+      try { localStorage.setItem(FUND_SEARCH_HISTORY_KEY, JSON.stringify(next)); } catch { /* storage is optional */ }
+      return next;
+    });
+  };
+
+  const request = (value: string, nextPage = 1) => {
+    const controller = new AbortController();
+    setStatus('loading');
+    setSubmittedQuery(value);
+    fetch(`/api/funds?q=${encodeURIComponent(value)}&page=${nextPage}&page_size=${pageSize}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return (await response.json()) as RealFundResponse;
+      })
+      .then((data) => {
+        setResult(data);
+        setPage(nextPage);
+        setStatus('ready');
+        if (value.trim()) rememberSearch(value);
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        setStatus('error');
+      });
+    return () => controller.abort();
+  };
+
+  useEffect(() => request(initialQuery), []);
+
+  const search = (event: React.FormEvent) => {
+    event.preventDefault();
+    const value = query.trim();
+    setUrlParams(value ? { q: value } : {});
+    request(value);
+  };
+  const hasSearch = submittedQuery.trim().length > 0;
+  const totalPages = Math.max(1, Math.ceil((result?.total ?? 0) / pageSize));
+  return (
+    <Panel className="real-fund-catalog">
+      <div className="market-list-heading">
+        <div>
+          <h2>本地真实基金目录</h2>
+          <p className="muted">已收录 {result?.catalog_total ?? '—'} 条基金份额，仅在搜索后展示匹配结果。</p>
+        </div>
+        <span className="market-date"><span className="market-dot" />{result?.updated_at ? `更新于 ${result.updated_at.slice(0, 10)}` : '本地数据服务'}</span>
+      </div>
+      {result?.collection && (
+        <div className="catalog-progress" aria-label="真实数据采集进度">
+          <span>已采集 <strong>{result.collection.collected}</strong></span>
+          <span>失败 <strong>{result.collection.failed}</strong></span>
+          <span>待采集 <strong>{result.collection.pending}</strong></span>
+        </div>
+      )}
+      <form className="market-search-row" onSubmit={search}>
+        <label className="market-search">
+          <Search size={18} />
+          <input
+            type="search"
+            aria-label="搜索本地真实基金"
+            placeholder="输入基金名称或 6 位代码"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+        <button className="button primary" type="submit">搜索</button>
+      </form>
+      {searchHistory.length > 0 && (
+        <div className="catalog-search-history" aria-label="本地搜索历史">
+          <span className="muted">最近搜索</span>
+          {searchHistory.map((item) => (
+            <button key={item} className="button secondary" type="button" onClick={() => { setQuery(item); request(item); }}>
+              {item}
+            </button>
+          ))}
+          <button className="button-link" type="button" onClick={() => { setSearchHistory([]); try { localStorage.removeItem(FUND_SEARCH_HISTORY_KEY); } catch { /* storage is optional */ } }}>
+            清除历史
+          </button>
+        </div>
+      )}
+      {!hasSearch && status === 'ready' && (
+        <div className="real-catalog-state">
+          <p>请输入关键词开始查找。</p>
+          <p className="muted">试试：510050、005911，或“成长”“指数”等名称关键词。</p>
+          <div className="catalog-examples" aria-label="搜索案例">
+            {['510050', '005911', '成长', '指数'].map((example) => (
+              <button key={example} className="button secondary" type="button" onClick={() => { setQuery(example); request(example); }}>
+                搜索“{example}”
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {status === 'loading' && <div className="real-catalog-state" role="status">正在读取本地真实目录…</div>}
+      {status === 'error' && <div className="real-catalog-state" role="alert">本地真实目录暂时无法加载，请确认本地数据服务已启动。</div>}
+      {status === 'ready' && hasSearch && result && !result.items.length && <div className="real-catalog-state">没有找到“{submittedQuery}”对应的基金。</div>}
+      {status === 'ready' && hasSearch && result && result.items.length > 0 && (
+        <>
+          <div className="table-wrap">
+            <table className="data-table real-fund-table">
+              <thead><tr><th>基金名称</th><th>代码</th><th>基金类型</th><th>来源</th></tr></thead>
+              <tbody>{result.items.map((fund: CatalogFund) => (
+                <tr key={fund.share_id}>
+                  <td><Link className="market-fund-title" to={`/funds/${fund.code}?from=${encodeURIComponent(`/funds?q=${submittedQuery}`)}`}>{fund.name}</Link><small className="market-fund-meta">份额 ID：{fund.share_id}</small></td>
+                  <td>{fund.code}</td><td>{fund.fund_type || '—'}</td><td>{fund.source_id || '—'}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <div className="market-pagination"><span>搜索到 {result.total} 条 · 第 {page} / {totalPages} 页</span><div>
+            <button className="button secondary" aria-label="本地目录上一页" disabled={page <= 1} onClick={() => request(submittedQuery, page - 1)}><ChevronLeft size={16} /></button>
+            <button className="button secondary" aria-label="本地目录下一页" disabled={page >= totalPages} onClick={() => request(submittedQuery, page + 1)}><ChevronRight size={16} /></button>
+          </div></div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+function RealFundSeries({ series, code, refreshing, refreshError, onRefresh }: {
+  series: RealFundSeriesResponse | null;
+  code: string;
+  refreshing: boolean;
+  refreshError: string;
+  onRefresh: () => void;
+}) {
+  const refreshButton = <button className="button secondary" type="button" onClick={onRefresh} disabled={refreshing}>
+    {refreshing ? '正在采集…' : series?.kind && series.rows.length ? '更新数据' : '获取真实数据'}
+  </button>;
+  if (!series || !series.kind || !series.rows.length)
+    return <Panel title="真实行情序列" action={refreshButton}>
+      <div className="real-catalog-state">
+        <p>该基金尚未采集可展示的净值或 K 线序列。</p>
+        {refreshError && <p className="notice notice-error" role="alert">{refreshError}</p>}
+      </div>
+    </Panel>;
+
+  const dates = series.rows.map((row) => row.date);
+  const numberValue = (value: string | null) => (value == null ? null : Number(value));
+  const isPrice = series.kind === 'price';
+  const priceRows = isPrice ? series.rows as RealPriceRow[] : [];
+  const navRows = !isPrice ? series.rows as RealNavRow[] : [];
+  const option: EChartsOption = {
+    animation: false,
+    grid: isPrice ? [{ left: 58, right: 20, top: 24, height: 220 }, { left: 58, right: 20, top: 275, height: 60 }] : { left: 58, right: 20, top: 24, bottom: 38 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    xAxis: isPrice ? [
+      { type: 'category', data: dates, boundaryGap: true, axisLabel: { show: false } },
+      { type: 'category', data: dates, gridIndex: 1, axisLabel: { color: '#5d6c80', hideOverlap: true, formatter: (value: string) => value.slice(5) } },
+    ] : { type: 'category', data: dates, axisLabel: { color: '#5d6c80', hideOverlap: true, formatter: (value: string) => value.slice(5) } },
+    yAxis: isPrice ? [
+      { type: 'value', scale: true, name: '价格', axisLabel: { color: '#5d6c80' }, splitLine: { lineStyle: { color: '#e9eef4', type: 'dashed' } } },
+      { type: 'value', gridIndex: 1, name: '成交量', axisLabel: { color: '#5d6c80' }, splitLine: { show: false } },
+    ] : { type: 'value', scale: true, name: '净值', axisLabel: { color: '#5d6c80' }, splitLine: { lineStyle: { color: '#e9eef4', type: 'dashed' } } },
+    dataZoom: [{ type: 'inside', xAxisIndex: isPrice ? [0, 1] : [0], start: 0, end: 100 }, { type: 'slider', xAxisIndex: isPrice ? [0, 1] : [0], bottom: 5, height: 20, showDetail: false }],
+    series: isPrice ? [
+      { name: '真实日 K', type: 'candlestick', data: priceRows.map((row) => [numberValue(row.open), numberValue(row.close), numberValue(row.low), numberValue(row.high)]) },
+      { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: priceRows.map((row) => numberValue(row.volume)) },
+    ] : [
+      { name: '单位净值', type: 'line', data: navRows.map((row) => numberValue(row.unit_nav)), showSymbol: false, connectNulls: false, lineStyle: { width: 2 } },
+      { name: '累计净值', type: 'line', data: navRows.map((row) => numberValue(row.accumulated_nav ?? row.cumulative_nav ?? null)), showSymbol: false, connectNulls: false, lineStyle: { width: 2, type: 'dashed' } },
+    ],
+  };
+  return <Panel title={isPrice ? '真实 K 线' : '真实净值走势'} action={refreshButton} subtitle={`来自本地数据服务 · ${series.source_id || '来源待补充'}${series.updated_at ? ` · 更新于 ${series.updated_at.slice(0, 10)}` : ''}`}>
+    {refreshError && <div className="notice notice-error" role="alert">{refreshError}</div>}
+    <Chart option={option} label={`${code}${isPrice ? '真实K线' : '真实净值走势'}`} height={390} />
+  </Panel>;
+}
+
+function RelatedMarketPanel({ market }: { market: RelatedMarket | null | undefined }) {
+  if (!market?.rows.length) return null;
+  const numberValue = (value: string | null) => (value == null ? null : Number(value));
+  const dates = market.rows.map((row) => row.date);
+  const option: EChartsOption = {
+    animation: false,
+    grid: { left: 58, right: 20, top: 24, bottom: 38 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    xAxis: { type: 'category', data: dates, boundaryGap: true, axisLabel: { color: '#5d6c80', hideOverlap: true, formatter: (value: string) => value.slice(5) } },
+    yAxis: { type: 'value', scale: true, name: '指数价格', axisLabel: { color: '#5d6c80' }, splitLine: { lineStyle: { color: '#e9eef4', type: 'dashed' } } },
+    series: [{ name: '真实指数 K 线', type: 'candlestick', data: market.rows.map((row) => [numberValue(row.open), numberValue(row.close), numberValue(row.low), numberValue(row.high)]) }],
+  };
+  return <Panel title="关联板块行情" subtitle={`${market.name} · ${market.code} · ${market.source_id}`}><Chart option={option} label={`${market.code}关联板块真实K线`} height={340} /></Panel>;
+}
+
+export function FundsPage() {
+  return <div className="market-page"><PageHeader eyebrow="MARKET EXPLORER" title="基金库" description="查询已收录的真实基金身份信息。" /><MarketNavigation selected="funds" /><RealFundDirectory /></div>;
+}
+
+export function FundDetailPage() {
+  const { code = '' } = useParams();
+  const [params] = useSearchParams();
+  const [fund, setFund] = useState<RealFund | null>(null);
+  const [series, setSeries] = useState<RealFundSeriesResponse | null>(null);
+  const [relatedMarket, setRelatedMarket] = useState<RelatedMarket | null>(null);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'missing'>('loading');
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/funds/${encodeURIComponent(code)}`, { signal: controller.signal })
+      .then(async (response) => { if (response.status === 404) { setStatus('missing'); return null; } if (!response.ok) throw new Error(); return response.json(); })
+      .then((data: RealFundDetailResponse | null) => {
+        if (data?.fund) { setFund(data.fund); setSeries(data.series ?? null); setRelatedMarket(data.related_market ?? null); setStatus('ready'); }
+        else setStatus('missing');
+      })
+      .catch((cause: unknown) => { if (cause instanceof DOMException && cause.name === 'AbortError') return; setStatus('error'); });
+    return () => controller.abort();
+  }, [code]);
+  const refresh = () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshError('');
+    fetch(`/api/funds/${encodeURIComponent(code)}/refresh`, { method: 'POST' })
+      .then(async (response) => {
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data?.error?.message || '真实数据采集失败，请稍后重试。');
+        return data as RealFundDetailResponse;
+      })
+      .then((data) => {
+        setFund(data.fund);
+        setSeries(data.series ?? null);
+        setRelatedMarket(data.related_market ?? null);
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof TypeError) {
+          setRefreshError('本地数据服务未连接。请重新启动本地网页后再试。');
+          return;
+        }
+        setRefreshError(cause instanceof Error ? cause.message : '真实数据采集失败，请稍后重试。');
+      })
+      .finally(() => setRefreshing(false));
+  };
+  const back = params.get('from')?.startsWith('/funds') ? params.get('from')! : '/funds';
+  if (status === 'loading') return <div className="market-page"><div className="real-catalog-state" role="status">正在读取真实基金身份…</div></div>;
+  if (status === 'error') return <div className="market-page"><EmptyState title="真实基金身份暂时无法加载" description="请确认本地数据服务已启动后重试。" action={<Link className="button primary" to={back}>返回基金库</Link>} /></div>;
+  if (status === 'missing' || !fund) return <div className="market-page"><EmptyState title="未找到这只基金" description={`本地真实目录中没有代码 ${code} 的身份资料。`} action={<Link className="button primary" to={back}>返回基金库</Link>} /></div>;
+  return <div className="market-page"><Link className="market-back" to={back}><ChevronLeft size={15} />返回基金库</Link><PageHeader eyebrow="FUND PROFILE" title={fund.name} description={`${fund.code} / ${fund.fund_type || '基金类型待补充'}`} /><Panel title="基金身份"><dl className="market-overview"><div><dt>基金代码</dt><dd>{fund.code}</dd></div><div><dt>份额 ID</dt><dd>{fund.share_id}</dd></div><div><dt>基金类型</dt><dd>{fund.fund_type || '—'}</dd></div><div><dt>数据来源</dt><dd>{fund.source_id || '—'}</dd></div></dl></Panel><RealFundSeries code={fund.code} series={series} refreshing={refreshing} refreshError={refreshError} onRefresh={refresh} /><RelatedMarketPanel market={relatedMarket} /></div>;
+}
+
 export function SectorsPage() {
-  const [params, setParams] = useSearchParams();
-  const kind = params.get('kind') ?? 'all';
-  const opportunities = [sectorDefinitions[1], sectorDefinitions[0], sectorDefinitions[2]];
   return (
     <div className="market-page">
       <PageHeader
         eyebrow="SECTOR OPPORTUNITIES"
-        title="顺着产业脉络，寻找机会"
-        description="把方向、时间与风险放在一起看。先理解板块，再了解相关基金。"
-        actions={
-          <Link className="button secondary" to="/settings?tab=data">
-            查看资料覆盖
-            <ArrowUpRight size={16} />
-          </Link>
-        }
+        title="板块机会"
+        description="结合行业经营、估值线索与真实走势，观察三个周期的支持证据和待确认条件。"
       />
       <MarketNavigation selected="sectors" />
-      <MarketState />
-      <div className="market-section-title">
-        <div>
-          <h2>三个周期的观察方向</h2>
-          <p>人工编排的演示顺序，不是投资评分或个性化推荐 · 依据 {DATA_DATE}</p>
-        </div>
-        <Badge tone="blue">本地分析样例</Badge>
-      </div>
-      <div className="period-grid market-opportunities">
-        {periods.map((period, index) => (
-          <Panel key={period.id} className="market-opportunity">
-            <div className="market-opportunity-head">
-              <span
-                style={{
-                  background: `${period.color}18`,
-                  color: ['#226979', '#475da9', '#806030'][index],
-                }}
-              >
-                {period.name}
-              </span>
-              <small>{period.range}</small>
-            </div>
-            <Link
-              className="market-opportunity-name"
-              to={`/sectors/${encodeURIComponent(opportunities[index].name)}?period=${period.id}`}
-            >
-              {opportunities[index].name}
-              <ArrowUpRight size={19} />
-            </Link>
-            <Badge tone={index === 0 ? 'neutral' : 'blue'}>
-              {index === 0 ? '暂不操作 · 继续观察' : '可关注方向 · 演示'}
-            </Badge>
-            <p>{opportunities[index].summary}</p>
-            <div className="market-risk">主要风险：{opportunities[index].risk}</div>
-            <footer>
-              <span>依据 {DATA_DATE}</span>
-              <Link
-                to={`/advice?sector=${encodeURIComponent(opportunities[index].name)}&period=${period.id}`}
-              >
-                查看{period.name}建议
-                <ArrowRight size={14} />
-              </Link>
-            </footer>
-          </Panel>
-        ))}
-      </div>
-      <Panel
-        title="行业与主题一览"
-        subtitle="展示分类与演示观察状态；涨跌为虚构指数日变化样本。"
-        action={
-          <Tabs
-            items={[
-              { label: '全部', value: 'all' },
-              { label: '行业', value: '行业' },
-              { label: '主题', value: '主题' },
-            ]}
-            value={kind}
-            onChange={(value) => setParams(value === 'all' ? {} : { kind: value })}
-          />
-        }
-      >
-        <div className="market-sector-grid">
-          {sectorDefinitions
-            .filter((sector) => kind === 'all' || sector.kind === kind)
-            .map((sector, index) => (
-              <Link
-                className="market-sector-card"
-                key={sector.name}
-                to={`/sectors/${encodeURIComponent(sector.name)}`}
-              >
-                <div>
-                  <span className="market-sector-index" style={{ color: '#526875' }}>
-                    {String(index + 1).padStart(2, '0')}
-                  </span>
-                  <Badge tone="neutral">{sector.kind}</Badge>
-                  <ArrowUpRight size={16} />
-                </div>
-                <h3>
-                  {sector.name}
-                  <span className={sector.change >= 0 ? 'positive' : 'negative'}>
-                    {signed(sector.change)}%
-                  </span>
-                </h3>
-                <p>{sector.summary}</p>
-                <small>
-                  {sector.name === '清洁能源'
-                    ? '缺少资料 · 待补全历史'
-                    : sector.name === '医药健康'
-                      ? '证据不足 · 暂不形成方向'
-                      : `${marketFunds.filter((fund) => fund.sector === sector.name && !fund.historical).length} 只相关基金 · 展示样例`}
-                </small>
-              </Link>
-            ))}
-        </div>
-      </Panel>
-      <Notice title="行业与主题有什么区别？">
-        行业反映主要经营活动；主题按多个共同特征组合，同一股票可能同时属于多个主题。各主题暴露不应直接相加。
-      </Notice>
+      <SectorOpportunities />
     </div>
   );
 }
