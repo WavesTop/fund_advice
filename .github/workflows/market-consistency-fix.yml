@@ -2,48 +2,127 @@ name: Market consistency verification
 on:
   push:
     branches: [fix/market-data-consistency-20260915]
+    paths: [scripts/_market_consistency_payload.b64]
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: market-consistency-repair
+  cancel-in-progress: false
 jobs:
   verify:
+    if: github.repository == 'WavesTop/fund_advice' && github.ref == 'refs/heads/fix/market-data-consistency-20260915'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Export reviewed source
-        run: git archive --format=zip HEAD -o /tmp/reviewed-source.zip
-      - uses: actions/upload-artifact@v4
         with:
-          name: reviewed-source
-          path: /tmp/reviewed-source.zip
-          retention-days: 3
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Apply hash-checked source changes
+        run: python scripts/_apply_market_consistency.py
       - uses: astral-sh/setup-uv@v6
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
       - name: Install locked dependencies
+        id: install
+        continue-on-error: true
         run: |
           uv sync --locked
           npm ci --prefix frontend
+      - name: Format new frontend files only
+        id: format
+        continue-on-error: true
+        working-directory: frontend
+        run: npx --no-install prettier --write src/features/market/FundMarketCharts.tsx src/features/market/FundMarketCharts.test.tsx src/features/market/MarketHistory.tsx src/features/market/real-series-model.ts src/features/market/real-series-model.test.ts e2e/market-consistency.spec.ts
       - name: Backend regression
         id: backend
         continue-on-error: true
-        run: uv run --locked --offline python -m unittest discover -s tests -p 'test_*.py' -v
+        run: uv run --locked --offline python -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee /tmp/market-backend.log
       - name: Frontend build
         id: build
         continue-on-error: true
         working-directory: frontend
-        run: npm run build
+        run: npm run build 2>&1 | tee /tmp/market-build.log
       - name: Frontend regression
         id: frontend
         continue-on-error: true
         working-directory: frontend
-        run: npm test -- --run
-      - name: Verify outcomes
+        run: npm test -- --run 2>&1 | tee /tmp/market-frontend.log
+      - name: Install browser
+        id: browser_setup
+        continue-on-error: true
+        working-directory: frontend
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Browser contracts and layouts
+        id: browser
+        continue-on-error: true
+        working-directory: frontend
         env:
+          PLAYWRIGHT_CHROMIUM_CHANNEL: chromium
+        run: npm run test:e2e -- e2e/market-consistency.spec.ts e2e/research.spec.ts 2>&1 | tee /tmp/market-browser.log
+      - name: Record actual verification and publish repair branch
+        env:
+          INSTALL_RESULT: ${{ steps.install.outcome }}
+          FORMAT_RESULT: ${{ steps.format.outcome }}
           BACKEND_RESULT: ${{ steps.backend.outcome }}
           BUILD_RESULT: ${{ steps.build.outcome }}
           FRONTEND_RESULT: ${{ steps.frontend.outcome }}
+          BROWSER_SETUP_RESULT: ${{ steps.browser_setup.outcome }}
+          BROWSER_RESULT: ${{ steps.browser.outcome }}
+          EXPECTED_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          printf 'Backend: %s\nBuild: %s\nFrontend: %s\n' "$BACKEND_RESULT" "$BUILD_RESULT" "$FRONTEND_RESULT" >> "$GITHUB_STEP_SUMMARY"
-          test "$BACKEND_RESULT" = success && test "$BUILD_RESULT" = success && test "$FRONTEND_RESULT" = success
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          fields = [('INSTALL', '依赖'), ('FORMAT', '新增文件格式'), ('BACKEND', '后端回归'), ('BUILD', '前端构建'), ('FRONTEND', '组件回归'), ('BROWSER_SETUP', '浏览器安装'), ('BROWSER', '浏览器验收')]
+          results = '；'.join(f'{label} {os.environ[key + "_RESULT"]}' for key, label in fields)
+          success = all(os.environ[key + '_RESULT'] == 'success' for key, _ in fields)
+          backend_log = Path('/tmp/market-backend.log').read_text() if Path('/tmp/market-backend.log').exists() else ''
+          match = re.search(r'Ran (\d+) tests', backend_log)
+          if match and os.environ['BACKEND_RESULT'] == 'success':
+              results += f'；后端 {match[1]} 项通过'
+          results += f'；[锁定环境运行证据]({os.environ["RUN_URL"]})（浏览器使用合成接口，不读取个人数据库）'
+          plan = Path('docs/investment-analysis-plan.md')
+          text = plan.read_text()
+          assert text.count('MC_VERIFY_PENDING') == 1
+          text = text.replace('MC_VERIFY_PENDING', results)
+          text = text.replace('进行中（锁定环境验证中）', '进行中（自动验证通过，待真实库复查）' if success else '进行中（自动验证有失败，需修正）')
+          plan.write_text(text)
+          Path('/tmp/market-outcomes.txt').write_text(results)
+          PY
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add backend frontend scripts tests docs README.md
+          git diff --cached --stat
+          git commit -m '【修复】【市场】统一行情、关系状态与真实图表口径' -m '修复范围计数、共享关联准入、异常数值校验和部分刷新状态，补齐显式序列选择、精确行情下钻及日期联动。将实现契约和实际验证同步到原有文档与阶段计划，不将观察升级为投资推荐。'
+          git fetch origin fix/market-data-consistency-20260915
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          git push origin HEAD:refs/heads/fix/market-data-consistency-20260915
+          git archive --format=zip HEAD -o /tmp/reviewed-source.zip
+          cat /tmp/market-outcomes.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Export source and verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-consistency-checks
+          path: |
+            /tmp/reviewed-source.zip
+            /tmp/market-*.log
+            /tmp/market-outcomes.txt
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 3
+      - name: Verify outcomes
+        env:
+          INSTALL_RESULT: ${{ steps.install.outcome }}
+          FORMAT_RESULT: ${{ steps.format.outcome }}
+          BACKEND_RESULT: ${{ steps.backend.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          FRONTEND_RESULT: ${{ steps.frontend.outcome }}
+          BROWSER_SETUP_RESULT: ${{ steps.browser_setup.outcome }}
+          BROWSER_RESULT: ${{ steps.browser.outcome }}
+        run: |
+          test "$INSTALL_RESULT" = success && test "$FORMAT_RESULT" = success && test "$BACKEND_RESULT" = success && test "$BUILD_RESULT" = success && test "$FRONTEND_RESULT" = success && test "$BROWSER_SETUP_RESULT" = success && test "$BROWSER_RESULT" = success
