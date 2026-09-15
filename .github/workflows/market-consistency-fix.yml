@@ -1,0 +1,49 @@
+name: Market consistency verification
+on:
+  push:
+    branches: [fix/market-data-consistency-20260915]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export reviewed source
+        run: git archive --format=zip HEAD -o /tmp/reviewed-source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-source
+          path: /tmp/reviewed-source.zip
+          retention-days: 3
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked dependencies
+        run: |
+          uv sync --locked
+          npm ci --prefix frontend
+      - name: Backend regression
+        id: backend
+        continue-on-error: true
+        run: uv run --locked --offline python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Frontend build
+        id: build
+        continue-on-error: true
+        working-directory: frontend
+        run: npm run build
+      - name: Frontend regression
+        id: frontend
+        continue-on-error: true
+        working-directory: frontend
+        run: npm test -- --run
+      - name: Verify outcomes
+        env:
+          BACKEND_RESULT: ${{ steps.backend.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          FRONTEND_RESULT: ${{ steps.frontend.outcome }}
+        run: |
+          printf 'Backend: %s\nBuild: %s\nFrontend: %s\n' "$BACKEND_RESULT" "$BUILD_RESULT" "$FRONTEND_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          test "$BACKEND_RESULT" = success && test "$BUILD_RESULT" = success && test "$FRONTEND_RESULT" = success
