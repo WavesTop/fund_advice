@@ -22,7 +22,6 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Apply reviewed patch
-        id: apply
         run: python scripts/apply_market_consistency_patch.py
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
         with:
@@ -36,14 +35,17 @@ jobs:
         run: |
           uv sync --locked
           npm ci --prefix frontend
-      - name: Format modified frontend files
+      - name: Format and check changed frontend files
         id: format
         continue-on-error: true
         run: |
-          { git diff --name-only -- frontend; git ls-files --others --exclude-standard frontend; } | sort -u | grep -E '\.(ts|tsx|css)$' | sed 's|^frontend/||' > /tmp/market-format-files
+          { git diff --name-only 5a5914c511a8d5ddeecc97e76d692bc3259c685c -- frontend; git ls-files --others --exclude-standard frontend; } | sort -u | grep -E '\.(ts|tsx|css)$' | sed 's|^frontend/||' > /tmp/market-format-files
           cd frontend
-          xargs -r npx --no-install prettier --write < /tmp/market-format-files
-          xargs -r npx --no-install prettier --check < /tmp/market-format-files
+          for attempt in 1 2 3; do
+            xargs -r ./node_modules/.bin/prettier --write < /tmp/market-format-files
+            if xargs -r ./node_modules/.bin/prettier --check < /tmp/market-format-files; then break; fi
+          done
+          xargs -r ./node_modules/.bin/prettier --check < /tmp/market-format-files
       - name: Backend regression
         id: backend
         continue-on-error: true
@@ -58,26 +60,33 @@ jobs:
         continue-on-error: true
         working-directory: frontend
         run: npm test -- --run 2>&1 | tee /tmp/market-frontend.log
-      - name: Record real outcomes and publish repair branch
+      - name: Targeted browser regression with API fixtures
+        id: browser
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          command -v google-chrome || npx --no-install playwright install --with-deps chrome
+          npm run test:e2e -- e2e/market-consistency.spec.ts --reporter=list 2>&1 | tee /tmp/market-browser.log
+      - name: Record outcomes and publish tested sources
         env:
           INSTALL_RESULT: ${{ steps.install.outcome }}
           FORMAT_RESULT: ${{ steps.format.outcome }}
           BACKEND_RESULT: ${{ steps.backend.outcome }}
           BUILD_RESULT: ${{ steps.build.outcome }}
           FRONTEND_RESULT: ${{ steps.frontend.outcome }}
+          BROWSER_RESULT: ${{ steps.browser.outcome }}
           EXPECTED_SHA: ${{ github.sha }}
         run: |
           python scripts/apply_market_consistency_patch.py --record-results
           git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add backend scripts frontend docs README.md
+          git add backend scripts frontend tests docs README.md
           git diff --cached --stat
-          git commit -m '【修复】【市场】统一行情、关系状态与真实图表口径' -m '修复范围计数、数值和关联校验、部分刷新状态及比较日期，补齐显式序列选择、来源精确行情下钻和联动展示。实现与实际检查同步到原设计及计划，不升级为正式投资推荐。'
+          git commit -m '【修复】【市场】完成失败状态同步与端到端回归' -m '同步失败后的真实关联状态，补齐关系与图表交互测试，将实际检查结果维护在原阶段计划中。'
           git fetch origin fix/market-data-consistency-20260915
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
           git push origin HEAD:refs/heads/fix/market-data-consistency-20260915
-          printf 'Install: %s\nFormat: %s\nBackend: %s\nBuild: %s\nFrontend: %s\n' "$INSTALL_RESULT" "$FORMAT_RESULT" "$BACKEND_RESULT" "$BUILD_RESULT" "$FRONTEND_RESULT" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify outcomes
         env:
           INSTALL_RESULT: ${{ steps.install.outcome }}
@@ -85,4 +94,5 @@ jobs:
           BACKEND_RESULT: ${{ steps.backend.outcome }}
           BUILD_RESULT: ${{ steps.build.outcome }}
           FRONTEND_RESULT: ${{ steps.frontend.outcome }}
-        run: test "$INSTALL_RESULT" = success && test "$FORMAT_RESULT" = success && test "$BACKEND_RESULT" = success && test "$BUILD_RESULT" = success && test "$FRONTEND_RESULT" = success
+          BROWSER_RESULT: ${{ steps.browser.outcome }}
+        run: test "$INSTALL_RESULT" = success && test "$FORMAT_RESULT" = success && test "$BACKEND_RESULT" = success && test "$BUILD_RESULT" = success && test "$FRONTEND_RESULT" = success && test "$BROWSER_RESULT" = success
