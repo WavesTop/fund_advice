@@ -51,7 +51,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
         updated_at: '2026-09-14T00:00:00Z',
         as_of: '2026-09-13',
         observation_count: 120,
-        funds: [{ code: '510001', name: '测试ETF' }],
+        funds: [{ code: '510001', name: '测试ETF', relation_status: 'linked' }],
         periods: [period('short'), period('medium'), period('long')],
         ...overrides,
       },

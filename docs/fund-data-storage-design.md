@@ -39,7 +39,7 @@
 
 迁移 `011_relation_verification.sql` 追加基金关系核验历史，不修改旧迁移校验和、不删除已有关系或行情。成功核验 B 后，原 A 只保留为历史证据；失败／未解析唯一标的不删除历史，但暂不开放当前关联；无新核验且有多条旧跟踪关系时全部待核验。核验时间不是业务生效时间，`effective_from`／`effective_to` 保持未知，不能用于严格历史回测。`relation_status` 与来源、证据、核验时间在详情、研究和板块列表共同消费。
 
-刷新分基金序列和关联指数执行。部分成功返回 `refresh.status=partial` 与逐项结果及已提交数据；全部无可发布结果返回 502 和逐项原因。网络请求不放入长写事务。当前仍不是跨全部数据集的不可变快照，正式研究继续依赖 D1／D4。
+刷新分基金序列和关联指数执行。部分成功返回 `refresh.status=partial` 与逐项结果及已提交数据；全部无可发布结果返回 502，`error.details` 包含逐项 `refresh` 及核验后的 `current` 详情；失败检查已落库时，页面必须同步关系状态，不能继续把旧关系显示为当前已核验。网络请求不放入长写事务。当前仍不是跨全部数据集的不可变快照，正式研究继续依赖 D1／D4。
 
 `GET /api/sectors/{code}/series` 必须提供 `source_id`、`universe_type`，可选 `start`／`end`；身份不符返回 404，不按名称回退。响应单列实际 `history_source_id`／`history_source_code`；跨源行情标记 `proxy_not_equivalent`，只作参考，不证明成分、权重或编制方法等价。
 

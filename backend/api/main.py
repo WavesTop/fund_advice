@@ -91,7 +91,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             updated = sum(stage["status"] == "updated" for stage in stages.values())
             refresh_state = {"status": "success" if updated == 2 else "partial" if updated else "failed", "stages": stages}
             if not updated:
-                raise AppError("fund_refresh_failed", "本次更新未取得可发布数据，旧资料已保留；关系状态以最近核验为准", 502, refresh_state)
+                raise AppError("fund_refresh_failed", "本次更新未取得可发布数据，旧资料已保留；关系状态以最近核验为准", 502, {"refresh": refresh_state, "current": detail(code)})
             return {**detail(code), "refresh": refresh_state}
         finally:
             lock.release()

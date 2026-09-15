@@ -425,6 +425,8 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
             if ths_code and not industry_only:
                 try:
                     fetched = fetch_ths_sector_daily(member, ths_code, timeout=timeout)
+                    if rows and fetched[-1]["date"] < rows[-1]["date"]:
+                        raise ValueError("备用源返回旧行情，保留已保存的新行情")
                     rows = fetched
                     updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
                     history_source_id, history_source_code = "sector_daily.ths", "bk_" + ths_code

@@ -40,21 +40,19 @@ function browse(path = '/funds') {
 
 describe('真实基金目录', () => {
   it('默认只显示总数与搜索案例，不列出基金', async () => {
-    const fetchMock = vi
-      .mocked(fetch)
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            items: [],
-            page: 1,
-            page_size: 20,
-            total: 27843,
-            catalog_total: 27843,
-            updated_at: '2026-09-13T10:00:00Z',
-          }),
-          { status: 200 },
-        ),
-      );
+    const fetchMock = vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          page: 1,
+          page_size: 20,
+          total: 27843,
+          catalog_total: 27843,
+          updated_at: '2026-09-13T10:00:00Z',
+        }),
+        { status: 200 },
+      ),
+    );
     browse();
     await waitFor(() => expect(screen.getByText(/已收录 27843 条/)).toBeInTheDocument());
     expect(screen.getByText('搜索“510050”')).toBeInTheDocument();
@@ -113,22 +111,20 @@ describe('真实基金目录', () => {
     );
   });
   it('保存最近搜索、去重并支持复用和清除', async () => {
-    const fetchMock = vi
-      .mocked(fetch)
-      .mockImplementation(
-        async () =>
-          new Response(
-            JSON.stringify({
-              items: [],
-              page: 1,
-              page_size: 20,
-              total: 0,
-              catalog_total: 27843,
-              updated_at: null,
-            }),
-            { status: 200 },
-          ),
-      );
+    const fetchMock = vi.mocked(fetch).mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            items: [],
+            page: 1,
+            page_size: 20,
+            total: 0,
+            catalog_total: 27843,
+            updated_at: null,
+          }),
+          { status: 200 },
+        ),
+    );
     browse();
     await waitFor(() => expect(screen.getByRole('searchbox')).toBeInTheDocument());
     const input = screen.getByRole('searchbox');

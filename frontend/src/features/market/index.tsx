@@ -1622,7 +1622,18 @@ function RealFundDetail() {
     fetch(`/api/funds/${encodeURIComponent(code)}/refresh`, { method: 'POST' })
       .then(async (response) => {
         const data = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(data?.error?.message || '真实数据采集失败，请稍后重试。');
+        if (!response.ok) {
+          const current = data?.error?.details?.current as RealFundDetailResponse | undefined;
+          if (current?.fund?.code === code) {
+            setSeries(current.series ?? null);
+            setSeriesOptions(
+              current.series_options ?? (current.series?.kind ? [current.series] : []),
+            );
+            setRelatedMarket(current.related_market ?? null);
+            setRelatedMarkets(current.related_markets ?? []);
+          }
+          throw new Error(data?.error?.message || '真实数据采集失败，请稍后重试。');
+        }
         if (!data?.fund || data.fund.code !== code)
           throw new Error('返回的基金身份与请求不一致，旧数据已保留。');
         return data as RealFundDetailResponse;
