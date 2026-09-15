@@ -25,14 +25,18 @@ echarts.use([
   MarkLineComponent,
   SVGRenderer,
 ]);
+const linkedCharts = new Map<string, number>();
+
 export function Chart({
   option,
   label,
   height = 300,
+  linkGroup,
 }: {
   option: EChartsOption;
   label: string;
   height?: number;
+  linkGroup?: string;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const instance = useRef<echarts.EChartsType | null>(null);
@@ -48,6 +52,22 @@ export function Chart({
       instance.current = null;
     };
   }, []);
+  useEffect(() => {
+    const chart = instance.current;
+    if (!chart || !linkGroup) return;
+    chart.group = linkGroup;
+    linkedCharts.set(linkGroup, (linkedCharts.get(linkGroup) ?? 0) + 1);
+    echarts.connect(linkGroup);
+    return () => {
+      const remaining = (linkedCharts.get(linkGroup) ?? 1) - 1;
+      if (remaining > 0) linkedCharts.set(linkGroup, remaining);
+      else {
+        linkedCharts.delete(linkGroup);
+        echarts.disconnect(linkGroup);
+      }
+      if (!chart.isDisposed()) chart.group = '';
+    };
+  }, [linkGroup]);
   useEffect(() => {
     instance.current?.setOption(
       {

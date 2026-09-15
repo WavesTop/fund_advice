@@ -10,7 +10,8 @@ import urllib.request
 from typing import Any, Callable, MutableMapping
 
 from backend.core.config import Settings
-from backend.storage.related_market import import_related_index
+from backend.storage.related_market import import_related_index, record_relation_check
+from backend.storage.timeseries import get_fund
 from scripts.probe_fund_source import ProbeError
 
 CNI_URL = "https://www.cnindex.com.cn/index/indexList?channelCode=-1&rows=2000&pageNum=1"
@@ -179,10 +180,16 @@ def _fetch(relation: dict[str, str], timeout: float, opener: Callable[..., objec
 def refresh_related_market(settings: Settings, fund_code: str, *, timeout: float = 30.0,
                            opener: Callable[..., object] = urllib.request.urlopen,
                            catalogue_cache: MutableMapping[str, object] | None = None) -> dict[str, object] | None:
-    relation = resolve_related_relation(fund_code, timeout, opener, catalogue_cache)
-    if relation is None:
-        return None
-    rows, source = _fetch(relation, timeout, opener)
-    import_related_index(settings, fund_code=fund_code, index_code=relation["index_code"], index_name=relation["index_name"], rows=rows,
-                         source_id=source, relation_source_id=relation["relation_source_id"], evidence_url=relation["evidence_url"])
+    get_fund(settings, fund_code)
+    try:
+        relation = resolve_related_relation(fund_code, timeout, opener, catalogue_cache)
+        if relation is None:
+            record_relation_check(settings, fund_code, outcome="unresolved", error="未取得唯一且可核对的跟踪标的，旧关系待核验。")
+            return None
+        rows, source = _fetch(relation, timeout, opener)
+        import_related_index(settings, fund_code=fund_code, index_code=relation["index_code"], index_name=relation["index_name"], rows=rows,
+                             source_id=source, relation_source_id=relation["relation_source_id"], evidence_url=relation["evidence_url"])
+    except Exception as exc:
+        record_relation_check(settings, fund_code, outcome="failed", error=f"{type(exc).__name__}: {exc}")
+        raise
     return {"code": relation["index_code"], "row_count": len(rows), "source_id": source}

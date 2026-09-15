@@ -4,6 +4,7 @@ import { ChevronDown, RefreshCw } from 'lucide-react';
 import { Badge, EmptyState, Notice, Panel } from '../../shared/ui';
 import './sector-opportunities.css';
 import { SectorSummaryTable } from './SectorSummaryTable';
+import { SectorHistory } from './SectorHistory';
 import { researchHref, subjectKey } from '../advice/research-model';
 import { directoryPage } from './fund-directory-model';
 
@@ -96,7 +97,7 @@ export type SectorOpportunity = {
   updated_at: string;
   as_of: string | null;
   observation_count: number;
-  funds: { code: string; name: string }[];
+  funds: { code: string; name: string; relation_status?: string; relation_reason?: string }[];
   periods: SectorOpportunityPeriod[];
   industry?: IndustryEvidence;
   valuation?: ValuationEvidence;
@@ -150,6 +151,7 @@ type OpportunitiesResponse = {
     name: string;
     horizon: string;
     eligible_count: number;
+    comparison_as_of?: string | null;
     candidate_count: number;
     message: string;
     items: {
@@ -348,11 +350,12 @@ function PeriodCard({ period }: { period: SectorOpportunityPeriod }) {
 
 function OpportunityCard({ item, heatBasis }: { item: SectorOpportunity; heatBasis?: string }) {
   const historySource = item.history_source_id ?? item.source_id;
-  const historySourceLabel = historySource === 'sector_daily.ths'
-    ? '同花顺日线'
-    : historySource === 'sector_daily.eastmoney'
-      ? '东方财富日线'
-      : historySource;
+  const historySourceLabel =
+    historySource === 'sector_daily.ths'
+      ? '同花顺日线'
+      : historySource === 'sector_daily.eastmoney'
+        ? '东方财富日线'
+        : historySource;
   const periods = periodOrder
     .map((id) => item.periods.find((period) => period.id === id))
     .filter(Boolean) as SectorOpportunityPeriod[];
@@ -360,7 +363,9 @@ function OpportunityCard({ item, heatBasis }: { item: SectorOpportunity; heatBas
     <Panel className="sector-opportunity-card">
       <div className="sector-card-heading">
         <div>
-          <h2><Link to={researchHref(item)}>{item.name}</Link></h2>
+          <h2>
+            <Link to={researchHref(item)}>{item.name}</Link>
+          </h2>
           <span>
             {item.code} · 行情 {historySourceLabel ?? '暂缺'}
             {item.history_source_code ? ` (${item.history_source_code})` : ''}
@@ -396,7 +401,8 @@ function OpportunityCard({ item, heatBasis }: { item: SectorOpportunity; heatBas
       {item.membership && (
         <details className="sector-membership">
           <summary>
-            成分股 · {item.membership.member_count} 只 · 快照日期 {formatDate(item.membership.as_of)}
+            成分股 · {item.membership.member_count} 只 · 快照日期{' '}
+            {formatDate(item.membership.as_of)}
           </summary>
           {item.membership.status === 'ready' ? (
             <>
@@ -408,13 +414,22 @@ function OpportunityCard({ item, heatBasis }: { item: SectorOpportunity; heatBas
                   </span>
                 ))}
               </div>
-              <p className="muted">已显示 {Math.min(10, item.membership.members.length)} / {item.membership.member_count} 只。</p>
-              {item.membership.members.length > 10 && <details>
-                <summary>查看其余 {item.membership.members.length - 10} 只成分股</summary>
-                <div className="sector-member-list">{item.membership.members.slice(10).map((member) => (
-                  <span key={`${member.market}-${member.stock_code}`}>{member.stock_name} <small>{member.stock_code}</small></span>
-                ))}</div>
-              </details>}
+              <p className="muted">
+                已显示 {Math.min(10, item.membership.members.length)} /{' '}
+                {item.membership.member_count} 只。
+              </p>
+              {item.membership.members.length > 10 && (
+                <details>
+                  <summary>查看其余 {item.membership.members.length - 10} 只成分股</summary>
+                  <div className="sector-member-list">
+                    {item.membership.members.slice(10).map((member) => (
+                      <span key={`${member.market}-${member.stock_code}`}>
+                        {member.stock_name} <small>{member.stock_code}</small>
+                      </span>
+                    ))}
+                  </div>
+                </details>
+              )}
             </>
           ) : (
             <p>{item.membership.error || '成分股资料尚未采集。'}</p>
@@ -505,15 +520,21 @@ function OpportunityCard({ item, heatBasis }: { item: SectorOpportunity; heatBas
           <em>{item.valuation.summary}</em>
         </div>
       )}
+      <SectorHistory item={item} />
       {item.funds.length > 0 && (
         <div className="sector-related-funds">
-          <span>相关基金走势</span>
+          <span>已核验相关基金走势</span>
+          {item.funds.some((fund) => fund.relation_status !== 'linked') && (
+            <p>部分历史关联待核验，不作为当前候选；详情见研究页。</p>
+          )}
           <div>
-            {item.funds.map((fund) => (
-              <Link key={fund.code} to={`/funds/${encodeURIComponent(fund.code)}`}>
-                {fund.name} <small>{fund.code}</small>
-              </Link>
-            ))}
+            {item.funds
+              .filter((fund) => fund.relation_status === 'linked')
+              .map((fund) => (
+                <Link key={fund.code} to={`/funds/${encodeURIComponent(fund.code)}`}>
+                  {fund.name} <small>{fund.code}</small>
+                </Link>
+              ))}
           </div>
         </div>
       )}
@@ -532,8 +553,11 @@ export function SectorOpportunities() {
   const [showMethod, setShowMethod] = useState(false);
   const [params, setParams] = useSearchParams();
   const query = params.get('q') ?? '';
-  const scope: 'hot' | 'all' | 'tracked' = params.get('scope') === 'all' ? 'all' : params.get('scope') === 'tracked' ? 'tracked' : 'hot';
-  const sortKey: SortKey = ['short', 'medium', 'long'].includes(params.get('sort') ?? '') ? params.get('sort') as SortKey : 'heat';
+  const scope: 'hot' | 'all' | 'tracked' =
+    params.get('scope') === 'all' ? 'all' : params.get('scope') === 'tracked' ? 'tracked' : 'hot';
+  const sortKey: SortKey = ['short', 'medium', 'long'].includes(params.get('sort') ?? '')
+    ? (params.get('sort') as SortKey)
+    : 'heat';
   const direction: SortDirection = params.get('direction') === 'asc' ? 'asc' : 'desc';
   const page = directoryPage(params.get('page'));
   const view = params.get('view') === 'details' ? 'details' : 'summary';
@@ -541,7 +565,8 @@ export function SectorOpportunities() {
     const next = new URLSearchParams(params);
     if (Object.keys(values).some((key) => key !== 'view')) next.delete('page');
     for (const [key, value] of Object.entries(values)) {
-      if (value) next.set(key, value); else next.delete(key);
+      if (value) next.set(key, value);
+      else next.delete(key);
     }
     setParams(next, { replace });
   };
@@ -566,7 +591,7 @@ export function SectorOpportunities() {
     fetch('/api/sectors/opportunities', { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const result = await response.json() as OpportunitiesResponse;
+        const result = (await response.json()) as OpportunitiesResponse;
         if (!result || !Array.isArray(result.items)) throw new Error('板块接口格式无效');
         return result;
       })
@@ -581,7 +606,9 @@ export function SectorOpportunities() {
         setLoadError('请确认本地数据服务已启动，或稍后重试。');
         setState(hasData.current ? 'ready' : 'error');
       })
-      .finally(() => { if (!controller.signal.aborted) setRefreshing(false); });
+      .finally(() => {
+        if (!controller.signal.aborted) setRefreshing(false);
+      });
   }, []);
 
   const sourceItems = data?.items ?? [];
@@ -677,7 +704,9 @@ export function SectorOpportunities() {
           <div className="sector-advantage-heading">
             <div>
               <h2 id="sector-advantage-title">三周期优势板块</h2>
-              <p>优势表示截至榜单日的走势相对领先，不能直接推导未来上涨或基金买入结论。</p>
+              <p>
+                优势表示截至各周期价格比较日的走势相对领先，不能直接推导未来上涨或基金买入结论。
+              </p>
             </div>
             <small>{data.advantage_rule}</small>
           </div>
@@ -685,35 +714,78 @@ export function SectorOpportunities() {
             {data.advantages.map((summary) => (
               <Panel key={summary.id} className="sector-advantage-panel">
                 <div className="sector-advantage-period">
-                  <div><strong>{summary.name}</strong><small>{summary.horizon}</small></div>
-                  <span>{summary.eligible_count} 个可比较</span>
+                  <div>
+                    <strong>{summary.name}</strong>
+                    <small>{summary.horizon}</small>
+                  </div>
+                  <span>
+                    {summary.eligible_count} 个可比较 · 价格比较截至{' '}
+                    {formatDate(summary.comparison_as_of ?? null)}
+                  </span>
                 </div>
                 <p>{summary.message}</p>
                 {summary.items.length ? (
                   <ol>
                     {summary.items.map((item) => (
                       <li key={item.code}>
-                        <button type="button" onClick={() => updateFilters({ q: item.code, scope: 'hot', sort: summary.id, direction: 'desc' })}>
-                          <span><b>{item.name}</b><em>{item.label}</em></span>
-                          <small>同榜第 {item.strength_rank}/{item.sample_count} · 涨跌 {formatPercent(item.return_pct)}</small>
-                          <small>均线偏离 {formatPercent(item.ma_bias_pct)} · 最大回撤 {formatPercent(item.max_drawdown_pct)}</small>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateFilters({
+                              q: item.code,
+                              scope: 'hot',
+                              sort: summary.id,
+                              direction: 'desc',
+                            })
+                          }
+                        >
+                          <span>
+                            <b>{item.name}</b>
+                            <em>{item.label}</em>
+                          </span>
+                          <small>
+                            同榜第 {item.strength_rank}/{item.sample_count} · 涨跌{' '}
+                            {formatPercent(item.return_pct)}
+                          </small>
+                          <small>
+                            均线偏离 {formatPercent(item.ma_bias_pct)} · 最大回撤{' '}
+                            {formatPercent(item.max_drawdown_pct)}
+                          </small>
                         </button>
                       </li>
                     ))}
                   </ol>
-                ) : <span className="sector-advantage-empty">本周期不勉强给出优势板块。</span>}
+                ) : (
+                  <span className="sector-advantage-empty">本周期不勉强给出优势板块。</span>
+                )}
               </Panel>
             ))}
           </div>
         </section>
       )}
-      {data && loadError && <div className="notice notice-warning" role="alert">
-        <strong>本次重新评估失败，保留上次完整结果。</strong>
-        <p>{loadError} 当前结果读取于 {data.generated_at}；行情日期仍以各板块为准。</p>
-      </div>}
+      {data && loadError && (
+        <div className="notice notice-warning" role="alert">
+          <strong>本次重新评估失败，保留上次完整结果。</strong>
+          <p>
+            {loadError} 当前结果读取于 {data.generated_at}；行情日期仍以各板块为准。
+          </p>
+        </div>
+      )}
       <div className="sector-view-controls" aria-label="板块展示方式">
-        <button className="button secondary" aria-pressed={view === 'summary'} onClick={() => updateFilters({ view: 'summary' })}>三周期摘要</button>
-        <button className="button secondary" aria-pressed={view === 'details'} onClick={() => updateFilters({ view: 'details' })}>完整证据</button>
+        <button
+          className="button secondary"
+          aria-pressed={view === 'summary'}
+          onClick={() => updateFilters({ view: 'summary' })}
+        >
+          三周期摘要
+        </button>
+        <button
+          className="button secondary"
+          aria-pressed={view === 'details'}
+          onClick={() => updateFilters({ view: 'details' })}
+        >
+          完整证据
+        </button>
         <span className="muted">摘要用于比较，完整证据保留原始指标、来源及反证。</span>
       </div>
       <div className="sector-controls">
@@ -728,7 +800,9 @@ export function SectorOpportunities() {
           value={scope}
           onChange={(event) => setScope(event.target.value as typeof scope)}
         >
-          <option value="hot">{data?.universe?.scope === 'verified_industry_all' ? '全部可核验行业' : '热门前100'}</option>
+          <option value="hot">
+            {data?.universe?.scope === 'verified_industry_all' ? '全部可核验行业' : '热门前100'}
+          </option>
           <option value="all">全部已采集</option>
           <option value="tracked">已有指数观察</option>
         </select>
@@ -783,14 +857,23 @@ export function SectorOpportunities() {
           description="本地数据服务尚未返回可展示的指数周期资料。"
         />
       )}
-      {state === 'ready' && data && data.items.length > 0 && visibleItems.length > 0 && (
-        view === 'summary' ? <SectorSummaryTable items={visibleItems} from={`/sectors?${params}`} /> :
+      {state === 'ready' &&
+        data &&
+        data.items.length > 0 &&
+        visibleItems.length > 0 &&
+        (view === 'summary' ? (
+          <SectorSummaryTable items={visibleItems} from={`/sectors?${params}`} />
+        ) : (
           <div className="sector-opportunity-list">
             {visibleItems.map((item) => (
-              <OpportunityCard key={subjectKey(item)} item={item} heatBasis={data.universe?.heat_basis} />
+              <OpportunityCard
+                key={subjectKey(item)}
+                item={item}
+                heatBasis={data.universe?.heat_basis}
+              />
             ))}
           </div>
-      )}
+        ))}
       {state === 'ready' && data && data.items.length > 0 && !visibleItems.length && (
         <EmptyState
           title={

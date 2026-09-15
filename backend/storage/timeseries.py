@@ -70,6 +70,16 @@ def _clean_rows(kind: str, rows: Iterable[Mapping[str, object]]) -> list[dict[st
             raise ValueError("价格行的OHLC不能为空")
         if kind == "nav" and item["unit_nav"] is None and item["accumulated_nav"] is None:
             raise ValueError("净值行至少需要单位净值或累计净值")
+        for field in fields:
+            value = item[field]
+            if value is not None:
+                number = Decimal(value)
+                if number < 0 or (field not in ("volume", "amount") and number == 0):
+                    raise ValueError(f"{field}超出允许范围")
+        if kind == "price":
+            opening, high, low, close = (Decimal(str(item[field])) for field in ("open", "high", "low", "close"))
+            if not low <= min(opening, close) <= max(opening, close) <= high:
+                raise ValueError("OHLC大小关系无效")
         result.append(item)
     if not result:
         raise ValueError("来源未返回可存储的时序数据")
@@ -137,11 +147,14 @@ def get_fund(settings: Settings, code: str) -> dict[str, object]:
     return dict(row)
 
 
-def get_timeseries(settings: Settings, code: str) -> dict[str, object]:
+def get_timeseries(settings: Settings, code: str, kind: str | None = None) -> dict[str, object]:
     get_fund(settings, code)
+    if kind not in (None, "price", "nav"):
+        raise AppError("invalid_series_kind", "序列类型必须为price或nav", 422)
     with connection_scope(settings) as connection:
+        connection.execute("BEGIN")
         projection = connection.execute(
-            "SELECT kind, source_id, policy_version, updated_at FROM fund_timeseries_projection WHERE code = ? ORDER BY CASE kind WHEN 'price' THEN 0 ELSE 1 END LIMIT 1", (code,)
+            "SELECT kind, source_id, policy_version, updated_at FROM fund_timeseries_projection WHERE code = ? AND (? IS NULL OR kind = ?) ORDER BY CASE kind WHEN 'price' THEN 0 ELSE 1 END LIMIT 1", (code, kind, kind)
         ).fetchone()
         if projection is None:
             return {"kind": None, "source_id": None, "policy_version": None, "updated_at": None, "rows": []}

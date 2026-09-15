@@ -1,6 +1,7 @@
 """Cross-sectional price comparisons with an explicit common observation date."""
 from __future__ import annotations
 from collections import Counter
+from collections.abc import Mapping
 
 ADVANTAGE_LIMIT = 5
 
@@ -51,13 +52,17 @@ def build_advantage_summary(items: list[dict]) -> list[dict]:
         summaries.append({
             "id": period_id, "name": name, "horizon": horizon,
             "eligible_count": eligible_count, "candidate_count": len(selected), "items": selected,
+            "comparison_as_of": next((period["strength"]["as_of"] for item in items
+                                      if item.get("universe_type") == "hot_board"
+                                      for period in item["periods"] if period["id"] == period_id
+                                      and period.get("strength", {}).get("eligible")), None),
             "message": (f"从同日可比较的 {eligible_count} 个板块中筛出 {len(selected)} 个走势相对占优板块。"
                         if selected else f"当前 {eligible_count} 个可比较板块中，没有同时满足方向与相对强度条件的板块。"),
         })
     return summaries
 
 
-def attach_strength(items: list[dict], ranking_as_of: str | None) -> None:
+def attach_strength(items: list[dict], ranking_as_of: str | Mapping[str, str | None] | None) -> None:
     """Rank within each universe; filtering in the UI must not change these ranks.
 
     The percentile describes observed return, never the chance of a future gain.
@@ -65,6 +70,7 @@ def attach_strength(items: list[dict], ranking_as_of: str | None) -> None:
     """
     for period_id in ("short", "medium", "long"):
         for universe in ("hot_board", "tracked_index"):
+            comparison_day = ranking_as_of.get(universe) if isinstance(ranking_as_of, Mapping) else ranking_as_of
             group = [item for item in items if item["universe_type"] == universe]
             entries = [(item, next(p for p in item["periods"] if p["id"] == period_id)) for item in group]
             eligible = []
@@ -74,10 +80,10 @@ def attach_strength(items: list[dict], ranking_as_of: str | None) -> None:
                     reason = period["reason"]
                 elif item.get("collection_error"):
                     reason = "本次行情采集失败，保留旧数据供核对，不参与本次排名。"
-                elif not ranking_as_of or item["as_of"] != ranking_as_of:
+                elif not comparison_day or item["as_of"] != comparison_day:
                     reason = "行情日期与本次比较日期不一致，暂不参与排名。"
                 period["strength"] = {"rank": None, "percentile": None, "sample_count": 0, "tied_count": 0,
-                                      "as_of": ranking_as_of, "eligible": not reason, "reason": reason}
+                                      "as_of": comparison_day, "eligible": not reason, "reason": reason}
                 if not reason:
                     eligible.append(period)
             starts = Counter(p.get("observation_start") for p in eligible if p.get("observation_start"))
