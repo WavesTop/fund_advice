@@ -66,7 +66,7 @@ describe('真实图表与关系状态的一致性', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(response(marketDetailFixture()));
     renderFund();
     await screen.findByRole('img', { name: '510050真实K线' });
-    fireEvent.click(screen.getByRole('button', { name: '基金净值', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: '基金净值' }));
     const chart = await screen.findByRole('img', { name: '510050真实净值走势' });
     const option = JSON.parse(chart.getAttribute('data-option')!);
     expect(option.xAxis.data).toEqual(['2026-09-11', '2026-09-14', '2026-09-15']);
@@ -81,7 +81,7 @@ describe('真实图表与关系状态的一致性', () => {
       .mockResolvedValueOnce(response(failedRefreshFixture(), 502));
     renderFund();
     await screen.findByRole('img', { name: '000016关联板块真实K线' });
-    fireEvent.click(screen.getByRole('button', { name: '更新数据', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: '更新数据' }));
     await screen.findByText('刷新失败，关系核验状态已同步。');
     expect(screen.queryByRole('img', { name: '000016关联板块真实K线' })).not.toBeInTheDocument();
     expect(screen.getByRole('img', { name: '510050真实K线' })).toBeInTheDocument();
@@ -103,7 +103,7 @@ describe('真实图表与关系状态的一致性', () => {
       .mockResolvedValueOnce(response(result));
     renderFund();
     await screen.findByRole('img', { name: '510050真实K线' });
-    fireEvent.click(screen.getByRole('button', { name: '更新数据', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: '更新数据' }));
     expect(await screen.findByText(/本次部分更新成功/)).toHaveTextContent('指数暂不可用');
   });
   it('明确关系但日线为空时解释缺项', async () => {
