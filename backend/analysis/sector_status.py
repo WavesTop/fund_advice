@@ -13,6 +13,7 @@ from backend.analysis.sector_evidence import (
     assess_opportunity, industry_context, load_industry_evidence, valuation_context,
 )
 from backend.analysis.sector_strength import attach_strength, build_advantage_summary
+from backend.analysis.research_view import attach_research_views
 
 METHOD_VERSION = "price-state-v2"
 PERIODS = (
@@ -125,7 +126,8 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
         for index in indexes:
             rows = connection.execute("SELECT date,close FROM market_index_daily WHERE index_code=? ORDER BY date", (index["code"],)).fetchall()
             funds = connection.execute(
-                """SELECT DISTINCT f.code,f.name FROM fund_market_relation r
+                """SELECT DISTINCT f.code,f.name,r.relation_type,r.source_id AS relation_source_id,
+                          r.evidence_url,r.verified_at FROM fund_market_relation r
                    JOIN fund_catalog_projection f ON f.code=r.fund_code
                    WHERE r.index_code=? ORDER BY f.code""", (index["code"],)
             ).fetchall()
@@ -150,6 +152,7 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
                        or max((item["as_of"] for item in items if item["as_of"]), default=None))
     attach_strength(items, comparison_date)
     advantages = build_advantage_summary(items)
+    attach_research_views(items, generated_at=now.isoformat(timespec="seconds"))
     return {"method_version": "evidence-screen-v2", "price_method_version": METHOD_VERSION,
             "evidence_version": evidence["version"], "generated_at": now.isoformat(timespec="seconds"),
             "universe": heat["universe"], "advantages": advantages,

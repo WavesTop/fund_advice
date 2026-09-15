@@ -98,7 +98,11 @@ class SectorStatusTests(unittest.TestCase):
             self.assertEqual(len(response["items"]), 1)
             item = response["items"][0]
             self.assertEqual((item["code"], item["source_id"], item["observation_count"]), ("980017", "index_daily.sina", 121))
-            self.assertEqual(item["funds"], [{"code": "012970", "name": "芯片ETF联接C"}])
+            self.assertEqual(item["funds"][0]["code"], "012970")
+            self.assertEqual(item["funds"][0]["name"], "芯片ETF联接C")
+            self.assertEqual(item["funds"][0]["relation_type"], "tracked_index")
+            self.assertEqual(item["funds"][0]["relation_source_id"], "official")
+            self.assertEqual(item["funds"][0]["evidence_url"], "https://example.test/evidence")
             self.assertEqual(len(item["periods"]), 3)
 
 
