@@ -37,6 +37,7 @@ import {
 import { DemoProvider, useDemo } from '../shared/store';
 import { EmptyState, Notice } from '../shared/ui';
 import './styles.css';
+import { isDemoAdvice } from '../features/advice/research-model';
 
 const FundsPage = lazy(() =>
   import('../features/market/MarketPages').then((module) => ({ default: module.FundsPage })),
@@ -89,6 +90,7 @@ function Shell() {
   const isMarket = /^\/(funds|sectors)/.test(location.pathname);
   const isRealFundArea = location.pathname === '/funds' || location.pathname.startsWith('/funds/');
   const isSectorOpportunityArea = location.pathname === '/sectors';
+  const isResearchArea = location.pathname === '/advice' && !isDemoAdvice(new URLSearchParams(location.search));
   const active = navigation.find((item) =>
     item.to === '/funds' ? isMarket : location.pathname.startsWith(item.to),
   );
@@ -207,18 +209,20 @@ function Shell() {
           </Link>
         </header>
         <div className="demo-banner">
-          <span className="demo-tag">{isRealFundArea ? '真实基金数据' : isSectorOpportunityArea ? '板块证据观察' : '界面演示'}</span>
+          <span className="demo-tag">{isRealFundArea ? '真实基金数据' : isSectorOpportunityArea ? '板块证据观察' : isResearchArea ? '真实投资研究' : '界面演示'}</span>
           <span>
             {isRealFundArea
               ? '基金目录及已采集序列来自本地数据库；未采集内容会明确留空。'
               : isSectorOpportunityArea
                 ? '真实行情与已核验行业快照；请结合资料日期、适用范围和反证阅读。'
-                : '虚构示例资料 · 输入仅保存在本浏览器的演示草稿中，请勿录入真实隐私或密钥。'}
+                : isResearchArea
+                  ? '读取真实本地资料；历史走势、研究证据、基金关联与正式推荐分别展示。'
+                  : '虚构示例资料 · 输入仅保存在本浏览器的演示草稿中，请勿录入真实隐私或密钥。'}
           </span>
-          {!isRealFundArea && !isSectorOpportunityArea && <Link to="/settings?tab=demo">切换演示场景 <ArrowUpRight size={13} /></Link>}
+          {!isRealFundArea && !isSectorOpportunityArea && !isResearchArea && <Link to="/settings?tab=demo">切换演示场景 <ArrowUpRight size={13} /></Link>}
         </div>
         <main id="main-content" className="main-content" tabIndex={-1}>
-          {state.scenario !== 'ready' && !isSectorOpportunityArea && (
+          {state.scenario !== 'ready' && !isSectorOpportunityArea && !isRealFundArea && !isResearchArea && (
             <Notice tone={state.scenario === 'error' ? 'error' : 'warning'}>
               {scenarioNotices[state.scenario]} <Link to="/settings?tab=demo">切换场景</Link>
             </Notice>

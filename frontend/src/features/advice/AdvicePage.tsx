@@ -8,9 +8,16 @@ import { Badge, EmptyState, Modal, Notice, PageHeader, Panel, Tabs } from '../..
 import { appendDecision, choices, examples, linkDecision, validateDecision } from './model';
 import type { FieldErrors } from '../portfolio/model';
 import './advice.css';
+import { ResearchAdvicePage } from './ResearchAdvicePage';
+import { isDemoAdvice } from './research-model';
 
 type Draft = Omit<Decision, 'id' | 'createdAt'>;
 export function AdvicePage() {
+  const [params] = useSearchParams();
+  return isDemoAdvice(params) ? <DemoAdvicePage /> : <ResearchAdvicePage />;
+}
+
+function DemoAdvicePage() {
   const { state, enqueueTask } = useDemo();
   const [params, setParams] = useSearchParams();
   const tab = ['decisions', 'history'].includes(params.get('tab') || '') ? 'decisions' : 'current';
@@ -423,7 +430,7 @@ export function AdvicePage() {
               title="还没有符合条件的个人决定"
               description="在任一周期记录选择，之后可以关联一笔或多笔实际操作。"
               action={
-                <Link className="button primary" to="/advice">
+                <Link className="button primary" to="/advice?mode=demo">
                   查看三个周期
                 </Link>
               }

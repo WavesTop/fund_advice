@@ -1,13 +1,18 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { initialState } from '../src/shared/data';
+import { researchFixture } from '../src/features/advice/research-fixtures';
+
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/sectors/opportunities', (route) => route.fulfill({ json: researchFixture() }));
+});
 
 const key = 'fund-advice.demo.v1';
 async function stored(page: Page) {
   return page.evaluate((storageKey) => JSON.parse(localStorage.getItem(storageKey) || 'null'), key);
 }
 async function recordDecision(page: Page) {
-  await page.goto('/advice');
+  await page.goto('/advice?mode=demo');
   await page.getByRole('button', { name: '记录决定', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('radio', { name: /全部采纳/ }).check();
@@ -87,7 +92,7 @@ test('failed save preserves the entered decision and does not create a record', 
     key,
     state: { ...initialState, scenario: 'error' },
   });
-  await page.goto('/advice');
+  await page.goto('/advice?mode=demo');
   await page.getByRole('button', { name: '记录决定', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('radio', { name: /部分采纳/ }).check();

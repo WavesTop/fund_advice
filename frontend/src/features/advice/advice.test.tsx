@@ -30,7 +30,7 @@ const renderPage = (path = '/advice') =>
             ),
           },
         ],
-        { initialEntries: [path] },
+        { initialEntries: [`${path}${path.includes('?') ? '&' : '?'}mode=demo`] },
       )}
     />,
   );

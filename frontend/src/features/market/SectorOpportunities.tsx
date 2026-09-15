@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown, RefreshCw } from 'lucide-react';
 import { Badge, EmptyState, Notice, Panel } from '../../shared/ui';
 import './sector-opportunities.css';
+import { SectorSummaryTable } from './SectorSummaryTable';
+import { researchHref, subjectKey } from '../advice/research-model';
+import { directoryPage } from './fund-directory-model';
 
 type PeriodStatus = 'strong' | 'neutral' | 'weak' | 'insufficient' | 'stale';
 type PeriodRisk = 'elevated' | 'normal' | 'unknown';
@@ -246,7 +249,7 @@ function PeriodCard({ period }: { period: SectorOpportunityPeriod }) {
         <div>
           <Badge
             tone={
-              period.status === 'strong' ? 'green' : period.status === 'weak' ? 'red' : 'neutral'
+              period.status === 'strong' ? 'red' : period.status === 'weak' ? 'green' : 'neutral'
             }
           >
             {period.label}
@@ -357,7 +360,7 @@ function OpportunityCard({ item, heatBasis }: { item: SectorOpportunity; heatBas
     <Panel className="sector-opportunity-card">
       <div className="sector-card-heading">
         <div>
-          <h2>{item.name}</h2>
+          <h2><Link to={researchHref(item)}>{item.name}</Link></h2>
           <span>
             {item.code} · 行情 {historySourceLabel ?? '暂缺'}
             {item.history_source_code ? ` (${item.history_source_code})` : ''}
@@ -405,6 +408,13 @@ function OpportunityCard({ item, heatBasis }: { item: SectorOpportunity; heatBas
                   </span>
                 ))}
               </div>
+              <p className="muted">已显示 {Math.min(10, item.membership.members.length)} / {item.membership.member_count} 只。</p>
+              {item.membership.members.length > 10 && <details>
+                <summary>查看其余 {item.membership.members.length - 10} 只成分股</summary>
+                <div className="sector-member-list">{item.membership.members.slice(10).map((member) => (
+                  <span key={`${member.market}-${member.stock_code}`}>{member.stock_name} <small>{member.stock_code}</small></span>
+                ))}</div>
+              </details>}
             </>
           ) : (
             <p>{item.membership.error || '成分股资料尚未采集。'}</p>
@@ -518,32 +528,62 @@ export function SectorOpportunities() {
   const [data, setData] = useState<OpportunitiesResponse | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [showMethod, setShowMethod] = useState(false);
-  const [query, setQuery] = useState('');
-  const [scope, setScope] = useState<'hot' | 'all' | 'tracked'>('hot');
-  const [sortKey, setSortKey] = useState<SortKey>('heat');
-  const [direction, setDirection] = useState<SortDirection>('desc');
-  const [page, setPage] = useState(1);
-
+  const [params, setParams] = useSearchParams();
+  const query = params.get('q') ?? '';
+  const scope: 'hot' | 'all' | 'tracked' = params.get('scope') === 'all' ? 'all' : params.get('scope') === 'tracked' ? 'tracked' : 'hot';
+  const sortKey: SortKey = ['short', 'medium', 'long'].includes(params.get('sort') ?? '') ? params.get('sort') as SortKey : 'heat';
+  const direction: SortDirection = params.get('direction') === 'asc' ? 'asc' : 'desc';
+  const page = directoryPage(params.get('page'));
+  const view = params.get('view') === 'details' ? 'details' : 'summary';
+  const updateFilters = (values: Record<string, string>, replace = false) => {
+    const next = new URLSearchParams(params);
+    if (Object.keys(values).some((key) => key !== 'view')) next.delete('page');
+    for (const [key, value] of Object.entries(values)) {
+      if (value) next.set(key, value); else next.delete(key);
+    }
+    setParams(next, { replace });
+  };
+  const setQuery = (value: string) => updateFilters({ q: value }, true);
+  const setScope = (value: typeof scope) => updateFilters({ scope: value });
+  const setSortKey = (value: SortKey) => updateFilters({ sort: value });
+  const setDirection = (value: SortDirection) => updateFilters({ direction: value });
+  const setPage = (value: number | ((previous: number) => number)) => {
+    const next = new URLSearchParams(params);
+    next.set('page', String(typeof value === 'function' ? value(page) : value));
+    setParams(next);
+  };
+  const request = useRef<AbortController | null>(null);
+  const hasData = useRef(false);
   const load = useCallback((isRefresh = false) => {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
     if (isRefresh) setRefreshing(true);
-    else setState('loading');
-    fetch('/api/sectors/opportunities')
+    if (!hasData.current) setState('loading');
+    setLoadError('');
+    fetch('/api/sectors/opportunities', { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json() as Promise<OpportunitiesResponse>;
+        const result = await response.json() as OpportunitiesResponse;
+        if (!result || !Array.isArray(result.items)) throw new Error('板块接口格式无效');
+        return result;
       })
       .then((result) => {
+        if (controller.signal.aborted) return;
+        hasData.current = true;
         setData(result);
         setState('ready');
       })
-      .catch(() => setState('error'))
-      .finally(() => setRefreshing(false));
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setLoadError('请确认本地数据服务已启动，或稍后重试。');
+        setState(hasData.current ? 'ready' : 'error');
+      })
+      .finally(() => { if (!controller.signal.aborted) setRefreshing(false); });
   }, []);
 
-  useEffect(() => {
-    setPage(1);
-  }, [query, scope, sortKey, direction]);
   const sourceItems = data?.items ?? [];
   const sortedItems = sortSectorItems(sourceItems, sortKey, direction);
   const filteredItems = sortedItems.filter((item) => {
@@ -560,11 +600,16 @@ export function SectorOpportunities() {
   const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const visibleItems = filteredItems.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
-    setPage((value) => Math.min(value, pageCount));
-  }, [pageCount]);
+    if (data && state === 'ready' && page > pageCount) {
+      const next = new URLSearchParams(params);
+      next.set('page', String(pageCount));
+      setParams(next, { replace: true });
+    }
+  }, [data, state, page, pageCount, params, setParams]);
 
   useEffect(() => {
     load();
+    return () => request.current?.abort();
   }, [load]);
 
   return (
@@ -618,7 +663,7 @@ export function SectorOpportunities() {
             <Notice tone="warning" title="最近一次榜单更新未完成">
               {data.universe.member_count
                 ? '当前展示上次成功取得的榜单，请以榜单日期为准。'
-                : '数据源尚未返回完整榜单，前100暂未装入。'}
+                : '数据源尚未返回当前范围的完整名单。'}
               <details>
                 <summary>查看采集原因</summary>
                 {data.universe.last_error}
@@ -648,7 +693,7 @@ export function SectorOpportunities() {
                   <ol>
                     {summary.items.map((item) => (
                       <li key={item.code}>
-                        <button type="button" onClick={() => { setQuery(item.name); setScope('hot'); setSortKey(summary.id); setDirection('desc'); }}>
+                        <button type="button" onClick={() => updateFilters({ q: item.code, scope: 'hot', sort: summary.id, direction: 'desc' })}>
                           <span><b>{item.name}</b><em>{item.label}</em></span>
                           <small>同榜第 {item.strength_rank}/{item.sample_count} · 涨跌 {formatPercent(item.return_pct)}</small>
                           <small>均线偏离 {formatPercent(item.ma_bias_pct)} · 最大回撤 {formatPercent(item.max_drawdown_pct)}</small>
@@ -662,6 +707,15 @@ export function SectorOpportunities() {
           </div>
         </section>
       )}
+      {data && loadError && <div className="notice notice-warning" role="alert">
+        <strong>本次重新评估失败，保留上次完整结果。</strong>
+        <p>{loadError} 当前结果读取于 {data.generated_at}；行情日期仍以各板块为准。</p>
+      </div>}
+      <div className="sector-view-controls" aria-label="板块展示方式">
+        <button className="button secondary" aria-pressed={view === 'summary'} onClick={() => updateFilters({ view: 'summary' })}>三周期摘要</button>
+        <button className="button secondary" aria-pressed={view === 'details'} onClick={() => updateFilters({ view: 'details' })}>完整证据</button>
+        <span className="muted">摘要用于比较，完整证据保留原始指标、来源及反证。</span>
+      </div>
       <div className="sector-controls">
         <input
           aria-label="搜索板块名称或代码"
@@ -730,11 +784,12 @@ export function SectorOpportunities() {
         />
       )}
       {state === 'ready' && data && data.items.length > 0 && visibleItems.length > 0 && (
-        <div className="sector-opportunity-list">
-          {visibleItems.map((item) => (
-            <OpportunityCard key={item.code} item={item} heatBasis={data.universe?.heat_basis} />
-          ))}
-        </div>
+        view === 'summary' ? <SectorSummaryTable items={visibleItems} from={`/sectors?${params}`} /> :
+          <div className="sector-opportunity-list">
+            {visibleItems.map((item) => (
+              <OpportunityCard key={subjectKey(item)} item={item} heatBasis={data.universe?.heat_basis} />
+            ))}
+          </div>
       )}
       {state === 'ready' && data && data.items.length > 0 && !visibleItems.length && (
         <EmptyState

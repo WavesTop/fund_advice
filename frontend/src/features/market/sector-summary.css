@@ -1,0 +1,9 @@
+.sector-summary-table { min-width: 760px; }
+.sector-summary-table th[scope='row'] { font-size: 14px; font-weight: 600; }
+.sector-summary-table small { display: block; color: var(--muted); margin-top: 5px; font-weight: 400; }
+.sector-summary-table td > strong { display: block; font-size: 17px; font-variant-numeric: tabular-nums; margin-bottom: 7px; }
+.sector-change-up { color: var(--red); }
+.sector-change-down { color: var(--green); }
+.sector-summary-table .sector-summary-warning { color: #815c22; }
+.sector-view-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 14px 0; }
+.sector-view-controls .button[aria-pressed='true'] { border-color: var(--blue); color: var(--blue); background: #eef3fb; }

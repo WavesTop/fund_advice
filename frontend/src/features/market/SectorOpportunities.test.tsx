@@ -61,7 +61,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
 
 function renderPage() {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/sectors?view=details']}>
       <SectorOpportunities />
     </MemoryRouter>,
   );
