@@ -1,0 +1,453 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-09-13",
+  "scope": "D0.1 固定真实份额探针清单：仅核验目录身份、份额关系和公开事件证据，不把接口空结果解释为基金无数据；净值、行情、持仓、规则字段须由后续 D0.2/D0.3 探针确认。",
+  "samples": [
+    {
+      "code": "005911",
+      "name": "广发双擎升级混合A",
+      "tags": [
+        "mixed",
+        "same_product_A"
+      ],
+      "evidence_urls": [
+        "https://www.gffunds.com.cn/funds/?fundcode=005911"
+      ],
+      "reason": "混合型主动基金与同产品 C 份额配对。",
+      "expected_fields": [
+        "code",
+        "name",
+        "share_class",
+        "product_identity",
+        "nav_unit",
+        "nav_accumulated",
+        "holdings"
+      ],
+      "verification_note": "身份和 A 份额由广发基金页面核验；事件、净值历史和持仓字段待后续来源探针验证。"
+    },
+    {
+      "code": "009314",
+      "name": "广发双擎升级混合C",
+      "tags": [
+        "mixed",
+        "same_product_C"
+      ],
+      "evidence_urls": [
+        "https://www.gffunds.com.cn/jjgg/flwj/202505/P020250526326608737038.pdf",
+        "https://www.gffunds.com.cn/funds/?fundcode=009314"
+      ],
+      "reason": "与 005911 组成同产品 A/C 份额关系样本。",
+      "expected_fields": [
+        "code",
+        "name",
+        "share_class",
+        "product_identity",
+        "sales_service_fee",
+        "nav_unit"
+      ],
+      "verification_note": "管理人产品资料和广发基金页面核验身份及 C 份额；A/C 关系、费率版本和序列仍需适配器核验。"
+    },
+    {
+      "code": "510050",
+      "name": "华夏上证50ETF",
+      "tags": [
+        "stock",
+        "broad_index_etf",
+        "exchange_traded",
+        "known_dividend_event"
+      ],
+      "evidence_urls": [
+        "https://fund.chinaamc.com/fund/510050/index.shtml",
+        "https://www.chinaamc.com/upload/resources/file/2025/12/09/442028.pdf"
+      ],
+      "reason": "上海交易所宽基 ETF；官方利润分配公告提供已知分红事件。",
+      "expected_fields": [
+        "code",
+        "name",
+        "exchange",
+        "listing",
+        "nav_unit",
+        "price_ohlc",
+        "dividend_event"
+      ],
+      "verification_note": "华夏基金页面核验身份；分红公告核验每十份 0.80 元及登记/除息/发放日期；场内行情和事件规范化待 D0.2。"
+    },
+    {
+      "code": "000051",
+      "name": "华夏沪深300ETF联接A",
+      "tags": [
+        "stock",
+        "broad_index",
+        "etf_link",
+        "same_product_A"
+      ],
+      "evidence_urls": [
+        "https://f.chinaamc.com/fund/000051/",
+        "https://www.chinaamc.com/upload/resources/file/2026/05/29/3a929be438664216bb270e72671b1bf8.pdf"
+      ],
+      "reason": "沪深300 ETF 联接 A 份额。",
+      "expected_fields": [
+        "code",
+        "name",
+        "share_class",
+        "target_etf",
+        "nav_unit",
+        "holdings"
+      ],
+      "verification_note": "华夏基金页面和产品资料概要核验身份、类型及管理人；目标 ETF 关系和实际配置比例待 D0.3。"
+    },
+    {
+      "code": "005658",
+      "name": "华夏沪深300ETF联接C",
+      "tags": [
+        "stock",
+        "broad_index",
+        "etf_link",
+        "same_product_C"
+      ],
+      "evidence_urls": [
+        "https://www.chinaamc.com/jjcp/index.shtml",
+        "https://www.chinaamc.com/upload/resources/file/2026/05/29/3a929be438664216bb270e72671b1bf8.pdf"
+      ],
+      "reason": "与 000051 组成同产品 A/C 份额关系样本。",
+      "expected_fields": [
+        "code",
+        "name",
+        "share_class",
+        "product_identity",
+        "target_etf",
+        "sales_service_fee"
+      ],
+      "verification_note": "华夏基金产品目录和同产品资料核验身份；C 份额费率版本及目标关系待后续验证。"
+    },
+    {
+      "code": "159915",
+      "name": "易方达创业板ETF",
+      "tags": [
+        "stock",
+        "broad_index_etf",
+        "exchange_traded"
+      ],
+      "evidence_urls": [
+        "https://static.efunds.com.cn/html/fund/159915_fundinfo.htm"
+      ],
+      "reason": "深圳证券交易所创业板宽基 ETF。",
+      "expected_fields": [
+        "code",
+        "name",
+        "exchange",
+        "listing",
+        "nav_unit",
+        "price_ohlc",
+        "holdings"
+      ],
+      "verification_note": "易方达官方基金信息页核验名称、代码、股票型、深交所和成立日；行情、净值历史和持仓字段待 D0.2/D0.3。"
+    },
+    {
+      "code": "013304",
+      "name": "易方达中证科创创业50ETF联接A",
+      "tags": [
+        "stock",
+        "broad_index",
+        "etf_link",
+        "newer_history"
+      ],
+      "evidence_urls": [
+        "https://e.efunds.com.cn/cart/subscriptions?f_cmpId=cs_gm_013304&f_p=index&f_s=www&form=&fundCode=013304"
+      ],
+      "reason": "中证科创创业50 ETF 联接 A 份额。",
+      "expected_fields": [
+        "code",
+        "name",
+        "share_class",
+        "target_etf",
+        "nav_unit",
+        "fund_start_date"
+      ],
+      "verification_note": "易方达官方交易页面核验名称和代码；目标 ETF 关系、历史范围和净值字段待探针确认。"
+    },
+    {
+      "code": "012718",
+      "name": "易方达中证科技50联接C",
+      "tags": [
+        "stock",
+        "etf_link",
+        "same_product_C"
+      ],
+      "evidence_urls": [
+        "https://vip.efunds.com.cn/"
+      ],
+      "reason": "ETF 联接 C 份额，补充 C 类和联接目录样本。",
+      "expected_fields": [
+        "code",
+        "name",
+        "share_class",
+        "target_etf",
+        "nav_unit"
+      ],
+      "verification_note": "易方达官方网上交易目录核验名称和代码；该页面为目录证据，目标关系及序列可用性待 D0.2/D0.3。"
+    },
+    {
+      "code": "008396",
+      "name": "博时中证500ETF联接A",
+      "tags": [
+        "stock",
+        "broad_index",
+        "etf_link"
+      ],
+      "evidence_urls": [
+        "https://www.bosera.com/column/index.do?classid=0002000200030004&fundCode=008396"
+      ],
+      "reason": "中证500 ETF 联接 A 份额。",
+      "expected_fields": [
+        "code",
+        "name",
+        "share_class",
+        "target_etf",
+        "nav_unit",
+        "holdings"
+      ],
+      "verification_note": "博时基金法律文件目录核验代码、名称和产品资料存在；目标 ETF 及实际配置比例待 D0.3。"
+    },
+    {
+      "code": "050025",
+      "name": "博时标普500ETF联接A",
+      "tags": [
+        "stock",
+        "broad_index",
+        "etf_link",
+        "cross_market"
+      ],
+      "evidence_urls": [
+        "https://www.bosera.com/common/downloadFile.do?attachmentId=1233852"
+      ],
+      "reason": "标普500 ETF 联接 A，覆盖跨市场联接目录边界。",
+      "expected_fields": [
+        "code",
+        "name",
+        "share_class",
+        "target_etf",
+        "currency",
+        "nav_unit"
+      ],
+      "verification_note": "博时官方公告核验产品名称和代码；跨市场币种、行情与目标关系待适配器确认，不据此宣称已支持。"
+    },
+    {
+      "code": "159902",
+      "name": "华夏中小企业100ETF",
+      "tags": [
+        "stock",
+        "broad_index_etf",
+        "exchange_traded"
+      ],
+      "evidence_urls": [
+        "https://www.chinaamc.com/jjcp/index.shtml"
+      ],
+      "reason": "深圳交易所宽基 ETF。",
+      "expected_fields": [
+        "code",
+        "name",
+        "exchange",
+        "listing",
+        "nav_unit",
+        "price_ohlc"
+      ],
+      "verification_note": "华夏基金产品目录核验名称和代码；交易标的映射及 OHLC 仍待 D0.2。"
+    },
+    {
+      "code": "510660",
+      "name": "华夏医药ETF",
+      "tags": [
+        "stock",
+        "industry_etf",
+        "exchange_traded"
+      ],
+      "evidence_urls": [
+        "https://www.chinaamc.com/jjcp/index.shtml"
+      ],
+      "reason": "行业 ETF，覆盖医药主题。",
+      "expected_fields": [
+        "code",
+        "name",
+        "exchange",
+        "listing",
+        "nav_unit",
+        "price_ohlc",
+        "sector"
+      ],
+      "verification_note": "华夏基金产品目录核验身份和行业标签；分类体系与行情字段待 D0.2/D0.3。"
+    },
+    {
+      "code": "159920",
+      "name": "华夏恒生ETF",
+      "tags": [
+        "stock",
+        "broad_index_etf",
+        "exchange_traded",
+        "cross_market"
+      ],
+      "evidence_urls": [
+        "https://www.chinaamc.com/jjcp/index.shtml"
+      ],
+      "reason": "跨市场宽基 ETF，覆盖交易币种和市场边界。",
+      "expected_fields": [
+        "code",
+        "name",
+        "exchange",
+        "market",
+        "currency",
+        "nav_unit",
+        "price_ohlc"
+      ],
+      "verification_note": "华夏基金目录核验名称和代码；港股市场日历、币种和行情能力待后续确认。"
+    },
+    {
+      "code": "515970",
+      "name": "华夏中证工程机械主题ETF",
+      "tags": [
+        "stock",
+        "industry_etf",
+        "new_fund_under_1_year",
+        "exchange_traded"
+      ],
+      "evidence_urls": [
+        "https://fund.chinaamc.com/fund/515970/",
+        "https://www.chinaamc.com/upload/resources/file/2026/02/05/90358921ca664060a2b3178e4cc2c1b3.pdf"
+      ],
+      "reason": "成立日 2026-02-04，距核验日不足一年；行业 ETF 新成立短历史样本。",
+      "expected_fields": [
+        "code",
+        "name",
+        "fund_start_date",
+        "exchange",
+        "nav_unit",
+        "price_ohlc",
+        "history_range"
+      ],
+      "verification_note": "管理人产品页及基金合同生效公告核验名称、代码和2026-02-04成立日；历史长度和行情可用性待D0.2。"
+    },
+    {
+      "code": "015710",
+      "name": "华夏高端装备龙头混合发起式A",
+      "tags": [
+        "mixed",
+        "historical_liquidated",
+        "closed_fund"
+      ],
+      "evidence_urls": [
+        "https://www.chinaamc.com/upload/resources/file/2025/07/17/437071.pdf",
+        "https://www.chinaamc.com/c/2025-07-18/897742.shtml"
+      ],
+      "reason": "官方清算提示公告正文确认主代码 015710、A 份额及 2025-05-26 最后运作日；官方剩余财产分配公告为清算完成后的直达证据。",
+      "expected_fields": [
+        "code",
+        "name",
+        "share_class",
+        "status",
+        "termination_date",
+        "liquidation_report"
+      ],
+      "verification_note": "管理人清算报告第3页明确A份额代码015710、最后运作日2025-05-26和合同自动终止；报告期截至2025-07-10，另有剩余财产分配公告。目录是否返回该历史份额以本次探针为准。"
+    },
+    {
+      "code": "110022",
+      "name": "易方达消费行业股票",
+      "tags": [
+        "stock",
+        "active_equity",
+        "industry_fund"
+      ],
+      "evidence_urls": [
+        "https://www.efunds.com.cn/Mobile/fund/110022.shtml"
+      ],
+      "reason": "主动股票基金，补充股票型主动管理样本。",
+      "expected_fields": [
+        "code",
+        "name",
+        "fund_type",
+        "fund_start_date",
+        "nav_unit",
+        "holdings",
+        "sector"
+      ],
+      "verification_note": "易方达官方详情页直接核验名称、代码、股票型、成立日和管理人；净值历史及持仓字段待 D0.2/D0.3。"
+    },
+    {
+      "code": "515050",
+      "name": "华夏中证5G通信主题ETF",
+      "tags": [
+        "stock",
+        "industry_etf",
+        "exchange_traded",
+        "known_split_event"
+      ],
+      "evidence_urls": [
+        "https://www.chinaamc.com/product/publishGgList.do?fundcode=515050",
+        "https://www.chinaamc.com/c/2026-05-13/938287.shtml"
+      ],
+      "reason": "行业 ETF；华夏基金公告明确 2026 年份额拆分结果。",
+      "expected_fields": [
+        "code",
+        "name",
+        "exchange",
+        "listing",
+        "nav_unit",
+        "split_event",
+        "price_ohlc"
+      ],
+      "verification_note": "华夏基金公告核验份额拆分结果事件；拆分比例、权益登记日和前后份额需由 D0.2 事件适配器解析。"
+    },
+    {
+      "code": "513660",
+      "name": "华夏沪港通恒生ETF",
+      "tags": [
+        "stock",
+        "broad_index_etf",
+        "exchange_traded",
+        "known_split_event",
+        "cross_market"
+      ],
+      "evidence_urls": [
+        "https://www.chinaamc.com/upload/resources/file/2026/04/15/9c8e5a50d59348229bfa529be6bdadc4.pdf"
+      ],
+      "reason": "跨市场 ETF；官方公告明确 2026-04-20 登记、2026-04-21 除权及 1:2 拆分。",
+      "expected_fields": [
+        "code",
+        "name",
+        "exchange",
+        "market",
+        "currency",
+        "split_event",
+        "nav_unit"
+      ],
+      "verification_note": "华夏基金公告核验身份和 1:2 拆分事件；港股通日历、币种及事件入库方向待 D0.2。"
+    },
+    {
+      "code": "160706",
+      "name": "嘉实沪深300ETF联接（LOF）A",
+      "tags": [
+        "stock",
+        "broad_index",
+        "etf_link",
+        "lof",
+        "exchange_traded"
+      ],
+      "evidence_urls": [
+        "https://www.jsfund.cn/main/fund/160706/fundNav.shtml",
+        "https://www.jsfund.cn/cms/Services/AttachDownLoad.jsp?id=427896"
+      ],
+      "reason": "嘉实沪深300 ETF 联接 LOF A，覆盖 LOF 与场内上市契约型开放式边界。",
+      "expected_fields": [
+        "code",
+        "name",
+        "share_class",
+        "lof_listing",
+        "exchange",
+        "target_etf",
+        "nav_unit",
+        "price_ohlc"
+      ],
+      "verification_note": "嘉实官方基金页和年度报告核验名称、代码、LOF 份额、深交所上市及目标 ETF；LOF 行情接口、份额关系和历史数据待 D0.2/D0.3。"
+    }
+  ]
+}

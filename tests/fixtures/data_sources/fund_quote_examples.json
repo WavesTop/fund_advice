@@ -1,0 +1,376 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "adapter_output_excerpt",
+  "note": "真实行情的最小离线样本，包含已知来源差异；不用于投资决策。新浪成交量已为份，腾讯本表保留原始手数、成交额已由万元转换为元。",
+  "cases": [
+    {
+      "provider": "sina",
+      "code": "513660",
+      "request": {
+        "dataset": "etf-daily",
+        "code": "513660",
+        "start_date": "20000101",
+        "end_date": "20260913",
+        "provider": "sina"
+      },
+      "observed_at": "2026-09-13T12:51:46.315269Z",
+      "interface": "akshare.fund_etf_hist_sina",
+      "adapter": {
+        "columns": [
+          "date",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amount",
+          "postVol",
+          "postAmt"
+        ],
+        "dtypes": {
+          "date": "object",
+          "open": "float64",
+          "high": "float64",
+          "low": "float64",
+          "close": "float64",
+          "volume": "int64",
+          "amount": "int64",
+          "postVol": "float64",
+          "postAmt": "float64"
+        },
+        "rows": [
+          [
+            "2026-04-20",
+            3.102,
+            3.13,
+            3.098,
+            3.128,
+            33416400,
+            104153851,
+            null,
+            null
+          ],
+          [
+            "2026-04-21",
+            1.565,
+            1.578,
+            1.562,
+            1.569,
+            41949400,
+            65750060,
+            null,
+            null
+          ]
+        ],
+        "provider": "sina"
+      }
+    },
+    {
+      "provider": "tencent",
+      "code": "513660",
+      "request": {
+        "dataset": "etf-daily",
+        "code": "513660",
+        "start_date": "20150101",
+        "end_date": "20260913",
+        "provider": "tencent"
+      },
+      "observed_at": "2026-09-13T12:53:26.439502Z",
+      "interface": "fund_quote_sources.fetch_tencent_daily",
+      "adapter": {
+        "columns": [
+          "日期",
+          "开盘",
+          "收盘",
+          "最高",
+          "最低",
+          "成交量",
+          "成交额"
+        ],
+        "dtypes": {
+          "日期": "object",
+          "开盘": "object",
+          "收盘": "object",
+          "最高": "object",
+          "最低": "object",
+          "成交量": "object",
+          "成交额": "object"
+        },
+        "rows": [
+          [
+            "2026-04-20",
+            "3.102",
+            "3.128",
+            "3.130",
+            "3.098",
+            "334164.00",
+            "104153900.00"
+          ],
+          [
+            "2026-04-21",
+            "1.565",
+            "1.569",
+            "1.578",
+            "1.562",
+            "419494.00",
+            "65750100.00"
+          ]
+        ],
+        "provider": "tencent"
+      }
+    },
+    {
+      "provider": "sina",
+      "code": "510050",
+      "request": {
+        "dataset": "etf-daily",
+        "code": "510050",
+        "start_date": "20000101",
+        "end_date": "20260913",
+        "provider": "sina"
+      },
+      "observed_at": "2026-09-13T12:51:40.628270Z",
+      "interface": "akshare.fund_etf_hist_sina",
+      "adapter": {
+        "columns": [
+          "date",
+          "prevclose",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amount",
+          "postVol",
+          "postAmt"
+        ],
+        "dtypes": {
+          "date": "object",
+          "prevclose": "float64",
+          "open": "float64",
+          "high": "float64",
+          "low": "float64",
+          "close": "float64",
+          "volume": "int64",
+          "amount": "int64",
+          "postVol": "float64",
+          "postAmt": "float64"
+        },
+        "rows": [
+          [
+            "2005-02-23",
+            0.887,
+            0.881,
+            0.882,
+            0.866,
+            0.876,
+            1269742542,
+            1111793167,
+            null,
+            null
+          ],
+          [
+            "2018-08-31",
+            null,
+            2.51,
+            2.54,
+            2.503,
+            2.518,
+            565830265,
+            1426387351,
+            null,
+            null
+          ],
+          [
+            "2026-09-11",
+            null,
+            3.006,
+            3.007,
+            2.956,
+            2.981,
+            667541903,
+            1984173121,
+            414200.0,
+            1234730.0
+          ]
+        ],
+        "provider": "sina"
+      }
+    },
+    {
+      "provider": "tencent",
+      "code": "510050",
+      "request": {
+        "dataset": "etf-daily",
+        "code": "510050",
+        "start_date": "20050101",
+        "end_date": "20260913",
+        "provider": "tencent"
+      },
+      "observed_at": "2026-09-13T12:53:29.300373Z",
+      "interface": "fund_quote_sources.fetch_tencent_daily",
+      "adapter": {
+        "columns": [
+          "日期",
+          "开盘",
+          "收盘",
+          "最高",
+          "最低",
+          "成交量",
+          "成交额"
+        ],
+        "dtypes": {
+          "日期": "object",
+          "开盘": "object",
+          "收盘": "object",
+          "最高": "object",
+          "最低": "object",
+          "成交量": "object",
+          "成交额": "object"
+        },
+        "rows": [
+          [
+            "2005-02-23",
+            "0.881",
+            "0.876",
+            "0.882",
+            "0.866",
+            "12697425.42",
+            "1111793200.00"
+          ],
+          [
+            "2018-08-31",
+            "2.510",
+            "2.521",
+            "2.540",
+            "2.503",
+            "5658302.65",
+            "1426387400.00"
+          ],
+          [
+            "2026-09-11",
+            "3.006",
+            "2.981",
+            "3.007",
+            "2.956",
+            "6675419.00",
+            "1984173100.00"
+          ]
+        ],
+        "provider": "tencent"
+      }
+    },
+    {
+      "provider": "sina",
+      "code": "160706",
+      "request": {
+        "dataset": "lof-daily",
+        "code": "160706",
+        "start_date": "20000101",
+        "end_date": "20260913",
+        "provider": "sina"
+      },
+      "observed_at": "2026-09-13T12:51:47.111830Z",
+      "interface": "akshare.fund_etf_hist_sina",
+      "adapter": {
+        "columns": [
+          "date",
+          "prevclose",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "amount"
+        ],
+        "dtypes": {
+          "date": "object",
+          "prevclose": "float64",
+          "open": "float64",
+          "high": "float64",
+          "low": "float64",
+          "close": "float64",
+          "volume": "int64",
+          "amount": "int64"
+        },
+        "rows": [
+          [
+            "2005-10-17",
+            0.959,
+            0.96,
+            0.96,
+            0.9,
+            0.932,
+            13232808,
+            12332398
+          ],
+          [
+            "2026-09-11",
+            null,
+            1.179,
+            1.179,
+            1.163,
+            1.171,
+            1179102,
+            1378566
+          ]
+        ],
+        "provider": "sina"
+      }
+    },
+    {
+      "provider": "tencent",
+      "code": "160706",
+      "request": {
+        "dataset": "lof-daily",
+        "code": "160706",
+        "start_date": "20000101",
+        "end_date": "20260913",
+        "provider": "tencent"
+      },
+      "observed_at": "2026-09-13T12:52:42.292674Z",
+      "interface": "fund_quote_sources.fetch_tencent_daily",
+      "adapter": {
+        "columns": [
+          "日期",
+          "开盘",
+          "收盘",
+          "最高",
+          "最低",
+          "成交量",
+          "成交额"
+        ],
+        "dtypes": {
+          "日期": "object",
+          "开盘": "object",
+          "收盘": "object",
+          "最高": "object",
+          "最低": "object",
+          "成交量": "object",
+          "成交额": "object"
+        },
+        "rows": [
+          [
+            "2005-10-17",
+            "0.960",
+            "0.932",
+            "0.960",
+            "0.900",
+            "132328.08",
+            "12332400.00"
+          ],
+          [
+            "2026-09-11",
+            "1.179",
+            "1.171",
+            "1.179",
+            "1.163",
+            "11791.00",
+            "1378600.00"
+          ]
+        ],
+        "provider": "tencent"
+      }
+    }
+  ]
+}

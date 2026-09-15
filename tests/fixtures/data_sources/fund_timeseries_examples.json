@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "akshare_version": "1.18.94",
+  "note": "真实公开适配器的最小数值样本，用于离线回归；非完整历史数据。reference_url 用于核对最新/历史净值或事件日期，并非每个数值都由该页面独立确认。",
+  "cases": [
+    {
+      "id": "exchange-510050-20251031",
+      "artifact_kind": "adapter_output_excerpt",
+      "interface": "akshare.fund_etf_fund_info_em",
+      "params": {
+        "fund": "510050",
+        "start_date": "20251031",
+        "end_date": "20260115"
+      },
+      "request": {
+        "dataset": "exchange-nav",
+        "code": "510050",
+        "start_date": "20251031",
+        "end_date": "20260115"
+      },
+      "observed_at": "2026-09-13T12:30:27.569676Z",
+      "reference_url": "https://www.chinaamc.com/upload/resources/file/2025/12/09/442028.pdf",
+      "adapter": {
+        "columns": [
+          "净值日期",
+          "单位净值",
+          "累计净值",
+          "日增长率",
+          "申购状态",
+          "赎回状态"
+        ],
+        "dtypes": {
+          "净值日期": "object",
+          "单位净值": "float64",
+          "累计净值": "float64",
+          "日增长率": "float64",
+          "申购状态": "str",
+          "赎回状态": "str"
+        },
+        "rows": [
+          [
+            "2025-10-31",
+            3.1567,
+            4.5858,
+            -1.15,
+            "场内买入",
+            "场内卖出"
+          ],
+          [
+            "2025-12-16",
+            3.0993,
+            4.5179,
+            -1.09,
+            "场内买入",
+            "场内卖出"
+          ],
+          [
+            "2025-12-17",
+            3.0582,
+            4.5639,
+            1.26,
+            "场内买入",
+            "场内卖出"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "exchange-510050-20260901",
+      "artifact_kind": "adapter_output_excerpt",
+      "interface": "akshare.fund_etf_fund_info_em",
+      "params": {
+        "fund": "510050",
+        "start_date": "20260901",
+        "end_date": "20260913"
+      },
+      "request": {
+        "dataset": "exchange-nav",
+        "code": "510050",
+        "start_date": "20260901",
+        "end_date": "20260913"
+      },
+      "observed_at": "2026-09-13T12:30:28.956483Z",
+      "reference_url": "https://fund.chinaamc.com/fund/510050/index.shtml",
+      "adapter": {
+        "columns": [
+          "净值日期",
+          "单位净值",
+          "累计净值",
+          "日增长率",
+          "申购状态",
+          "赎回状态"
+        ],
+        "dtypes": {
+          "净值日期": "object",
+          "单位净值": "float64",
+          "累计净值": "float64",
+          "日增长率": "float64",
+          "申购状态": "str",
+          "赎回状态": "str"
+        },
+        "rows": [
+          [
+            "2026-09-10",
+            3.0186,
+            4.5171,
+            -0.08,
+            "场内买入",
+            "场内卖出"
+          ],
+          [
+            "2026-09-11",
+            2.9817,
+            4.4734,
+            -1.22,
+            "场内买入",
+            "场内卖出"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "exchange-513660-20260415",
+      "artifact_kind": "adapter_output_excerpt",
+      "interface": "akshare.fund_etf_fund_info_em",
+      "params": {
+        "fund": "513660",
+        "start_date": "20260415",
+        "end_date": "20260424"
+      },
+      "request": {
+        "dataset": "exchange-nav",
+        "code": "513660",
+        "start_date": "20260415",
+        "end_date": "20260424"
+      },
+      "observed_at": "2026-09-13T12:30:30.049874Z",
+      "reference_url": "https://www.chinaamc.com/upload/resources/file/2026/04/15/9c8e5a50d59348229bfa529be6bdadc4.pdf",
+      "adapter": {
+        "columns": [
+          "净值日期",
+          "单位净值",
+          "累计净值",
+          "日增长率",
+          "申购状态",
+          "赎回状态"
+        ],
+        "dtypes": {
+          "净值日期": "object",
+          "单位净值": "float64",
+          "累计净值": "float64",
+          "日增长率": "float64",
+          "申购状态": "str",
+          "赎回状态": "str"
+        },
+        "rows": [
+          [
+            "2026-04-17",
+            3.127,
+            1.6234,
+            -0.78,
+            "场内买入",
+            "场内卖出"
+          ],
+          [
+            "2026-04-20",
+            1.5751,
+            1.6355,
+            0.74,
+            "场内买入",
+            "场内卖出"
+          ],
+          [
+            "2026-04-21",
+            1.5812,
+            1.6418,
+            0.39,
+            "场内买入",
+            "场内卖出"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "calendar",
+      "artifact_kind": "adapter_output_excerpt",
+      "interface": "akshare.tool_trade_date_hist_sina",
+      "params": {},
+      "request": {
+        "dataset": "calendar",
+        "code": null,
+        "start_date": "20260213",
+        "end_date": "20260913"
+      },
+      "observed_at": "2026-09-13T12:30:48.761740Z",
+      "reference_url": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20260205_10808618.shtml",
+      "adapter": {
+        "columns": [
+          "trade_date"
+        ],
+        "dtypes": {
+          "trade_date": "object"
+        },
+        "rows": [
+          [
+            "2026-02-13"
+          ],
+          [
+            "2026-02-24"
+          ],
+          [
+            "2026-02-25"
+          ],
+          [
+            "2026-02-26"
+          ],
+          [
+            "2026-02-27"
+          ]
+        ]
+      }
+    }
+  ]
+}
