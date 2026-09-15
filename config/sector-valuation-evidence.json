@@ -1,0 +1,88 @@
+{
+  "version": "official-valuation-snapshot-v1",
+  "retrieved_at": "2026-09-14T12:38:53Z",
+  "time_basis": "saved_after_verification",
+  "indexes": {
+    "931775": {
+      "as_of": "2026-09-14",
+      "source_url": "https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=931775&startDate=20260911&endDate=20260914",
+      "metrics": [
+        {
+          "label": "候选滚动市盈率",
+          "value": 29.01,
+          "unit": "倍",
+          "source_field": "peg",
+          "semantic_status": "adapter_mapping_only"
+        }
+      ],
+      "limitations": [
+        "字段释义仅依据 AKShare 的列映射，尚未取得官方计算方法确认；不能将 peg 字段直接解释为市盈率与增长率之比。",
+        "缺少同口径历史估值分位及负盈利处理说明，不能据此判定便宜或贵。"
+      ]
+    },
+    "399441": {
+      "as_of": null,
+      "source_url": "https://www.cnindex.com.cn/index/indexList?channelCode=-1&rows=2000&pageNum=1",
+      "metrics": [
+        {
+          "label": "静态市盈率",
+          "value": 27.2403,
+          "unit": "倍",
+          "source_field": "peStatic",
+          "semantic_status": "source_named"
+        },
+        {
+          "label": "动态市盈率",
+          "value": 23.8706,
+          "unit": "倍",
+          "source_field": "peDynamic",
+          "semantic_status": "source_named"
+        },
+        {
+          "label": "市净率",
+          "value": 3.25,
+          "unit": "倍",
+          "source_field": "pb",
+          "semantic_status": "source_named"
+        }
+      ],
+      "limitations": [
+        "来源响应未提供估值对应的交易日期；sampleDate 为空字符串、sampleshowdate 为 null，保存时间不能代替估值日期。",
+        "动态市盈率的计算口径尚未取得官方方法确认，不能默认为 TTM。",
+        "缺少同口径历史估值及负盈利处理说明，不能计算历史分位或据此判定便宜、贵。"
+      ]
+    },
+    "980017": {
+      "as_of": null,
+      "source_url": "https://www.cnindex.com.cn/index/indexList?channelCode=-1&rows=2000&pageNum=1",
+      "metrics": [
+        {
+          "label": "静态市盈率",
+          "value": 124.8742,
+          "unit": "倍",
+          "source_field": "peStatic",
+          "semantic_status": "source_named"
+        },
+        {
+          "label": "动态市盈率",
+          "value": 68.1722,
+          "unit": "倍",
+          "source_field": "peDynamic",
+          "semantic_status": "source_named"
+        },
+        {
+          "label": "市净率",
+          "value": 9.24,
+          "unit": "倍",
+          "source_field": "pb",
+          "semantic_status": "source_named"
+        }
+      ],
+      "limitations": [
+        "来源响应未提供估值对应的交易日期；sampleDate 为空字符串、sampleshowdate 为 null，保存时间不能代替估值日期。",
+        "动态市盈率的计算口径尚未取得官方方法确认，不能默认为 TTM。",
+        "缺少同口径历史估值及负盈利处理说明，不能计算历史分位或据此判定便宜、贵。"
+      ]
+    }
+  }
+}

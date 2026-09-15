@@ -1,0 +1,173 @@
+{
+  "version": "industry-context-2026-09-14",
+  "retrieved_at": "2026-09-14T12:37:07+00:00",
+  "notes": [
+    "人工核验的行业背景事实快照，非模拟数据；不代表指数成分股盈利，不是历史时点数据库，也不会自动更新。",
+    "period 表示当年1月至该月的累计截止期；相邻累计期的同比增速变化不等于独立月份的环比变化。",
+    "工业两期按同一国家统计局发布页搜索索引中的表3原表行核对，全文直接读取超时；房地产两期已核对发布页全文表1。未核实到具体发布时间的工业数据，保守按发布日23:59:59记录。"
+  ],
+  "sectors": {
+    "399441": {
+      "scope": "医药制造业",
+      "mapping_note": "医药制造业与生物医药指数覆盖范围不同，不能代表成分股盈利。",
+      "metrics": [
+        {
+          "id": "revenue_yoy",
+          "label": "累计营业收入同比",
+          "observations": [
+            {
+              "period": "2026-06",
+              "value": 0,
+              "unit": "%",
+              "published_at": "2026-07-27T23:59:59+08:00",
+              "published_time_precision": "day",
+              "source_url": "https://www.stats.gov.cn/xxgk/sjfb/zxfb2020/202607/t20260727_1964194.html",
+              "source_title": "国家统计局信息公开：2026年1—6月份规模以上工业企业主要财务指标（分行业）"
+            },
+            {
+              "period": "2026-07",
+              "value": -0.1,
+              "unit": "%",
+              "published_at": "2026-08-27T23:59:59+08:00",
+              "published_time_precision": "day",
+              "source_url": "https://www.stats.gov.cn/zwfwck/sjfb/202608/t20260827_1965126.html",
+              "source_title": "2026年1—7月份全国规模以上工业企业利润增长17.6%"
+            }
+          ]
+        },
+        {
+          "id": "profit_yoy",
+          "label": "累计利润总额同比",
+          "observations": [
+            {
+              "period": "2026-06",
+              "value": 4.2,
+              "unit": "%",
+              "published_at": "2026-07-27T23:59:59+08:00",
+              "published_time_precision": "day",
+              "source_url": "https://www.stats.gov.cn/xxgk/sjfb/zxfb2020/202607/t20260727_1964194.html",
+              "source_title": "国家统计局信息公开：2026年1—6月份规模以上工业企业主要财务指标（分行业）"
+            },
+            {
+              "period": "2026-07",
+              "value": 3.8,
+              "unit": "%",
+              "published_at": "2026-08-27T23:59:59+08:00",
+              "published_time_precision": "day",
+              "source_url": "https://www.stats.gov.cn/zwfwck/sjfb/202608/t20260827_1965126.html",
+              "source_title": "2026年1—7月份全国规模以上工业企业利润增长17.6%"
+            }
+          ]
+        }
+      ]
+    },
+    "931775": {
+      "scope": "全国房地产开发企业",
+      "mapping_note": "全国房地产开发企业与房地产指数成分范围不同；销售额和到位资金不能代表成分股盈利。",
+      "metrics": [
+        {
+          "id": "sales_yoy",
+          "label": "累计新建商品房销售额同比",
+          "observations": [
+            {
+              "period": "2026-06",
+              "value": -13.6,
+              "unit": "%",
+              "published_at": "2026-07-15T10:00:00+08:00",
+              "published_time_precision": "time",
+              "source_url": "https://www.stats.gov.cn/zwfwck/sjfb/202607/t20260715_1964126.html",
+              "source_title": "2026年1—6月份全国房地产市场基本情况"
+            },
+            {
+              "period": "2026-07",
+              "value": -13.1,
+              "unit": "%",
+              "published_at": "2026-08-17T15:00:00+08:00",
+              "published_time_precision": "time",
+              "source_url": "https://www.stats.gov.cn/zwfwck/sjfb/202608/t20260817_1965053.html",
+              "source_title": "2026年1—7月份全国房地产市场基本情况"
+            }
+          ]
+        },
+        {
+          "id": "funding_yoy",
+          "label": "累计到位资金同比",
+          "observations": [
+            {
+              "period": "2026-06",
+              "value": -20.2,
+              "unit": "%",
+              "published_at": "2026-07-15T10:00:00+08:00",
+              "published_time_precision": "time",
+              "source_url": "https://www.stats.gov.cn/zwfwck/sjfb/202607/t20260715_1964126.html",
+              "source_title": "2026年1—6月份全国房地产市场基本情况"
+            },
+            {
+              "period": "2026-07",
+              "value": -20.3,
+              "unit": "%",
+              "published_at": "2026-08-17T15:00:00+08:00",
+              "published_time_precision": "time",
+              "source_url": "https://www.stats.gov.cn/zwfwck/sjfb/202608/t20260817_1965053.html",
+              "source_title": "2026年1—7月份全国房地产市场基本情况"
+            }
+          ]
+        }
+      ]
+    },
+    "980017": {
+      "scope": "计算机、通信和其他电子设备制造业",
+      "mapping_note": "宽于芯片指数，不能代表成分股盈利。",
+      "metrics": [
+        {
+          "id": "revenue_yoy",
+          "label": "累计营业收入同比",
+          "observations": [
+            {
+              "period": "2026-06",
+              "value": 18.5,
+              "unit": "%",
+              "published_at": "2026-07-27T23:59:59+08:00",
+              "published_time_precision": "day",
+              "source_url": "https://www.stats.gov.cn/xxgk/sjfb/zxfb2020/202607/t20260727_1964194.html",
+              "source_title": "国家统计局信息公开：2026年1—6月份规模以上工业企业主要财务指标（分行业）"
+            },
+            {
+              "period": "2026-07",
+              "value": 19.4,
+              "unit": "%",
+              "published_at": "2026-08-27T23:59:59+08:00",
+              "published_time_precision": "day",
+              "source_url": "https://www.stats.gov.cn/zwfwck/sjfb/202608/t20260827_1965126.html",
+              "source_title": "2026年1—7月份全国规模以上工业企业利润增长17.6%"
+            }
+          ]
+        },
+        {
+          "id": "profit_yoy",
+          "label": "累计利润总额同比",
+          "observations": [
+            {
+              "period": "2026-06",
+              "value": 96.9,
+              "unit": "%",
+              "published_at": "2026-07-27T23:59:59+08:00",
+              "published_time_precision": "day",
+              "source_url": "https://www.stats.gov.cn/xxgk/sjfb/zxfb2020/202607/t20260727_1964194.html",
+              "source_title": "国家统计局信息公开：2026年1—6月份规模以上工业企业主要财务指标（分行业）"
+            },
+            {
+              "period": "2026-07",
+              "value": 105,
+              "unit": "%",
+              "published_at": "2026-08-27T23:59:59+08:00",
+              "published_time_precision": "day",
+              "source_url": "https://www.stats.gov.cn/zwfwck/sjfb/202608/t20260827_1965126.html",
+              "source_title": "2026年1—7月份全国规模以上工业企业利润增长17.6%"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
