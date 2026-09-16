@@ -7,6 +7,9 @@ import { SectorSummaryTable } from './SectorSummaryTable';
 import { SectorHistory } from './SectorHistory';
 import { researchHref, subjectKey } from '../advice/research-model';
 import { directoryPage } from './fund-directory-model';
+import { MarketDataRefresh } from './MarketDataRefresh';
+import { sectorDetailHref } from './sector-detail-model';
+import './fund-directory.css';
 
 type PeriodStatus = 'strong' | 'neutral' | 'weak' | 'insufficient' | 'stale';
 type PeriodRisk = 'elevated' | 'normal' | 'unknown';
@@ -94,7 +97,7 @@ export type SectorOpportunity = {
   history_source_id?: string | null;
   history_source_code?: string | null;
   history_identity_match?: string | null;
-  updated_at: string;
+  updated_at: string | null;
   as_of: string | null;
   observation_count: number;
   funds: { code: string; name: string; relation_status?: string; relation_reason?: string }[];
@@ -141,6 +144,9 @@ type Universe = {
   last_attempt_at?: string | null;
 };
 type OpportunitiesResponse = {
+  coverage?: { universe_type: string; total: number; industry_current: number;
+    valuation_observations: number; valuation_dated_current: number;
+    price_eligible: { short: number; medium: number; long: number } }[];
   method_version: string;
   generated_at: string;
   items: SectorOpportunity[];
@@ -348,7 +354,7 @@ function PeriodCard({ period }: { period: SectorOpportunityPeriod }) {
   );
 }
 
-function OpportunityCard({ item, heatBasis }: { item: SectorOpportunity; heatBasis?: string }) {
+export function OpportunityCard({ item, heatBasis, from }: { item: SectorOpportunity; heatBasis?: string; from?: string }) {
   const historySource = item.history_source_id ?? item.source_id;
   const historySourceLabel =
     historySource === 'sector_daily.ths'
@@ -364,7 +370,7 @@ function OpportunityCard({ item, heatBasis }: { item: SectorOpportunity; heatBas
       <div className="sector-card-heading">
         <div>
           <h2>
-            <Link to={researchHref(item)}>{item.name}</Link>
+            <Link to={sectorDetailHref(item, from)}>{item.name}</Link>
           </h2>
           <span>
             {item.code} · 行情 {historySourceLabel ?? '暂缺'}
@@ -668,6 +674,17 @@ export function SectorOpportunities() {
           {refreshing ? '重新评估中…' : '重新评估'}
         </button>
       </div>
+      <MarketDataRefresh target="sectors" onSettled={() => load(true)} />
+      <p className="muted">“获取最新行业数据”联网采集名单、日线和成分，完成后自动重读评估；“重新评估”只读本地资料。经营／估值人工快照不会自动刷新；已有参考指数请从关联基金详情更新。</p>
+      {data?.coverage && <section className="sector-coverage" aria-label="板块研究数据覆盖">
+        <strong>当前资料覆盖，不是投资评分</strong>
+        {data.coverage.map((coverage) => <p key={coverage.universe_type}>
+          {coverage.universe_type === 'hot_board' ? '行业／板块池' : '参考指数池'}：共 {coverage.total} 个；
+          短／中／长期可比较 {coverage.price_eligible.short}／{coverage.price_eligible.medium}／{coverage.price_eligible.long} 个；
+          有效经营依据 {coverage.industry_current} 个；估值原始观察 {coverage.valuation_observations} 个，其中日期明确且未过期 {coverage.valuation_dated_current} 个。
+        </p>)}
+        <p>尚缺同口径历史估值、成分盈利与现金流穿透、资金申赎及催化／预期快照、完整交易日历和样本外验证；本页面不生成正式投资推荐。</p>
+      </section>}
       {data?.universe && (
         <div className="sector-universe-meta">
           <strong>{data.universe.label}</strong>
@@ -870,6 +887,7 @@ export function SectorOpportunities() {
                 key={subjectKey(item)}
                 item={item}
                 heatBasis={data.universe?.heat_basis}
+                from={`/sectors?${params}`}
               />
             ))}
           </div>

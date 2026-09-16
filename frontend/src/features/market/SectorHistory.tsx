@@ -18,13 +18,17 @@ type History = {
 export function SectorHistory({ item }: { item: SectorOpportunity }) {
   const [open, setOpen] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [data, setData] = useState<History | null>(null);
-  const [error, setError] = useState('');
+  const requestKey = JSON.stringify([item.code, item.source_id, item.universe_type, item.updated_at, item.as_of,
+    item.collection_error, item.history_source_id, item.history_source_code]);
+  const [loaded, setLoaded] = useState<{ key: string; history: History } | null>(null);
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+  const data = loaded?.key === requestKey ? loaded.history : null;
+  const error = failure?.key === requestKey ? failure.message : '';
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
-    setError('');
-    setData(null);
+    setFailure(null);
+    setLoaded(null);
     const universe = item.universe_type ?? 'tracked_index';
     const params = new URLSearchParams({ source_id: item.source_id, universe_type: universe });
     fetch(`/api/sectors/${encodeURIComponent(item.code)}/series?${params}`, {
@@ -56,14 +60,14 @@ export function SectorHistory({ item }: { item: SectorOpportunity }) {
             throw new Error('行情字段无效');
           dates.add(row.date);
         }
-        setData(result);
+        setLoaded({ key: requestKey, history: result });
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted)
-          setError(cause instanceof Error ? cause.message : '行情加载失败');
+          setFailure({ key: requestKey, message: cause instanceof Error ? cause.message : '行情加载失败' });
       });
     return () => controller.abort();
-  }, [open, retry, item.code, item.source_id, item.universe_type]);
+  }, [open, retry, requestKey, item.code, item.source_id, item.universe_type]);
   const option: EChartsOption = {
     animation: false,
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },

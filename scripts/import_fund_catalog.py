@@ -20,19 +20,23 @@ def fetch_catalog():
     return frame.to_dict(orient="records")
 
 
+def refresh_fund_catalog(settings: Settings, *, registry_path=None) -> dict:
+    """One reviewed network collection path shared by the CLI and the web refresh worker."""
+    registry = load_registry(registry_path) if registry_path else load_registry()
+    sources = (sources_for("fund_catalog", "catalog_seed", path=registry_path)
+               if registry_path else sources_for("fund_catalog", "catalog_seed"))
+    source = next(item for item in sources if item["id"] == "fund_catalog.eastmoney" and item["automatic"])
+    return import_catalog(settings, fetch_catalog(), policy_version=registry["policy_version"], source_id=source["id"])
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=None)
     parser.add_argument("--registry", default=None)
     args = parser.parse_args(argv)
     try:
-        registry = load_registry(args.registry) if args.registry else load_registry()
-        source = (sources_for("fund_catalog", "catalog_seed", path=args.registry)
-                  if args.registry else sources_for("fund_catalog", "catalog_seed"))
-        source = next(item for item in source if item["id"] == "fund_catalog.eastmoney" and item["automatic"])
-        rows = fetch_catalog()
         settings = Settings.from_env() if args.database is None else Settings(database_path=Path(args.database))
-        result = import_catalog(settings, rows, policy_version=registry["policy_version"], source_id=source["id"])
+        result = refresh_fund_catalog(settings, registry_path=args.registry)
     except Exception as exc:
         print(f"导入失败: {exc}", file=sys.stderr)
         return 2

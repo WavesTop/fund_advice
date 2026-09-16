@@ -11,7 +11,7 @@ from backend.core.config import Settings
 from backend.storage.database import connection_scope
 from backend.storage.related_market import current_associations
 from backend.analysis.sector_evidence import (
-    assess_opportunity, industry_context, load_industry_evidence, valuation_context,
+    assess_opportunity, evidence_matches, industry_context, load_industry_evidence, valuation_context,
 )
 from backend.analysis.sector_strength import attach_strength, build_advantage_summary
 from backend.analysis.research_view import attach_research_views
@@ -143,8 +143,9 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
         boards.append({**board, **analyzed})
     items = boards + items
     for item in items:
-        item["industry"] = industry_context(evidence, item["code"], now)
-        item["valuation"] = valuation_context(item["code"], now)
+        context_code = item["code"] if evidence_matches(evidence["sectors"].get(item["code"]), item) else ""
+        item["industry"] = industry_context(evidence, context_code, now)
+        item["valuation"] = valuation_context(item["code"], now, subject=item)
         for period in item["periods"]:
             period["opportunity"] = assess_opportunity(period, item["industry"], item["valuation"])
     comparison_dates = {}
@@ -157,7 +158,18 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     attach_strength(items, comparison_dates)
     advantages = build_advantage_summary(items)
     attach_research_views(items, generated_at=now.isoformat(timespec="seconds"))
-    return {"method_version": "evidence-screen-v2", "price_method_version": METHOD_VERSION,
+    coverage = []
+    for universe in ("hot_board", "tracked_index"):
+        group = [item for item in items if item["universe_type"] == universe]
+        coverage.append({"universe_type": universe, "total": len(group),
+                         "price_eligible": {key: sum(any(p["id"] == key and p["strength"]["eligible"] for p in item["periods"])
+                                                     for item in group) for key in ("short", "medium", "long")},
+                         "industry_current": sum(item["industry"]["status"] in ("supportive", "mixed", "pressured") for item in group),
+                         "valuation_observations": sum(bool(item["valuation"]["metrics"]) for item in group),
+                         "valuation_dated_current": sum(item["valuation"]["status"] == "available" and bool(item["valuation"]["as_of"]) for item in group),
+                         "formal_recommendation_ready": False})
+    return {"method_version": "evidence-screen-v3", "price_method_version": METHOD_VERSION,
+            "strength_method_version": "common-window-quartile-v2", "coverage": coverage,
             "evidence_version": evidence["version"], "generated_at": now.isoformat(timespec="seconds"),
             "universe": heat["universe"], "advantages": advantages,
             "comparison_as_of": comparison_dates, "turnover_as_of": heat["universe"].get("ranking_as_of"),

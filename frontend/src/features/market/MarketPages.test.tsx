@@ -45,7 +45,7 @@ describe('真实基金目录', () => {
         JSON.stringify({
           items: [],
           page: 1,
-          page_size: 20,
+          page_size: 6,
           total: 27843,
           catalog_total: 27843,
           updated_at: '2026-09-13T10:00:00Z',
@@ -57,7 +57,7 @@ describe('真实基金目录', () => {
     await waitFor(() => expect(screen.getByText(/已收录 27843 条/)).toBeInTheDocument());
     expect(screen.getByText('搜索“510050”')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith('/api/funds?q=&page=1&page_size=20', expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith('/api/funds?q=&page=1&page_size=6', expect.anything());
   });
   it('提交搜索后展示真实结果并链接到详情', async () => {
     const fetchMock = vi
@@ -67,7 +67,7 @@ describe('真实基金目录', () => {
           JSON.stringify({
             items: [],
             page: 1,
-            page_size: 20,
+            page_size: 6,
             total: 27843,
             catalog_total: 27843,
             updated_at: null,
@@ -88,7 +88,7 @@ describe('真实基金目录', () => {
               },
             ],
             page: 1,
-            page_size: 20,
+            page_size: 6,
             total: 1,
             catalog_total: 27843,
             updated_at: '2026-09-13T10:00:00Z',
@@ -102,7 +102,7 @@ describe('真实基金目录', () => {
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
     await waitFor(() => expect(screen.getByText('真实成长基金')).toBeInTheDocument());
     expect(fetchMock).toHaveBeenLastCalledWith(
-      '/api/funds?q=%E6%88%90%E9%95%BF&page=1&page_size=20',
+      '/api/funds?q=%E6%88%90%E9%95%BF&page=1&page_size=6',
       expect.anything(),
     );
     expect(screen.getByRole('link', { name: '真实成长基金' })).toHaveAttribute(
@@ -117,7 +117,7 @@ describe('真实基金目录', () => {
           JSON.stringify({
             items: [],
             page: 1,
-            page_size: 20,
+            page_size: 6,
             total: 0,
             catalog_total: 27843,
             updated_at: null,
@@ -151,7 +151,7 @@ describe('真实基金目录', () => {
     fireEvent.click(screen.getByRole('button', { name: /^510050$/ }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenLastCalledWith(
-        '/api/funds?q=510050&page=1&page_size=20',
+        '/api/funds?q=510050&page=1&page_size=6',
         expect.anything(),
       ),
     );

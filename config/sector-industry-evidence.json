@@ -59,7 +59,11 @@
             }
           ]
         }
-      ]
+      ],
+      "subject": {
+        "universe_type": "tracked_index",
+        "source_id": "index_daily.sina"
+      }
     },
     "931775": {
       "scope": "全国房地产开发企业",
@@ -113,7 +117,11 @@
             }
           ]
         }
-      ]
+      ],
+      "subject": {
+        "universe_type": "tracked_index",
+        "source_id": "index_daily.csi_official"
+      }
     },
     "980017": {
       "scope": "计算机、通信和其他电子设备制造业",
@@ -167,7 +175,11 @@
             }
           ]
         }
-      ]
+      ],
+      "subject": {
+        "universe_type": "tracked_index",
+        "source_id": "index_daily.sina"
+      }
     }
   }
 }

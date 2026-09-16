@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import FastAPI, Query
 
 from backend.core.config import Settings
+from backend.integrations.market_refresh import refresh_market_data
 from backend.core.errors import AppError, app_error_handler, unexpected_error_handler
 from backend.storage.database import connection_scope, migrate, sqlite_runtime_info
 from backend.storage.catalog import list_catalog
@@ -72,6 +73,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def sector_series(code: str, source_id: str, universe_type: Literal["hot_board", "tracked_index"],
                       start: str | None = None, end: str | None = None) -> dict[str, object]:
         return market_series(resolved, code, source_id=source_id, universe_type=universe_type, start=start, end=end)
+
+    @app.post("/api/funds/catalog/refresh")
+    def refresh_catalog() -> dict[str, object]:
+        return refresh_market_data(resolved, "catalog")
+
+    @app.post("/api/sectors/refresh")
+    def refresh_sectors() -> dict[str, object]:
+        return refresh_market_data(resolved, "sectors")
+
+    @app.get("/api/sectors/{code}")
+    def sector_detail(code: str, source_id: str, universe_type: Literal["hot_board", "tracked_index"]) -> dict[str, object]:
+        result = sector_opportunities(resolved)
+        matched = [item for item in result["items"] if item["code"] == code
+                   and item["source_id"] == source_id and item["universe_type"] == universe_type]
+        if len(matched) != 1:
+            raise AppError("sector_not_found", "未找到该来源与研究范围下的真实板块；未回退到演示数据", 404)
+        return {"item": matched[0], "generated_at": result["generated_at"], "method_version": result["method_version"]}
 
     @app.post("/api/funds/{code}/refresh")
     def refresh_fund(code: str) -> dict[str, object]:

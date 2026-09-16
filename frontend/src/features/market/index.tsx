@@ -35,6 +35,7 @@ import { SectorOpportunities } from './SectorOpportunities';
 import { FundDirectory as RealFundDirectory } from './FundDirectory';
 import { researchHref, safeReturnPath, sourceHref } from '../advice/research-model';
 import { commonDates, alignRows, rangeDates } from './series-alignment';
+import { RealSectorDetail } from './RealSectorDetail';
 
 const dateOf = (fund: MarketFund) => (fund.historical ? '2025-12-31' : DATA_DATE);
 const coverageTone = (coverage: string) =>
@@ -1852,6 +1853,11 @@ export function SectorsPage() {
 }
 
 export function SectorDetailPage() {
+  const [params] = useSearchParams();
+  return params.has('source_id') || params.has('universe_type') ? <RealSectorDetail /> : <DemoSectorDetailPage />;
+}
+
+function DemoSectorDetailPage() {
   const { sector: name } = useParams();
   const [params] = useSearchParams();
   const [trendRange, setTrendRange] = useState('quarter');

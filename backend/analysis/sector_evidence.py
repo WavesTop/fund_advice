@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime
+from datetime import date, datetime
+import re
+from calendar import monthrange
 from pathlib import Path
 
 from backend.core.errors import AppError
@@ -13,25 +15,44 @@ VALUATION_PATH = EVIDENCE_PATH.with_name("sector-valuation-evidence.json")
 INDUSTRY_MAX_AGE_DAYS = 45
 
 
+def evidence_matches(record: dict | None, subject: dict) -> bool:
+    """An explicit researched identity, never a same-code/name cross-provider guess."""
+    identity = record.get("subject") if isinstance(record, dict) else None
+    return isinstance(identity, dict) and all(bool(identity.get(key)) and identity.get(key) == subject.get(key)
+                                              for key in ("source_id", "universe_type"))
+
+
 def load_industry_evidence() -> dict:
     try:
         evidence = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
-        if not isinstance(evidence.get("sectors"), dict):
+        if not isinstance(evidence, dict) or not isinstance(evidence.get("sectors"), dict):
             raise ValueError("missing sectors")
         if datetime.fromisoformat(evidence["retrieved_at"]).tzinfo is None:
             raise ValueError("missing retrieval timezone")
+        if not isinstance(evidence.get("version"), str) or not evidence["version"]:
+            raise ValueError("missing evidence version")
         for sector in evidence["sectors"].values():
+            identifiers = set()
             for metric in sector["metrics"]:
+                if metric["id"] in identifiers:
+                    raise ValueError("duplicate industry metric")
+                identifiers.add(metric["id"])
                 periods = set()
                 for row in metric["observations"]:
                     if row["period"] in periods or row["unit"] != "%":
                         raise ValueError("duplicate period or wrong unit")
+                    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", row["period"]):
+                        raise ValueError("invalid cumulative period")
                     periods.add(row["period"])
                     if not isinstance(row["value"], (int, float)) or isinstance(row["value"], bool) or not math.isfinite(row["value"]):
                         raise ValueError("invalid industry number")
-                    if datetime.fromisoformat(row["published_at"]).tzinfo is None:
+                    published = datetime.fromisoformat(row["published_at"])
+                    if published.tzinfo is None:
                         raise ValueError("missing publication timezone")
-                    if not row["source_url"].startswith("https://www.stats.gov.cn/"):
+                    year, month = map(int, row["period"].split("-"))
+                    if date(year, month, monthrange(year, month)[1]) > published.date():
+                        raise ValueError("report period ends after publication")
+                    if not isinstance(row["source_url"], str) or not row["source_url"].startswith("https://www.stats.gov.cn/"):
                         raise ValueError("unverified industry source")
         return evidence
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -78,27 +99,39 @@ def industry_context(evidence: dict, code: str, now: datetime) -> dict:
         metrics = result["metrics"]
         if len({m["latest"]["period"] for m in metrics}) != 1 or len({m["previous"]["period"] for m in metrics}) != 1:
             result["summary"] = "指标报告期不一致，不能合并判断。"
+        elif any(m["latest"]["period"][:4] != m["previous"]["period"][:4]
+                 or int(m["latest"]["period"][5:]) != int(m["previous"]["period"][5:]) + 1 for m in metrics):
+            result["summary"] = "累计指标不是同年度相邻报告期，不能据此判断持续改善。"
         elif all(m["latest"]["value"] < 0 for m in metrics):
             result.update(status="pressured", label="行业经营承压", summary="两项关键指标仍同比下降；降幅变化需分别核查，不能把价格反弹当作经营修复。")
         elif all(m["latest"]["value"] > 0 and m["previous"]["value"] > 0 for m in metrics):
-            result.update(status="supportive", label="行业增长线索", summary="相邻两期累计收入、利润均同比增长；这是行业背景支持，尚不能证明指数成分公司同步改善。")
+            result.update(status="supportive", label="行业增长线索", summary="同年度相邻两期的关键累计指标均同比增长；这是行业背景支持，尚不能证明指数成分公司同步改善。")
         else:
             result.update(status="mixed", label="行业表现分化", summary="收入与利润或两期指标未同步向好，需核查利润增长质量和需求是否兑现。")
     return result
 
 
-def valuation_context(code: str, now: datetime) -> dict:
+def valuation_context(code: str, now: datetime, *, subject: dict | None = None) -> dict:
     result = {"status": "missing", "summary": "尚缺同口径指数估值及历史位置，无法判断利好是否已充分计价。",
               "pe_ttm": None, "as_of": None, "source_url": None, "observed_at": None, "metrics": []}
     try:
         snapshot = json.loads(VALUATION_PATH.read_text(encoding="utf-8"))
+        if not isinstance(snapshot, dict) or not isinstance(snapshot.get("indexes"), dict):
+            raise ValueError("invalid valuation snapshot")
         observed = datetime.fromisoformat(snapshot["retrieved_at"])
         record = snapshot["indexes"].get(code)
-        if observed > now or record is None:
+        if observed.tzinfo is None:
+            raise ValueError("missing valuation retrieval timezone")
+        if observed > now or record is None or (subject is not None and not evidence_matches(record, subject)):
             return result
+        business_date = date.fromisoformat(record["as_of"]) if record["as_of"] is not None else None
+        if business_date is not None and (business_date.isoformat() != record["as_of"]
+                or business_date > min(now.date(), observed.astimezone(now.tzinfo).date())):
+            raise ValueError("future valuation business date")
         result.update(as_of=record["as_of"], source_url=record["source_url"], observed_at=snapshot["retrieved_at"])
         result["metrics"] = [{"label": m["label"], "value": m["value"], "unit": m["unit"]} for m in record["metrics"]]
-        if any(not math.isfinite(m["value"]) for m in result["metrics"]):
+        if not result["metrics"] or any(isinstance(m["value"], bool)
+                or not isinstance(m["value"], (int, float)) or not math.isfinite(m["value"]) for m in result["metrics"]):
             raise ValueError("invalid valuation number")
         result["status"] = "available"
         limitations = (
@@ -108,13 +141,15 @@ def valuation_context(code: str, now: datetime) -> dict:
         )
         # These snapshots have no comparable history or confirmed methodology.
         # Display the observation but never label it cheap/expensive or as TTM.
-        if (now.date() - observed.date()).days > 10:
+        if ((now.date() - observed.astimezone(now.tzinfo).date()).days > 10
+                or (business_date is not None and (now.date() - business_date).days > 10)):
             result["status"] = "not_applicable"
-            limitations = "该观察快照已超过 10 个自然日，仅供核对旧资料。 " + limitations
+            limitations = "估值业务日期或观察快照已超过 10 个自然日，仅供核对旧资料。 " + limitations
         result["summary"] = limitations
         return result
     except (OSError, ValueError, KeyError, TypeError):
-        result.update(status="missing", summary="估值快照缺失或无效，需核查来源后补充。", metrics=[])
+        result.update(status="missing", summary="估值快照缺失或无效，需核查来源后补充。", metrics=[],
+                      as_of=None, source_url=None, observed_at=None)
         return result
 
 
@@ -158,13 +193,16 @@ def assess_opportunity(period: dict, industry: dict, valuation: dict) -> dict:
         result["conditions"] = ["未来 3—6 个月：验证盈利增长和现金流能否持续，再结合估值判断当前价格是否留有回报空间。"]
         result["missing"].append("相邻累计报告期大部分月份重叠，不足以证明未来 3—6 个月的持续性。")
 
+    property_metrics = {metric["id"] for metric in industry["metrics"]} == {"sales_yoy", "funding_yoy"}
     if fundamentals == "pressured":
         result.update(status="conflict" if price == "strong" else "risk",
                       label="反弹与经营分歧" if price == "strong" else {
                           "short": "近期修复依据不足", "medium": "经营压力待缓解", "long": "修复持续性待证实",
                       }[horizon],
-                      summary="行业销售和到位资金仍同比下降，价格变化尚不足以证实修复逻辑。")
-        result["conditions"].append("继续核对销售回款与到位资金是否同步修复；资金压力加深将削弱修复假设。")
+                      summary=("行业销售和到位资金仍同比下降，价格变化尚不足以证实修复逻辑。" if property_metrics else
+                               "行业收入和利润仍同比下降，价格变化尚不足以证实经营修复。"))
+        result["conditions"].append("继续核对销售回款与到位资金是否同步修复；资金压力加深将削弱修复假设。" if property_metrics else
+                                    "继续核对收入、利润及经营现金流是否修复；经营恶化将削弱修复假设。")
     elif fundamentals == "mixed":
         result.update(status="conflict" if price == "strong" else "watch", label={
             "short": "近期缺少明确上涨依据", "medium": "利润增长尚未得到收入支持", "long": "持续增长证据不足",

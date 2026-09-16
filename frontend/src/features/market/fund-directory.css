@@ -1,0 +1,21 @@
+.fund-directory-layout { min-width: 0; }
+.fund-directory-refresh, .fund-results-heading { margin: 0; padding: 0 24px 18px; }
+.market-data-refresh { min-width: 0; }
+.market-data-refresh p { margin: 10px 0 0; overflow-wrap: anywhere; font-size: 13px; }
+.fund-card-grid { list-style: none; display: grid; gap: 16px; margin: 0; padding: 0 24px 24px; }
+.fund-search-card { min-width: 0; padding: 20px; border: 1px solid var(--border, #e4e9ee); border-radius: 12px; background: var(--surface, #fff); }
+.fund-search-card article { display: flex; flex-direction: column; height: 100%; gap: 10px; overflow-wrap: anywhere; }
+.fund-search-card h4, .fund-search-card p { margin: 0; }
+.fund-search-card h4 { font-size: 15px; line-height: 1.6; }
+.fund-card-identity { font-variant-numeric: tabular-nums; font-size: 13px; }
+.fund-card-sectors { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border, #e4e9ee); font-size: 13px; }
+.fund-card-sectors > strong { display: block; margin-bottom: 8px; }
+.fund-search-card a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+.real-fund-catalog .catalog-progress, .real-fund-catalog .market-pagination { flex-wrap: wrap; }
+.sector-coverage { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--border, #e4e9ee); border-radius: 10px; }
+.sector-coverage p { margin: 0; font-size: 13px; }
+@media (max-width: 600px) {
+  .fund-card-grid { padding-right: 12px; padding-left: 12px; }
+  .fund-search-card { padding: 16px; }
+  .real-fund-catalog .market-list-heading { flex-wrap: wrap; }
+}

@@ -23,7 +23,7 @@ def build_advantage_summary(items: list[dict]) -> list[dict]:
                 continue
             eligible_count += 1
             strength = period["strength"]
-            if (strength.get("percentile") or 0) < 75 or period["status"] not in ("strong", "neutral"):
+            if not strength.get("top_quartile", (strength.get("percentile") or 0) >= 75) or period["status"] not in ("strong", "neutral"):
                 continue
             if period["status"] == "strong":
                 tier = "high_volatility_leader" if period["risk"] == "elevated" else "trend_leader"
@@ -107,6 +107,7 @@ def attach_strength(items: list[dict], ranking_as_of: str | Mapping[str, str | N
                 period["strength"].update(
                     rank=1 + sum(other > value for other in values),
                     tied_count=equal,
+                    top_quartile=count > 1 and 4 * below + 2 * (equal - 1) >= 3 * (count - 1),
                     percentile=round(100 * (below + (equal - 1) / 2) / (count - 1), 1) if count > 1 else None,
                     reason="只有一个可比较样本，不能计算相对强度分位。" if count == 1 else "",
                 )

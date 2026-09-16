@@ -18,7 +18,11 @@
       "limitations": [
         "字段释义仅依据 AKShare 的列映射，尚未取得官方计算方法确认；不能将 peg 字段直接解释为市盈率与增长率之比。",
         "缺少同口径历史估值分位及负盈利处理说明，不能据此判定便宜或贵。"
-      ]
+      ],
+      "subject": {
+        "universe_type": "tracked_index",
+        "source_id": "index_daily.csi_official"
+      }
     },
     "399441": {
       "as_of": null,
@@ -50,7 +54,11 @@
         "来源响应未提供估值对应的交易日期；sampleDate 为空字符串、sampleshowdate 为 null，保存时间不能代替估值日期。",
         "动态市盈率的计算口径尚未取得官方方法确认，不能默认为 TTM。",
         "缺少同口径历史估值及负盈利处理说明，不能计算历史分位或据此判定便宜、贵。"
-      ]
+      ],
+      "subject": {
+        "universe_type": "tracked_index",
+        "source_id": "index_daily.sina"
+      }
     },
     "980017": {
       "as_of": null,
@@ -82,7 +90,11 @@
         "来源响应未提供估值对应的交易日期；sampleDate 为空字符串、sampleshowdate 为 null，保存时间不能代替估值日期。",
         "动态市盈率的计算口径尚未取得官方方法确认，不能默认为 TTM。",
         "缺少同口径历史估值及负盈利处理说明，不能计算历史分位或据此判定便宜、贵。"
-      ]
+      ],
+      "subject": {
+        "universe_type": "tracked_index",
+        "source_id": "index_daily.sina"
+      }
     }
   }
 }

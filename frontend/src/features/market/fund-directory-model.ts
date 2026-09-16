@@ -1,4 +1,19 @@
+export interface DirectorySector {
+  code: string;
+  name: string;
+  source_id: string;
+  universe_type: 'tracked_index';
+  relation_source_id: string;
+  verified_at: string;
+  evidence_url: string;
+}
+export function directoryLayout(width: number): { columns: number; pageSize: 6 | 8 } {
+  return width >= 1180 ? { columns: 4, pageSize: 8 } : { columns: width >= 840 ? 3 : width >= 560 ? 2 : 1, pageSize: 6 };
+}
 export interface DirectoryFund {
+  related_sectors?: DirectorySector[];
+  relation_status?: 'linked' | 'withheld' | 'missing';
+  relation_reason?: string;
   share_id: string;
   code: string;
   name: string;
@@ -32,6 +47,21 @@ export function parseDirectory(raw: unknown): DirectoryResult {
     if (!['share_id', 'code', 'name', 'fund_type', 'source_id'].every((key) => typeof fund[key] === 'string')
         || !/^\d{6}$/.test(String(fund.code)) || !String(fund.share_id) || !String(fund.name)
         || identities.has(String(fund.share_id))) throw new Error('基金身份缺失或重复，未填入示例基金。');
+    if (fund.relation_status !== undefined && !['linked', 'withheld', 'missing'].includes(String(fund.relation_status))) throw new Error('基金关联状态无效。');
+    if (fund.relation_reason !== undefined && typeof fund.relation_reason !== 'string') throw new Error('基金关联原因格式无效。');
+    if (fund.related_sectors !== undefined) {
+      if (!Array.isArray(fund.related_sectors) || !fund.related_sectors.every((entry) => {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return false;
+        const sector = entry as Record<string, unknown>;
+        return ['code', 'name', 'source_id', 'relation_source_id', 'verified_at', 'evidence_url'].every((key) => typeof sector[key] === 'string' && Boolean(String(sector[key]).trim()))
+          && sector.universe_type === 'tracked_index'
+          && Number.isFinite(Date.parse(String(sector.verified_at)))
+          && /(?:Z|[+-]\d{2}:\d{2})$/.test(String(sector.verified_at))
+          && /^https?:\/\//.test(String(sector.evidence_url));
+      })) throw new Error('关联板块缺少来源或核验信息，未生成详情链接。');
+    }
+    if (fund.relation_status === 'linked' && (!Array.isArray(fund.related_sectors) || fund.related_sectors.length !== 1)) throw new Error('已核验关联必须指向唯一板块。');
+    if (['withheld', 'missing'].includes(String(fund.relation_status)) && Array.isArray(fund.related_sectors) && fund.related_sectors.length) throw new Error('未核验关联不能提供当前板块链接。');
     identities.add(String(fund.share_id));
   }
   if (result.collection !== undefined && result.collection !== null) {

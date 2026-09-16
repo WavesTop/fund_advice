@@ -6,7 +6,7 @@ import { directoryPage, parseDirectory } from './fund-directory-model';
 
 const result = (code: string, name: string, page = 1) => ({
   items: [{ code, name, share_id: code, fund_type: '测试类型', source_id: 'fixture.catalog' }],
-  page, page_size: 20, total: 40, catalog_total: 40, updated_at: '2026-09-15T10:00:00Z',
+  page, page_size: 6, total: 40, catalog_total: 40, updated_at: '2026-09-15T10:00:00Z',
 });
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
 

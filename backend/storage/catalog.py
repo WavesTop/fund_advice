@@ -95,9 +95,11 @@ def list_catalog(settings: Settings, query: str = "", page: int = 1, page_size: 
     where = ""
     params: list[Any] = []
     if q:
-        where = " WHERE code LIKE ? OR name LIKE ?"
-        params.extend([f"%{q}%", f"%{q}%"])
+        where = " WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\'"
+        literal = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        params.extend([f"%{literal}%", f"%{literal}%"])
     with connection_scope(settings) as connection:
+        connection.execute("BEGIN")
         catalog_total = connection.execute("SELECT COUNT(*) FROM fund_catalog_projection").fetchone()[0]
         total = connection.execute(f"SELECT COUNT(*) FROM fund_catalog_projection{where}", params).fetchone()[0]
         offset = (page - 1) * page_size
@@ -105,6 +107,25 @@ def list_catalog(settings: Settings, query: str = "", page: int = 1, page_size: 
             f"SELECT share_id, code, name, fund_type, source_id FROM fund_catalog_projection{where} ORDER BY code LIMIT ? OFFSET ?",
             [*params, page_size, offset],
         )]
+        # Local import avoids catalog <-> related_market import-time recursion.
+        from backend.storage.related_market import current_associations
+        relations = current_associations(connection, generated_at=_now(), fund_codes=[item["code"] for item in items])
+        by_fund: dict[str, list[dict]] = {}
+        for relation in relations:
+            by_fund.setdefault(relation["code"], []).append(relation)
+        for item in items:
+            known = by_fund.get(item["code"], [])
+            linked = [relation for relation in known if relation["relation_status"] == "linked"]
+            item["related_sectors"] = [{
+                "code": relation["index_code"], "name": relation["index_name"],
+                "source_id": relation["market_source_id"], "universe_type": "tracked_index",
+                "relation_source_id": relation["relation_source_id"],
+                "verified_at": relation["verified_at"], "evidence_url": relation["evidence_url"],
+            } for relation in linked] if len(linked) == 1 else []
+            item["relation_status"] = "linked" if len(linked) == 1 else "withheld" if known else "missing"
+            item["relation_reason"] = ("明确跟踪关系，不代表基金已通过投资筛选。" if len(linked) == 1 else
+                                       "关系待核验；进入基金详情获取或核对资料。" if known else
+                                       "尚无已核验板块关联；不按基金名称推断。")
         latest = connection.execute("SELECT committed_at FROM fund_catalog_import_batch ORDER BY id DESC LIMIT 1").fetchone()
         collected = connection.execute("SELECT COUNT(DISTINCT code) FROM fund_timeseries_projection").fetchone()[0]
         latest_run = connection.execute(

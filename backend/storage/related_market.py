@@ -68,7 +68,10 @@ def record_relation_check(settings: Settings, fund_code: str, *, outcome: str, e
         )
 
 
-def current_associations(connection, *, generated_at: str) -> list[dict[str, object]]:
+def current_associations(connection, *, generated_at: str, fund_codes: list[str] | None = None) -> list[dict[str, object]]:
+    if fund_codes == []:
+        return []
+    where = " WHERE f.code IN (" + ",".join("?" for _ in fund_codes) + ")" if fund_codes else ""
     rows = [dict(row) for row in connection.execute(
         """SELECT f.code,f.name,r.index_code,r.relation_type,r.source_id AS relation_source_id,
                   r.evidence_url,r.verified_at,i.name AS index_name,i.source_id AS market_source_id,
@@ -78,7 +81,7 @@ def current_associations(connection, *, generated_at: str) -> list[dict[str, obj
            JOIN market_index_projection i ON i.code=r.index_code
            LEFT JOIN fund_relation_verification v ON v.id=(
                SELECT MAX(id) FROM fund_relation_verification WHERE fund_code=r.fund_code)
-           ORDER BY f.code,r.index_code,r.relation_type""")]
+        """ + where + " ORDER BY f.code,r.index_code,r.relation_type", fund_codes or [])]
     now = timestamp(generated_at)
     if now is None:
         raise ValueError("generated_at must include a timezone")
@@ -113,7 +116,7 @@ def get_related_markets(settings: Settings, fund_code: str) -> list[dict[str, ob
     get_fund(settings, fund_code)
     with connection_scope(settings) as connection:
         connection.execute("BEGIN")
-        relations = [row for row in current_associations(connection, generated_at=_now()) if row["code"] == fund_code]
+        relations = current_associations(connection, generated_at=_now(), fund_codes=[fund_code])
         result = []
         for relation in relations:
             rows = []

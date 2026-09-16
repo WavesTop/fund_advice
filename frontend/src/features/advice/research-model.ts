@@ -47,7 +47,7 @@ export interface ResearchItem {
   universe_type?: 'hot_board' | 'tracked_index';
   kind?: string;
   as_of: string | null;
-  updated_at: string;
+  updated_at: string | null;
   collection_error?: string | null;
   periods: ResearchPeriod[];
   funds: { code: string; name: string }[];
@@ -155,7 +155,8 @@ export function parseResearchResponse(raw: unknown): ResearchResponse {
   }
   const keys = new Set<string>();
   for (const item of raw.items) {
-    if (!record(item) || !['code', 'name', 'source_id', 'updated_at'].every((key) => typeof item[key] === 'string')
+    if (!record(item) || !['code', 'name', 'source_id'].every((key) => typeof item[key] === 'string')
+        || !(item.updated_at === null || typeof item.updated_at === 'string')
         || !(item.as_of === null || typeof item.as_of === 'string')
         || (item.universe_type !== undefined && !['hot_board', 'tracked_index'].includes(String(item.universe_type)))
         || !Array.isArray(item.periods) || !item.periods.every(validPeriod)
