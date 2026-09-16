@@ -87,13 +87,26 @@ def import_catalog(settings: Settings, rows: Iterable[Mapping[str, Any]], *, pol
     return {"batch_id": batch_id, "row_count": len(normalized), "updated_at": now}
 
 
-def list_catalog(settings: Settings, query: str = "", page: int = 1, page_size: int = 20) -> dict[str, Any]:
+def list_catalog(settings: Settings, query: str = "", page: int = 1, page_size: int = 20,
+                 *, codes: str | None = None) -> dict[str, Any]:
     if page < 1 or page_size < 1 or page_size > 100:
         raise AppError("invalid_pagination", "page必须大于等于1，page_size必须在1到100之间", 422)
     migrate(settings)
     q = query.strip()
     where = ""
     params: list[Any] = []
+    order = "code"
+    order_params: list[str] = []
+    if codes is not None:
+        raw_codes = codes.split(",") if codes else []
+        if q or len(raw_codes) > 60 or any(len(code) != 6 or not code.isascii() or not code.isdigit() for code in raw_codes):
+            raise AppError("invalid_fund_codes", "浏览代码须为最多60个六位数字，且不能与关键词同时查询", 422)
+        selected = list(dict.fromkeys(raw_codes))
+        where = " WHERE code IN (" + ",".join("?" for _ in selected) + ")" if selected else " WHERE 0"
+        params.extend(selected)
+        if selected:
+            order = "CASE code " + " ".join(f"WHEN ? THEN {index}" for index in range(len(selected))) + " END"
+            order_params = selected
     if q:
         where = " WHERE code LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\'"
         literal = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -104,8 +117,8 @@ def list_catalog(settings: Settings, query: str = "", page: int = 1, page_size: 
         total = connection.execute(f"SELECT COUNT(*) FROM fund_catalog_projection{where}", params).fetchone()[0]
         offset = (page - 1) * page_size
         items = [dict(row) for row in connection.execute(
-            f"SELECT share_id, code, name, fund_type, source_id FROM fund_catalog_projection{where} ORDER BY code LIMIT ? OFFSET ?",
-            [*params, page_size, offset],
+            f"SELECT share_id, code, name, fund_type, source_id FROM fund_catalog_projection{where} ORDER BY {order} LIMIT ? OFFSET ?",
+            [*params, *order_params, page_size, offset],
         )]
         # Local import avoids catalog <-> related_market import-time recursion.
         from backend.storage.related_market import current_associations
@@ -137,6 +150,6 @@ def list_catalog(settings: Settings, query: str = "", page: int = 1, page_size: 
                 "SELECT COUNT(*) FROM fund_timeseries_collection_item WHERE run_id = ? AND status = 'failed'",
                 (latest_run[0],),
             ).fetchone()[0]
-    return {"items": items, "page": page, "page_size": page_size, "total": total, "catalog_total": catalog_total,
+    return {"selection_mode": "codes" if codes is not None else "query", "items": items, "page": page, "page_size": page_size, "total": total, "catalog_total": catalog_total,
             "updated_at": latest[0] if latest else None,
             "collection": {"collected": collected, "failed": failed, "pending": max(catalog_total - collected, 0)}}

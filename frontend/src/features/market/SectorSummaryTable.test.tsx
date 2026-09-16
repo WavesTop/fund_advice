@@ -23,11 +23,16 @@ describe('sector summary and original evidence', () => {
     expect(screen.getAllByText('测试反证保留')).toHaveLength(3);
   });
   it('keeps the summary and source dates when refresh fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockImplementationOnce(async () => new Response(JSON.stringify(payload()))).mockRejectedValueOnce(new Error('test offline')));
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') throw new Error('test offline');
+      return new Response(JSON.stringify(payload()));
+    });
+    vi.stubGlobal('fetch', fetcher);
     render(<MemoryRouter initialEntries={['/sectors']}><SectorOpportunities /></MemoryRouter>);
     await screen.findByRole('table', { name: '板块三周期历史表现与研究证据对照' });
     fireEvent.click(screen.getByRole('button', { name: '重新评估' }));
-    await screen.findByRole('alert');
+    expect(await screen.findByRole('alert')).toHaveTextContent('test offline');
+    expect(fetcher).toHaveBeenCalledWith('/api/sectors/refresh', expect.objectContaining({ method: 'POST' }));
     expect(screen.getByRole('table', { name: '板块三周期历史表现与研究证据对照' })).toBeInTheDocument();
   });
 });

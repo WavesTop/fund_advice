@@ -41,11 +41,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, object]:
         with connection_scope(resolved) as connection:
-            return {"status": "ok", "schema_version": migrate(resolved), "sqlite": sqlite_runtime_info(connection)}
+            return {"status": "ok", "api_contract": "market-workbench-v2",
+                    "capabilities": ["fund_browse_codes", "sector_refresh_then_evaluate"],
+                    "schema_version": migrate(resolved), "sqlite": sqlite_runtime_info(connection)}
 
     @app.get("/api/funds")
-    def funds(q: str = Query(default=""), page: int = Query(default=1), page_size: int = Query(default=20)) -> dict[str, object]:
-        return list_catalog(resolved, q, page, page_size)
+    def funds(q: str = Query(default=""), page: int = Query(default=1), page_size: int = Query(default=20),
+              codes: str | None = Query(default=None, max_length=419)) -> dict[str, object]:
+        return list_catalog(resolved, q, page, page_size, codes=codes)
 
     @app.get("/api/sectors/opportunities")
     def opportunities() -> dict[str, object]:

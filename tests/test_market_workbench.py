@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from asgi_client import ASGITestClient as TestClient
 from backend.api.main import create_app
 from backend.core.config import Settings
 from backend.core.errors import AppError

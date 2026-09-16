@@ -46,7 +46,13 @@ export function RealSectorDetail() {
         {!visible.data.item.funds.some((fund) => fund.code === fromFund && fund.relation_status === 'linked') &&
           <p role="alert">来源基金与本板块的当前关系未通过核验；保留导航上下文，不再视为有效关联。</p>}
       </div>}
-      {universe === 'hot_board' && <MarketDataRefresh target="sectors" onSettled={() => setAttempt((value) => value + 1)} />}
+      {universe === 'hot_board' && <MarketDataRefresh key={key} target="sectors" onSettled={(evaluation) => {
+        if (!evaluation) { setAttempt((value) => value + 1); return; }
+        const item = evaluation.items.find((candidate) => candidate.code === code && candidate.source_id === source && candidate.universe_type === universe);
+        if (!item) { setState({ key, data: null, error: '本次新行业池未包含该来源的板块；不把旧详情当作新评估。' }); return; }
+        const data = parseSectorDetail({ item, generated_at: evaluation.generated_at, method_version: evaluation.method_version }, { code, source_id: source, universe_type: universe });
+        setState({ key, data, error: '' });
+      }} />}
       <OpportunityCard item={visible.data.item} />
     </>}
   </div>;

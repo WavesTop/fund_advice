@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from hashlib import sha256
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
@@ -16,7 +17,7 @@ from backend.analysis.sector_evidence import (
 from backend.analysis.sector_strength import attach_strength, build_advantage_summary
 from backend.analysis.research_view import attach_research_views
 
-METHOD_VERSION = "price-state-v2"
+METHOD_VERSION = "price-state-v3"
 PERIODS = (
     ("short", "短期", "约 1 周至 1 个月", 20),
     ("medium", "中期", "约 1 至 3 个月", 60),
@@ -107,7 +108,9 @@ def analyze_index(rows: Sequence[Mapping[str, object]], *, as_of: date) -> dict[
                       return_pct=_percent(change), ma_bias_pct=_percent(bias),
                       max_drawdown_pct=_percent(drawdown),
                       risk="elevated" if drawdown <= RISK_DRAWDOWN else "normal")
-        result.update(observation_start=sample[0][0].isoformat(), observation_end=sample[-1][0].isoformat())
+        result.update(observation_start=sample[0][0].isoformat(), observation_end=sample[-1][0].isoformat(),
+                      observation_grid=sha256(",".join(day.isoformat() for day, _ in sample).encode()).hexdigest(),
+                      _ranking_return=str(change))
     return {"as_of": latest.isoformat() if latest else None,
             "observation_count": len(observations), "periods": periods}
 
@@ -116,6 +119,8 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     from backend.storage.sector_heat import read_sector_heat
 
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    # Conservative settlement cutoff, NOT a substitute for the exchange holiday calendar.
+    price_cutoff = now.date() if now.hour >= 16 else now.date() - timedelta(days=1)
     evidence = load_industry_evidence()
     heat = read_sector_heat(settings)
     # One read transaction keeps index identity, relations and prices consistent
@@ -128,7 +133,7 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
         for index in indexes:
             rows = connection.execute("SELECT date,close FROM market_index_daily WHERE index_code=? ORDER BY date", (index["code"],)).fetchall()
             funds = [fund for fund in associations if fund["index_code"] == index["code"]]
-            item = {**dict(index), **analyze_index([dict(row) for row in rows], as_of=now.date()),
+            item = {**dict(index), **analyze_index([dict(row) for row in rows], as_of=price_cutoff),
                     "funds": [dict(row) for row in funds], "universe_type": "tracked_index",
                     "kind": "参考指数", "heat_rank": None, "heat_value": None, "collection_error": None}
             items.append(item)
@@ -136,7 +141,9 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     boards = []
     for board in heat["items"]:
         rows = board.pop("rows")
-        analyzed = analyze_index(rows, as_of=now.date())
+        analyzed = analyze_index(rows, as_of=price_cutoff)
+        if heat["universe"].get("last_error"):
+            board["collection_error"] = heat["universe"]["last_error"]
         if board.get("collection_error"):
             for period in analyzed["periods"]:
                 period.update(status="stale", label="行情待更新", reason="本次采集失败，旧行情仅供核对，不参与当前判断。")
@@ -156,6 +163,9 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
         counts = Counter(days)
         comparison_dates[universe] = max(counts, key=lambda day: (counts[day], day)) if counts else None
     attach_strength(items, comparison_dates)
+    for item in items:
+        for period in item["periods"]:
+            period.pop("_ranking_return", None)
     advantages = build_advantage_summary(items)
     attach_research_views(items, generated_at=now.isoformat(timespec="seconds"))
     coverage = []
@@ -169,9 +179,11 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
                          "valuation_dated_current": sum(item["valuation"]["status"] == "available" and bool(item["valuation"]["as_of"]) for item in group),
                          "formal_recommendation_ready": False})
     return {"method_version": "evidence-screen-v3", "price_method_version": METHOD_VERSION,
-            "strength_method_version": "common-window-quartile-v2", "coverage": coverage,
+            "strength_method_version": "common-grid-quartile-v3", "coverage": coverage,
+            "price_cutoff": price_cutoff.isoformat(),
+            "calendar_status": "exchange_calendar_not_integrated",
             "evidence_version": evidence["version"], "generated_at": now.isoformat(timespec="seconds"),
             "universe": heat["universe"], "advantages": advantages,
             "comparison_as_of": comparison_dates, "turnover_as_of": heat["universe"].get("ranking_as_of"),
-            "advantage_rule": "同日同窗口可比；相对强度前25%；趋势为上涨或出现可识别修复/回落结构；最多展示5个。",
+            "advantage_rule": "同截止日、同完整观测日期序列可比；原始收益排名前25%；趋势为上涨或可识别修复/回落；最多5个。非投资排名，完整交易日历尚未接入。",
             "items": items}

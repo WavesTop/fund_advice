@@ -6,6 +6,7 @@ import { directoryLayout, directoryPage, parseDirectory, type DirectoryResult } 
 import { MarketDataRefresh } from './MarketDataRefresh';
 import { sectorDetailHref } from './sector-detail-model';
 import './fund-directory.css';
+import { fundVisitEvent, fundVisitKey, readFundVisits } from './fund-browse-history';
 
 const historyKey = 'fundAdvicer.realFundSearchHistory';
 function readHistory(): string[] {
@@ -24,7 +25,9 @@ export function FundDirectory() {
   const pageSize = layout.pageSize;
   const measuredSize = useRef(pageSize);
   const container = useRef<HTMLDivElement>(null);
-  const requestKey = JSON.stringify([submittedQuery, page, pageSize]);
+  const [visits, setVisits] = useState(readFundVisits);
+  const visitCodes = submittedQuery ? '' : visits.join(',');
+  const requestKey = JSON.stringify([submittedQuery, page, pageSize, visitCodes]);
   const [query, setQuery] = useState(submittedQuery);
   const [attempt, setAttempt] = useState(0);
   const [history, setHistory] = useState(readHistory);
@@ -53,14 +56,39 @@ export function FundDirectory() {
     observer.observe(element);
     return () => observer.disconnect();
   }, [setParams]);
+  useEffect(() => {
+    const update = () => setVisits(readFundVisits());
+    const storage = (event: StorageEvent) => {
+      if (event.key === fundVisitKey || event.key === null) update();
+    };
+    window.addEventListener('storage', storage);
+    window.addEventListener(fundVisitEvent, update);
+    window.addEventListener('focus', update);
+    return () => {
+      window.removeEventListener('storage', storage);
+      window.removeEventListener(fundVisitEvent, update);
+      window.removeEventListener('focus', update);
+    };
+  }, []);
   useEffect(() => setQuery(submittedQuery), [submittedQuery]);
   useEffect(() => {
     const controller = new AbortController();
     setState((old) => ({ key: requestKey, result: old.key === requestKey ? old.result : null, loading: true, error: '' }));
     const search = new URLSearchParams({ q: submittedQuery, page: String(page), page_size: String(pageSize) });
+    if (!submittedQuery) search.set('codes', visitCodes);
     void fetch(`/api/funds?${search}`, { signal: controller.signal }).then(async (response) => {
       if (!response.ok) throw new Error(`本地基金目录读取失败（HTTP ${response.status}）。`);
-      const result = parseDirectory(await response.json());
+      const raw: unknown = await response.json();
+      const result = parseDirectory(raw);
+      if (!submittedQuery) {
+        const mode = (raw as { selection_mode?: unknown }).selection_mode;
+        const expected = visitCodes ? visitCodes.split(',') : [];
+        const positions = result.items.map((fund) => expected.indexOf(fund.code));
+        if (mode !== 'codes' || result.total > expected.length || positions.some((position, index) =>
+          position < 0 || (index > 0 && position <= positions[index - 1]))) {
+          throw new Error('浏览记录接口不兼容或返回了未浏览的基金，请停止旧后端并重新启动服务。');
+        }
+      }
       if (result.page !== page || result.page_size !== pageSize || result.items.length > pageSize) throw new Error('返回分页与本次请求不一致，未展示错页数据。');
       return result;
     }).then((result) => {
@@ -77,7 +105,7 @@ export function FundDirectory() {
         error: cause instanceof Error ? cause.message : '本地真实目录暂不可用，请重试。' }));
     });
     return () => controller.abort();
-  }, [requestKey, submittedQuery, page, pageSize, attempt]);
+  }, [requestKey, submittedQuery, page, pageSize, attempt, visitCodes]);
 
   const visible = state.key === requestKey ? state : { key: requestKey, result: null, loading: true, error: '' };
   const result = visible.result;
@@ -102,17 +130,23 @@ export function FundDirectory() {
     <form className="market-search-row" onSubmit={(event) => { event.preventDefault(); navigate(query); }}>
       <label className="market-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="搜索本地真实基金" placeholder="输入基金名称或 6 位代码" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       <button className="button primary" type="submit">搜索</button>
+      <button className="button secondary" type="button" onClick={() => { setQuery(''); navigate(''); }}>清空</button>
     </form>
     {history.length > 0 && <div className="catalog-search-history" aria-label="本地搜索历史"><span className="muted">最近搜索</span>
       {history.map((entry) => <button key={entry} className="button secondary" aria-pressed={entry === submittedQuery} onClick={() => { setQuery(entry); navigate(entry); }}>{entry}</button>)}
       <button className="button-link" onClick={() => { setHistory([]); try { localStorage.removeItem(historyKey); } catch { /* Optional history. */ } }}>清除历史</button></div>}
     {visible.loading && <div className="real-catalog-state" role="status">正在读取本地真实目录…</div>}
     {visible.error && <div className="real-catalog-state" role="alert"><p>{visible.error} 请确认本地数据服务已启动。</p>{result && <p>当前保留本次查询上次成功的结果；不是刚更新的目录。</p>}<button className="button secondary" disabled={visible.loading} onClick={() => setAttempt((value) => value + 1)}>重试</button></div>}
-    {!hasSearch && result && <div className="real-catalog-state"><p>请输入关键词开始查找。</p><p className="muted">搜索名称或代码后可以查看真实基金卡片；不默认展示推荐基金。</p><div className="catalog-examples" aria-label="搜索案例">{['510050', '005911', '成长', '指数'].map((example) => <button className="button secondary" key={example} onClick={() => { setQuery(example); navigate(example); }}>搜索“{example}”</button>)}</div></div>}
+    {!hasSearch && result && !result.items.length && <div className="real-catalog-state">
+      <h3>最近浏览的基金</h3>
+      <p>{visits.length ? '当前页没有可读取的浏览记录。未收录的基金不会被替换成其他基金。' : '暂无浏览记录。搜索并打开基金详情后，基金卡片会显示在这里。'}</p>
+      {page > 1 && <button className="button secondary" onClick={() => navigate('')}>返回浏览记录第一页</button>}
+    </div>}
     {hasSearch && result && !result.items.length && <div className="real-catalog-state">没有找到“{submittedQuery}”对应的基金（当前查询页）。{page > 1 && <button className="button secondary" onClick={() => navigate(submittedQuery)}>返回查询第一页</button>}</div>}
-    {hasSearch && result && result.items.length > 0 && <>
-      <h3 className="fund-results-heading">“{submittedQuery}”的基金搜索结果</h3>
-      <ul className="fund-card-grid" aria-label="基金搜索结果" aria-busy={visible.loading} style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))` }}>
+    {result && result.items.length > 0 && <>
+      <h3 className="fund-results-heading">{hasSearch ? `“${submittedQuery}”的基金搜索结果` : '最近浏览的基金'}</h3>
+      {!hasSearch && <p className="muted">按最近浏览排序，仅保存在当前浏览器；卡片身份和板块关联重新读取本地目录，不代表投资推荐。</p>}
+      <ul className="fund-card-grid" aria-label={hasSearch ? "基金搜索结果" : "基金浏览记录"} aria-busy={visible.loading} style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))` }}>
         {result.items.map((fund) => <li key={fund.share_id} className="fund-search-card">
           <article aria-label={`${fund.name} ${fund.code}`}>
             <h4><Link className="market-fund-title" to={`/funds/${fund.code}?from=${encodeURIComponent(returnPath)}`}>{fund.name}</Link></h4>
@@ -129,6 +163,6 @@ export function FundDirectory() {
         </li>)}
       </ul>
     </>}
-    {hasSearch && result && <nav className="market-pagination" aria-label="基金搜索分页"><span>搜索到 {result.total} 条 · 第 {result.page} / {totalPages} 页 · 每页 {pageSize} 张卡片</span><div><button className="button secondary" aria-label="本地目录上一页" disabled={page <= 1 || visible.loading} onClick={() => navigate(submittedQuery, page - 1)}><ChevronLeft size={16} />上一页</button><button className="button secondary" aria-label="本地目录下一页" disabled={page >= totalPages || visible.loading} onClick={() => navigate(submittedQuery, page + 1)}>下一页<ChevronRight size={16} /></button></div></nav>}
+    {result && (hasSearch || result.total > 0) && <nav className="market-pagination" aria-label={hasSearch ? "基金搜索分页" : "基金浏览记录分页"}><span>{hasSearch ? '搜索到' : '可读取的浏览记录'} {result.total} 条 · 第 {result.page} / {totalPages} 页 · 每页 {pageSize} 张卡片</span><div><button className="button secondary" aria-label="本地目录上一页" disabled={page <= 1 || visible.loading} onClick={() => navigate(submittedQuery, page - 1)}><ChevronLeft size={16} />上一页</button><button className="button secondary" aria-label="本地目录下一页" disabled={page >= totalPages || visible.loading} onClick={() => navigate(submittedQuery, page + 1)}>下一页<ChevronRight size={16} /></button></div></nav>}
   </Panel></div>;
 }

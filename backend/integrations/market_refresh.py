@@ -9,6 +9,9 @@ from threading import Lock
 
 from backend.core.config import Settings
 from backend.core.errors import AppError
+from backend.analysis.sector_status import sector_opportunities
+from backend.storage.sector_heat import record_sector_heat_failure
+from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
 TIMEOUTS = {"catalog": 90, "sectors": 600}
@@ -45,6 +48,17 @@ def refresh_market_data(settings: Settings, target: str) -> dict:
             raise AppError("market_refresh_invalid", "采集进程未返回有效结果，请重新读取本地资料核对状态", 502) from exc
         if process.returncode != 0 or result["status"] == "failed":
             raise AppError("market_refresh_failed", result["message"], 502, {"refresh": result})
+        if target == "sectors":
+            try:
+                evaluation = sector_opportunities(settings)
+            except Exception as exc:
+                raise AppError("market_evaluation_failed", "行情采集已完成，但评估失败；不能把本次操作认定为评估成功。",
+                               500, {"refresh": result}) from exc
+            return {"refresh": result, "evaluation": evaluation, "api_contract": "market-workbench-v2"}
         return {"refresh": result}
+    except AppError as exc:
+        if target == "sectors" and exc.body.code != "market_evaluation_failed":
+            record_sector_heat_failure(settings, attempted_at=datetime.now(timezone.utc).isoformat(), error=exc.body.message)
+        raise
     finally:
         lock.release()

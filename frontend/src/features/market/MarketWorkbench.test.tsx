@@ -92,13 +92,13 @@ describe('基金与板块工作台', () => {
   });
   it('部分成功不显示全成功；失败后仍核对已提交的数据', async () => {
     vi.stubGlobal('fetch', vi.fn()
-      .mockResolvedValueOnce(response({ refresh: { target: 'sectors', status: 'partial', message: '部分源失败' } }))
+      .mockResolvedValueOnce(response({ refresh: { target: 'sectors', status: 'partial', message: '部分源失败' }, evaluation: { ...workbenchDetail(), items: [workbenchSector()] } }))
       .mockResolvedValueOnce(response({ error: { message: '采集超时' } }, 504)));
     const settled = vi.fn();
     render(<MarketDataRefresh target="sectors" onSettled={settled} />);
-    fireEvent.click(screen.getByRole('button', { name: '获取最新行业数据' }));
+    fireEvent.click(screen.getByRole('button', { name: '重新评估' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('部分更新完成');
-    fireEvent.click(screen.getByRole('button', { name: '获取最新行业数据' }));
+    fireEvent.click(screen.getByRole('button', { name: '重新评估' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('未完成更新：采集超时'));
     expect(settled).toHaveBeenCalledTimes(2);
   });

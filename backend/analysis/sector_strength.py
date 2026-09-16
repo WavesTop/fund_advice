@@ -1,6 +1,7 @@
 """Cross-sectional price comparisons with an explicit common observation date."""
 from __future__ import annotations
 from collections import Counter
+from decimal import Decimal
 from collections.abc import Mapping
 
 ADVANTAGE_LIMIT = 5
@@ -88,20 +89,29 @@ def attach_strength(items: list[dict], ranking_as_of: str | Mapping[str, str | N
                     eligible.append(period)
             starts = Counter(p.get("observation_start") for p in eligible if p.get("observation_start"))
             common_start = max(starts, key=lambda day: (starts[day], day)) if starts else None
+            grids = Counter((p.get("observation_start"), p.get("observation_grid"))
+                            for p in eligible if p.get("observation_start") and p.get("observation_grid"))
+            common_grid = None
+            if grids:
+                common_start, common_grid = max(grids, key=lambda key: (grids[key], key))
             aligned = []
             for period in eligible:
                 period["strength"]["observation_start"] = common_start
                 if not common_start or period.get("observation_start") != common_start:
                     period["strength"].update(eligible=False, reason="观察起点与同榜多数板块不一致，历史可能缺行，暂不参与排名。")
+                elif common_grid and period.get("observation_grid") != common_grid:
+                    period["strength"].update(eligible=False, reason="窗口内部观测日期与同榜多数板块不一致，暂不参与排名。")
                 else:
                     aligned.append(period)
             eligible = aligned
             count = len(eligible)
-            values = [p["return_pct"] for p in eligible]
+            def ranking_value(period):
+                return Decimal(period["_ranking_return"]) if period.get("_ranking_return") is not None else Decimal(str(period["return_pct"])) / 100
+            values = [ranking_value(p) for p in eligible]
             for _, period in entries:
                 period["strength"]["sample_count"] = count
             for period in eligible:
-                value = period["return_pct"]
+                value = ranking_value(period)
                 below = sum(other < value for other in values)
                 equal = sum(other == value for other in values)
                 period["strength"].update(

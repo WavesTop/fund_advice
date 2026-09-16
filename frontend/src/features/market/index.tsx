@@ -1,3 +1,4 @@
+import { recordFundVisit } from './fund-browse-history';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -1600,8 +1601,13 @@ function RealFundDetail() {
         return response.json();
       })
       .then((data: RealFundDetailResponse | null) => {
+        if (controller.signal.aborted) return;
         if (data?.fund) {
-          if (data.fund.code !== code) throw new Error('基金身份与请求不一致');
+          if (data.fund.code !== code || !/^[0-9]{6}$/.test(code)
+              || typeof data.fund.name !== 'string' || !data.fund.name.trim()) {
+            throw new Error('基金身份与请求不一致');
+          }
+          recordFundVisit(code);
           setFund(data.fund);
           setSeries(data.series ?? null);
           setRelatedMarket(data.related_market ?? null);

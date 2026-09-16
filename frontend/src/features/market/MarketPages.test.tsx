@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { DemoProvider } from '../../shared/store';
 import { FundDetailPage, FundsPage } from './MarketPages';
+import { fundVisitKey, readFundVisits } from './fund-browse-history';
 
 vi.mock('../../shared/Chart', () => ({
   Chart: ({ label }: { label: string }) => <div role="img" aria-label={label} />,
@@ -39,14 +40,15 @@ function browse(path = '/funds') {
 }
 
 describe('真实基金目录', () => {
-  it('默认只显示总数与搜索案例，不列出基金', async () => {
+  it('没有浏览记录时显示空态和目录总数，不展示任意基金', async () => {
     const fetchMock = vi.mocked(fetch).mockResolvedValue(
       new Response(
         JSON.stringify({
+          selection_mode: 'codes',
           items: [],
           page: 1,
           page_size: 6,
-          total: 27843,
+          total: 0,
           catalog_total: 27843,
           updated_at: '2026-09-13T10:00:00Z',
         }),
@@ -55,9 +57,9 @@ describe('真实基金目录', () => {
     );
     browse();
     await waitFor(() => expect(screen.getByText(/已收录 27843 条/)).toBeInTheDocument());
-    expect(screen.getByText('搜索“510050”')).toBeInTheDocument();
+    expect(screen.getByText(/暂无浏览记录/)).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith('/api/funds?q=&page=1&page_size=6', expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith('/api/funds?q=&page=1&page_size=6&codes=', expect.anything());
   });
   it('提交搜索后展示真实结果并链接到详情', async () => {
     const fetchMock = vi
@@ -65,10 +67,11 @@ describe('真实基金目录', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
+            selection_mode: 'codes',
             items: [],
             page: 1,
             page_size: 6,
-            total: 27843,
+            total: 0,
             catalog_total: 27843,
             updated_at: null,
           }),
@@ -115,6 +118,7 @@ describe('真实基金目录', () => {
       async () =>
         new Response(
           JSON.stringify({
+            selection_mode: 'codes',
             items: [],
             page: 1,
             page_size: 6,
@@ -192,6 +196,7 @@ describe('真实基金详情', () => {
     await waitFor(() =>
       expect(screen.getByRole('img', { name: '110011真实净值走势' })).toBeInTheDocument(),
     );
+    expect(readFundVisits()).toEqual(['110011']);
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/funds/110011', expect.anything());
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -200,6 +205,7 @@ describe('真实基金详情', () => {
     browse('/funds/999999');
     await waitFor(() => expect(screen.getByText('未找到这只基金')).toBeInTheDocument());
     expect(screen.getByText(/本地真实目录中没有代码 999999/)).toBeInTheDocument();
+    expect(localStorage.getItem(fundVisitKey)).toBeNull();
   });
   it('没有真实序列时明确提示且不展示模拟行情', async () => {
     vi.mocked(fetch).mockResolvedValue(

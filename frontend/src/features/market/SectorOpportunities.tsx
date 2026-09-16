@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ChevronDown, RefreshCw } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { Badge, EmptyState, Notice, Panel } from '../../shared/ui';
 import './sector-opportunities.css';
 import { SectorSummaryTable } from './SectorSummaryTable';
@@ -8,6 +8,7 @@ import { SectorHistory } from './SectorHistory';
 import { researchHref, subjectKey } from '../advice/research-model';
 import { directoryPage } from './fund-directory-model';
 import { MarketDataRefresh } from './MarketDataRefresh';
+import { parseSectorEvaluation } from './sector-evaluation-model';
 import { sectorDetailHref } from './sector-detail-model';
 import './fund-directory.css';
 
@@ -143,7 +144,7 @@ type Universe = {
   last_error?: string | null;
   last_attempt_at?: string | null;
 };
-type OpportunitiesResponse = {
+export type OpportunitiesResponse = {
   coverage?: { universe_type: string; total: number; industry_current: number;
     valuation_observations: number; valuation_dated_current: number;
     price_eligible: { short: number; medium: number; long: number } }[];
@@ -227,6 +228,11 @@ export function sortSectorItems(
         bp.status !== 'insufficient';
       if (ae !== be) return ae ? -1 : 1;
       if (ae && be) {
+        const aRank = ap?.strength?.rank;
+        const bRank = bp?.strength?.rank;
+        if (a.universe_type === b.universe_type && aRank != null && bRank != null && aRank !== bRank) {
+          return direction === 'desc' ? aRank - bRank : bRank - aRank;
+        }
         const ar = ap?.return_pct ?? Number.NEGATIVE_INFINITY;
         const br = bp?.return_pct ?? Number.NEGATIVE_INFINITY;
         if (ar !== br) return direction === 'desc' ? br - ar : ar - br;
@@ -554,7 +560,6 @@ export function OpportunityCard({ item, heatBasis, from }: { item: SectorOpportu
 export function SectorOpportunities() {
   const [data, setData] = useState<OpportunitiesResponse | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [showMethod, setShowMethod] = useState(false);
   const [params, setParams] = useSearchParams();
@@ -587,19 +592,16 @@ export function SectorOpportunities() {
   };
   const request = useRef<AbortController | null>(null);
   const hasData = useRef(false);
-  const load = useCallback((isRefresh = false) => {
+  const load = useCallback(() => {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
-    if (isRefresh) setRefreshing(true);
     if (!hasData.current) setState('loading');
     setLoadError('');
     fetch('/api/sectors/opportunities', { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const result = (await response.json()) as OpportunitiesResponse;
-        if (!result || !Array.isArray(result.items)) throw new Error('板块接口格式无效');
-        return result;
+        return parseSectorEvaluation(await response.json());
       })
       .then((result) => {
         if (controller.signal.aborted) return;
@@ -611,9 +613,6 @@ export function SectorOpportunities() {
         if (controller.signal.aborted) return;
         setLoadError('请确认本地数据服务已启动，或稍后重试。');
         setState(hasData.current ? 'ready' : 'error');
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setRefreshing(false);
       });
   }, []);
 
@@ -664,18 +663,16 @@ export function SectorOpportunities() {
             </small>
           )}
         </p>
-        <button
-          className="button secondary"
-          type="button"
-          onClick={() => load(true)}
-          disabled={refreshing || state === 'loading'}
-        >
-          <RefreshCw size={15} className={refreshing ? 'sector-spin' : ''} />
-          {refreshing ? '重新评估中…' : '重新评估'}
-        </button>
+        <MarketDataRefresh target="sectors" onStart={() => request.current?.abort()} onSettled={(evaluation) => {
+          if (!evaluation) { load(); return; }
+          request.current?.abort();
+          hasData.current = true;
+          setData(evaluation);
+          setLoadError('');
+          setState('ready');
+        }} />
       </div>
-      <MarketDataRefresh target="sectors" onSettled={() => load(true)} />
-      <p className="muted">“获取最新行业数据”联网采集名单、日线和成分，完成后自动重读评估；“重新评估”只读本地资料。经营／估值人工快照不会自动刷新；已有参考指数请从关联基金详情更新。</p>
+      <p className="muted">“重新评估”先联网采集可核验行业名单、日线和成分，再返回本次评估。经营／估值人工快照不会自动刷新；已有参考指数仍须从关联基金详情更新，资料日期不等于评估时间。缺项或更新失败时不能视为完整投资判断。</p>
       {data?.coverage && <section className="sector-coverage" aria-label="板块研究数据覆盖">
         <strong>当前资料覆盖，不是投资评分</strong>
         {data.coverage.map((coverage) => <p key={coverage.universe_type}>

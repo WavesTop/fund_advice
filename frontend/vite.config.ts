@@ -10,11 +10,18 @@ function localDataService() {
     apply: 'serve' as const,
     async configureServer(server: { httpServer: { once: (event: string, listener: () => void) => void } | null }) {
       if (process.env.VITEST) return;
+      let response: Response | undefined;
       try {
-        const response = await fetch('http://127.0.0.1:8000/health', { signal: AbortSignal.timeout(500) });
-        if (response.ok) return;
+        response = await fetch('http://127.0.0.1:8000/health', { signal: AbortSignal.timeout(500) });
       } catch {
-        // Start the API below when no healthy local process is listening.
+        // Start the API below only when no service responds.
+      }
+      if (response) {
+        const health = await response.json().catch(() => null);
+        if (!response.ok || health?.api_contract !== 'market-workbench-v2') {
+          throw new Error('8000端口的后端版本不兼容。请停止旧项目服务，再运行 scripts/start_local.py；不会自动终止其他进程。');
+        }
+        return;
       }
       child = spawn(
         'uv',

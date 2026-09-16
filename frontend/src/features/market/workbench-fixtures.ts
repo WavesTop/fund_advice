@@ -30,7 +30,9 @@ export function workbenchCatalog(url: string) {
       relation_source_id: 'fixture.prospectus', verified_at: '2026-09-15T08:00:00Z', evidence_url: 'https://example.test/prospectus',
     }] : [],
   }));
-  return { items: items.slice((page - 1) * size, page * size), page, page_size: size, total: 17, catalog_total: 17, updated_at: '2026-09-16T08:00:00Z' };
+  const selected = params.has('codes') ? [...new Set((params.get('codes') ?? '').split(','))]
+    .map((code) => items.find((item) => item.code === code)).filter((item): item is typeof items[number] => item !== undefined) : items;
+  return { selection_mode: params.has('codes') ? 'codes' : 'query', items: selected.slice((page - 1) * size, page * size), page, page_size: size, total: selected.length, catalog_total: 17, updated_at: '2026-09-16T08:00:00Z' };
 }
 export function workbenchDetail() {
   return { item: workbenchSector(), generated_at: '2026-09-16T08:00:00Z', method_version: 'fixture-v1' };
