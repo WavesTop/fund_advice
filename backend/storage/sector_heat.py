@@ -68,6 +68,8 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
         item["rows"] = json.loads(item.pop("rows_json"))
         # Decimal text remains authoritative in storage; floats are display only.
         item["heat_value"] = float(Decimal(item["heat_value"]))
+        item["history_relation"] = ("proxy_not_equivalent" if item.get("history_source_id") == "sector_daily.ths"
+                                    else "native_source")
         item.update(universe_type="hot_board", funds=[], use_scope="market_context_only",
                     amount_unit="CNY", volume_unit="source_native",
                     history_source_url=(HISTORY_URL if item.get("history_source_id") != "sector_daily.ths"
@@ -129,7 +131,12 @@ def save_sector_heat(settings: Settings, *, as_of: str, updated_at: str,
                      catalog_count: int, members: list[dict[str, Any]],
                      requested_count: int = 100, universe_scope: str = "hot_board_top100") -> None:
     """Publish a complete ranking plus each member's actual collection outcome."""
-    if not members or len(members) > 100 or len({item["code"] for item in members}) != len(members):
+    limit = 20000 if universe_scope == "verified_industry_all" else 100
+    if (universe_scope not in ("verified_industry_all", "hot_board_top100")
+            or not isinstance(requested_count, int) or isinstance(requested_count, bool)
+            or not 0 < requested_count <= limit
+            or not members or len(members) > limit
+            or len({item["code"] for item in members}) != len(members)):
         raise ValueError("热门板块快照成员无效")
     migrate(settings)
     failures = sum(item["collection_error"] is not None for item in members)
@@ -141,6 +148,7 @@ def save_sector_heat(settings: Settings, *, as_of: str, updated_at: str,
                    (id,as_of,updated_at,requested_count,catalog_count,collected_count,failed_count,last_attempt_at,last_error,universe_scope)
                    VALUES (1,?,?,?,?,?,?,?,NULL,?)
                    ON CONFLICT(id) DO UPDATE SET as_of=excluded.as_of,updated_at=excluded.updated_at,
+                   requested_count=excluded.requested_count,
                    catalog_count=excluded.catalog_count,collected_count=excluded.collected_count,
                    failed_count=excluded.failed_count,last_attempt_at=excluded.last_attempt_at,last_error=NULL,
                    universe_scope=excluded.universe_scope""",

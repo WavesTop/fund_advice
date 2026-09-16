@@ -380,6 +380,10 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
                            for member in members]
     if fetcher is None and not ths_crosswalk:
         ths_crosswalk = build_ths_history_crosswalk(identity_candidates, timeout=timeout)
+    if not members:
+        message = "本次未取得可核对的行业行情身份，保留旧快照；不视为空行业池。"
+        record_sector_heat_failure(settings, attempted_at=attempted_at, error=message)
+        raise RuntimeError(message)
     if progress:
         progress(f"完整目录 {len(directory)} 个板块；纳入 {len(members)} 个可核验板块，开始采集日线。")
 
@@ -404,7 +408,9 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
                                              and 0 < (date.fromisoformat(member["ranking_as_of"]) - date.fromisoformat(fetched[-1]["date"])).days <= 4)
             if fetched[-1]["date"] != member["ranking_as_of"] and not latest_is_previous_settlement:
                 error = f"日线仅到{fetched[-1]['date']}，排名日期为{member['ranking_as_of']}"
-            if industry_only or not rows or fetched[-1]["date"] >= rows[-1]["date"]:
+            if rows and fetched[-1]["date"] < rows[-1]["date"]:
+                raise ValueError("返回行情早于已保存行情，拒绝回退当前序列")
+            if not rows or fetched[-1]["date"] >= rows[-1]["date"]:
                 rows = fetched
                 updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
                 if industry_only and ths_code:
@@ -419,6 +425,8 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
             if ths_code and not industry_only:
                 try:
                     fetched = fetch_ths_sector_daily(member, ths_code, timeout=timeout)
+                    if rows and fetched[-1]["date"] < rows[-1]["date"]:
+                        raise ValueError("备用源返回旧行情，保留已保存的新行情")
                     rows = fetched
                     updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
                     history_source_id, history_source_code = "sector_daily.ths", "bk_" + ths_code

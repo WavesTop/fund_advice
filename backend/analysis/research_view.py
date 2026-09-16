@@ -7,31 +7,9 @@ fund mapping, a buy amount, a probability, or investment suitability.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime
-from urllib.parse import urlsplit
+from backend.core.relation_policy import public_source as _public_source, timestamp as _timestamp, relation_problems
 
 VIEW_VERSION = "research-view-v1"
-
-
-def _timestamp(value: object) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return parsed if parsed.tzinfo is not None else None
-    except ValueError:
-        return None
-
-
-def _public_source(value: object) -> bool:
-    if not isinstance(value, str):
-        return False
-    try:
-        url = urlsplit(value)
-        return (url.scheme in ("http", "https") and bool(url.hostname)
-                and not url.username and not url.password)
-    except ValueError:
-        return False
 
 
 def fund_associations(item: Mapping[str, object], *, generated_at: str) -> list[dict[str, object]]:
@@ -51,16 +29,7 @@ def fund_associations(item: Mapping[str, object], *, generated_at: str) -> list[
         if (not isinstance(code, str) or len(code) != 6 or not code.isascii()
                 or not code.isdigit() or not isinstance(name, str) or not name.strip()):
             continue
-        verified_at = _timestamp(fund.get("verified_at"))
-        problems: list[str] = []
-        if fund.get("relation_type") != "tracked_index":
-            problems.append("未提供明确的跟踪指数关系。")
-        if not fund.get("relation_source_id") or not _public_source(fund.get("evidence_url")):
-            problems.append("缺少可核对的基金—指数关系来源。")
-        if verified_at is None:
-            problems.append("关系核验时间缺失或无时区。")
-        elif verified_at > now:
-            problems.append("关系核验时间晚于本次读取时间。")
+        problems = relation_problems(fund, generated_at=generated_at)
         result.append({
             "code": code, "name": name,
             "status": "withheld" if problems else "linked",

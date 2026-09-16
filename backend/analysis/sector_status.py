@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from backend.core.config import Settings
 from backend.storage.database import connection_scope
+from backend.storage.related_market import current_associations
 from backend.analysis.sector_evidence import (
     assess_opportunity, industry_context, load_industry_evidence, valuation_context,
 )
@@ -122,15 +123,11 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     with connection_scope(settings) as connection:
         connection.execute("BEGIN")
         indexes = connection.execute("SELECT code,name,source_id,updated_at FROM market_index_projection ORDER BY code").fetchall()
+        associations = current_associations(connection, generated_at=now.isoformat())
         items = []
         for index in indexes:
             rows = connection.execute("SELECT date,close FROM market_index_daily WHERE index_code=? ORDER BY date", (index["code"],)).fetchall()
-            funds = connection.execute(
-                """SELECT DISTINCT f.code,f.name,r.relation_type,r.source_id AS relation_source_id,
-                          r.evidence_url,r.verified_at FROM fund_market_relation r
-                   JOIN fund_catalog_projection f ON f.code=r.fund_code
-                   WHERE r.index_code=? ORDER BY f.code""", (index["code"],)
-            ).fetchall()
+            funds = [fund for fund in associations if fund["index_code"] == index["code"]]
             item = {**dict(index), **analyze_index([dict(row) for row in rows], as_of=now.date()),
                     "funds": [dict(row) for row in funds], "universe_type": "tracked_index",
                     "kind": "参考指数", "heat_rank": None, "heat_value": None, "collection_error": None}
@@ -139,22 +136,30 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     boards = []
     for board in heat["items"]:
         rows = board.pop("rows")
-        boards.append({**board, **analyze_index(rows, as_of=now.date())})
+        analyzed = analyze_index(rows, as_of=now.date())
+        if board.get("collection_error"):
+            for period in analyzed["periods"]:
+                period.update(status="stale", label="行情待更新", reason="本次采集失败，旧行情仅供核对，不参与当前判断。")
+        boards.append({**board, **analyzed})
     items = boards + items
     for item in items:
         item["industry"] = industry_context(evidence, item["code"], now)
         item["valuation"] = valuation_context(item["code"], now)
         for period in item["periods"]:
             period["opportunity"] = assess_opportunity(period, item["industry"], item["valuation"])
-    hot_dates = [item["as_of"] for item in items if item.get("universe_type") == "hot_board" and item.get("as_of")]
-    comparison_date = (max(Counter(hot_dates), key=lambda day: (Counter(hot_dates)[day], day))
-                       if hot_dates else heat["universe"].get("ranking_as_of")
-                       or max((item["as_of"] for item in items if item["as_of"]), default=None))
-    attach_strength(items, comparison_date)
+    comparison_dates = {}
+    for universe in ("hot_board", "tracked_index"):
+        days = [item["as_of"] for item in items if item["universe_type"] == universe
+                and item.get("as_of") and not item.get("collection_error")
+                and any(period["status"] in ("strong", "neutral", "weak") for period in item["periods"])]
+        counts = Counter(days)
+        comparison_dates[universe] = max(counts, key=lambda day: (counts[day], day)) if counts else None
+    attach_strength(items, comparison_dates)
     advantages = build_advantage_summary(items)
     attach_research_views(items, generated_at=now.isoformat(timespec="seconds"))
     return {"method_version": "evidence-screen-v2", "price_method_version": METHOD_VERSION,
             "evidence_version": evidence["version"], "generated_at": now.isoformat(timespec="seconds"),
             "universe": heat["universe"], "advantages": advantages,
+            "comparison_as_of": comparison_dates, "turnover_as_of": heat["universe"].get("ranking_as_of"),
             "advantage_rule": "同日同窗口可比；相对强度前25%；趋势为上涨或出现可识别修复/回落结构；最多展示5个。",
             "items": items}

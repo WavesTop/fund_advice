@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from threading import Lock
+from typing import Literal
 
 from fastapi import FastAPI, Query
 
@@ -9,7 +10,8 @@ from backend.storage.database import connection_scope, migrate, sqlite_runtime_i
 from backend.storage.catalog import list_catalog
 from backend.storage.timeseries import get_fund, get_timeseries
 from scripts.import_fund_timeseries import refresh_fund_timeseries
-from backend.storage.related_market import get_related_market
+from backend.storage.related_market import get_related_markets
+from backend.storage.market_series import market_series
 from scripts.import_related_market import refresh_related_market
 from backend.analysis.sector_status import sector_opportunities
 
@@ -48,35 +50,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def opportunities() -> dict[str, object]:
         return sector_opportunities(resolved)
 
+    def detail(code: str) -> dict[str, object]:
+        identity = get_fund(resolved, code)
+        options = [get_timeseries(resolved, code, kind) for kind in ("price", "nav")]
+        options = [series for series in options if series["kind"] is not None]
+        relations = get_related_markets(resolved, code)
+        linked = [relation for relation in relations if relation["relation_status"] == "linked"]
+        return {"fund": identity, "series": options[0] if options else get_timeseries(resolved, code),
+                "series_options": options, "related_markets": relations,
+                "related_market": linked[0] if len(linked) == 1 else None}
+
     @app.get("/api/funds/{code}")
     def fund(code: str) -> dict[str, object]:
-        return {"fund": get_fund(resolved, code), "series": get_timeseries(resolved, code),
-                "related_market": get_related_market(resolved, code)}
+        return detail(code)
 
     @app.get("/api/funds/{code}/series")
-    def fund_series(code: str) -> dict[str, object]:
-        return get_timeseries(resolved, code)
+    def fund_series(code: str, kind: Literal["price", "nav"] | None = None) -> dict[str, object]:
+        return get_timeseries(resolved, code, kind)
+
+    @app.get("/api/sectors/{code}/series")
+    def sector_series(code: str, source_id: str, universe_type: Literal["hot_board", "tracked_index"],
+                      start: str | None = None, end: str | None = None) -> dict[str, object]:
+        return market_series(resolved, code, source_id=source_id, universe_type=universe_type, start=start, end=end)
 
     @app.post("/api/funds/{code}/refresh")
     def refresh_fund(code: str) -> dict[str, object]:
+        get_fund(resolved, code)
         lock = _refresh_lock(code)
         if not lock.acquire(blocking=False):
             raise AppError("fund_refresh_in_progress", "该基金正在采集中，请稍后再试", 409)
         try:
-            try:
-                refresh_fund_timeseries(resolved, code)
-                refresh_related_market(resolved, code)
-            except AppError:
-                raise
-            except ValueError as exc:
-                message = str(exc)
-                if "不存在该代码" in message:
-                    raise AppError("fund_not_found", "未找到该基金", 404) from exc
-                raise AppError("fund_refresh_invalid", message, 422) from exc
-            except Exception as exc:
-                raise AppError("fund_refresh_failed", "基金真实数据采集失败，请稍后重试", 502) from exc
-            return {"fund": get_fund(resolved, code), "series": get_timeseries(resolved, code),
-                    "related_market": get_related_market(resolved, code)}
+            stages = {}
+            for name, refresh in (("fund_series", refresh_fund_timeseries), ("related_market", refresh_related_market)):
+                try:
+                    result = refresh(resolved, code)
+                    stages[name] = {"status": "updated" if result is not None else "unresolved",
+                                    "message": "更新成功" if result is not None else "未取得唯一的跟踪关系，旧关系待核验。"}
+                except Exception as exc:
+                    stages[name] = {"status": "failed", "message": str(exc)[:1000] or type(exc).__name__}
+            updated = sum(stage["status"] == "updated" for stage in stages.values())
+            refresh_state = {"status": "success" if updated == 2 else "partial" if updated else "failed", "stages": stages}
+            if not updated:
+                raise AppError("fund_refresh_failed", "本次更新未取得可发布数据，旧资料已保留；关系状态以最近核验为准", 502, {"refresh": refresh_state, "current": detail(code)})
+            return {**detail(code), "refresh": refresh_state}
         finally:
             lock.release()
 
