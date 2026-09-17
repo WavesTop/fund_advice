@@ -23,6 +23,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.core.config import Settings
+from backend.core.trading_calendar import get_calendar
+from backend.integrations.http_transport import get_bytes
 from backend.storage.sector_heat import (
     CONSTITUENT_URL, DIRECTORY_URL, HISTORY_URL, read_sector_heat, record_sector_heat_failure,
     save_sector_heat,
@@ -81,8 +83,7 @@ def fetch_json(url: str, timeout: float) -> dict[str, Any]:
     request = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0", "Accept": "*/*", "Referer": referer,
     })
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read(), parse_float=str, parse_int=str)
+    payload = json.loads(get_bytes(request, timeout=timeout), parse_float=str, parse_int=str)
     if not isinstance(payload, dict):
         raise ValueError("来源响应不是对象")
     return payload
@@ -90,8 +91,7 @@ def fetch_json(url: str, timeout: float) -> dict[str, Any]:
 
 def fetch_text(url: str, timeout: float, referer: str = "https://q.10jqka.com.cn/") -> str:
     request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "*/*", "Referer": referer})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read().decode("gb18030", "replace")
+    return get_bytes(request, timeout=timeout).decode("gb18030", "strict")
 
 
 def build_ths_history_crosswalk(members: list[dict[str, Any]], *, timeout: float = 12.0) -> dict[str, str]:
@@ -403,11 +403,14 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
             ths_code = ths_crosswalk.get(member["code"])
             fetched = (fetch_ths_sector_daily(member, ths_code, timeout=timeout)
                        if industry_only and ths_code else fetch_sector_daily(member, request, timeout=timeout))
-            latest_is_previous_settlement = (industry_only and current.astimezone(SHANGHAI).hour < 16
-                                             and member["ranking_as_of"] == current.astimezone(SHANGHAI).date().isoformat()
-                                             and 0 < (date.fromisoformat(member["ranking_as_of"]) - date.fromisoformat(fetched[-1]["date"])).days <= 4)
-            if fetched[-1]["date"] != member["ranking_as_of"] and not latest_is_previous_settlement:
-                error = f"日线仅到{fetched[-1]['date']}，排名日期为{member['ranking_as_of']}"
+            completed = get_calendar().latest_completed(current)
+            fetched = [row for row in fetched if date.fromisoformat(row["date"]) <= completed]
+            quality = get_calendar().validate_grid([row["date"] for row in fetched],
+                                                      end=date.fromisoformat(fetched[-1]["date"]) if fetched else completed)
+            if quality["status"] != "ready":
+                raise ValueError(f"日线交易日校验失败：{quality['errors']}；缺失{quality['missing_sessions'][:5]}")
+            error = (f"日线仅到{fetched[-1]['date']}，期望完整交易日为{completed}"
+                     if fetched[-1]["date"] != completed.isoformat() else None)
             if rows and fetched[-1]["date"] < rows[-1]["date"]:
                 raise ValueError("返回行情早于已保存行情，拒绝回退当前序列")
             if not rows or fetched[-1]["date"] >= rows[-1]["date"]:
@@ -425,6 +428,12 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
             if ths_code and not industry_only:
                 try:
                     fetched = fetch_ths_sector_daily(member, ths_code, timeout=timeout)
+                    completed = get_calendar().latest_completed(current)
+                    fetched = [row for row in fetched if date.fromisoformat(row["date"]) <= completed]
+                    quality = get_calendar().validate_grid([row["date"] for row in fetched],
+                                                      end=date.fromisoformat(fetched[-1]["date"]) if fetched else completed)
+                    if quality["status"] != "ready":
+                        raise ValueError(f"备用日线交易日校验失败：{quality['errors']}")
                     if rows and fetched[-1]["date"] < rows[-1]["date"]:
                         raise ValueError("备用源返回旧行情，保留已保存的新行情")
                     rows = fetched
@@ -433,7 +442,8 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
                     history_identity_match = ("category_name_alias_and_constituent_overlap"
                                               if member["name"] in THS_VERIFIED_ALIAS_CANDIDATES
                                               else "category_and_exact_name")
-                    error = None if fetched[-1]["date"] == member["ranking_as_of"] else f"日线仅到{fetched[-1]['date']}，排名日期为{member['ranking_as_of']}"
+                    error = (f"日线仅到{fetched[-1]['date']}，期望完整交易日为{completed}"
+                             if fetched[-1]["date"] != completed.isoformat() else None)
                 except Exception as fallback_exc:
                     error += f"；同花顺严格同名备用源失败：{type(fallback_exc).__name__}: {fallback_exc}"
         if error:
@@ -475,13 +485,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--industry-only", action="store_true", help="只纳入能严格映射到标准日线的全部行业板块")
     args = parser.parse_args(argv)
     settings = Settings(database_path=Path(args.database)) if args.database else Settings.from_env()
+    from backend.storage.collection_runs import start_run, finish_run, record_attempt
+    from backend.integrations.http_transport import set_observer
+    run_id = None
     try:
+        run_id = start_run(settings, "sectors")
+        set_observer(lambda event: record_attempt(settings, run_id, event))
         result = refresh_sector_heat(settings, timeout=args.timeout, workers=args.workers, industry_only=args.industry_only,
                                      progress=lambda message: print(message, flush=True))
     except Exception as exc:
+        if run_id is not None:
+            finish_run(settings, run_id, "failed", {"reason": str(exc)})
         print(f"采集失败：{exc}", file=sys.stderr)
         return 2
+    finally:
+        set_observer(None)
     universe = result["universe"]
+    finish_run(settings, run_id, "success" if universe["status"] == "ready" else "partial", {"universe": universe})
     print(f"排名日期 {universe['as_of']}；热门 {universe['member_count']}；"
           f"采集完成 {universe['collected_count']}；失败或旧行情 {universe['failed_count']}。", flush=True)
     return 0 if universe["status"] == "ready" else 1

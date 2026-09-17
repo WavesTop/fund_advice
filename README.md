@@ -30,6 +30,59 @@
 
 启动自动应用新增关系核验迁移；旧证据保留，旧关系歧义或最近核验失败时不会默认选一个指数。首次更新前备份本机数据库。当前仍未完成业务有效区间、完整交易日历、持仓穿透、总收益和正式推荐。已实现范围与实际验证统一见 [投资分析计划 MC1](docs/investment-analysis-plan.md#15-市场一致性与真实图表补齐mc1避免重复实施)，避免重复实现。
 
+## 固定时点研究与验证（后台切片）
+
+在已合并的浏览／重新评估功能上，新增官方2025—2026日历、有限重试／采集审计、版本事实和固定快照、同基准被动基金比较、历史诊断与前瞻登记。**这不是完整投资推荐系统，也没有自动接通全行业经营／估值或证明策略有效。** 详细规则见[数据设计 §1.5](docs/fund-data-storage-design.md#15-时点研究数据基础当前实现基于-mainfdbb146)及[投资分析设计 §1.10](docs/investment-analysis-design.md#110-固定研究被动基金比较及验证工具当前后台切片)，状态和本轮测试见[投资分析计划 §10](docs/investment-analysis-plan.md#10-进度维护与执行入口)。
+
+行业“重新评估”仍只有一个按钮。服务器采集后返回旧页面使用的 evaluation，并另存固定研究，响应的 research 包含快照／运行引用和状态。固定研究的错误单独可查，不把采集成功当正式研究或推荐成功。原人工经营／估值配置及参考指数不由行业采集自动更新。当前没有新的研究快照、基金比较或验证管理页面，新增能力通过 API／CLI 使用；原网页不因后台实现自动完成 A5 验收。
+
+以下命令在仓库根目录运行。先采用隔离数据库，正常依赖仍用仓库锁定文件，不改版本规避安装问题：
+
+```bash
+uv sync --locked
+uv run --locked --offline python -m unittest discover -s tests
+
+# 查看隔离库的采集任务与快照，空库如实为空
+uv run --locked --offline python -m scripts.research_pipeline \
+  --database runtime/verification/research.sqlite3 status
+
+# 将该隔离库已有的真实投影作为“现在首次取得”归档并运行；空库会明确失败
+uv run --locked --offline python -m scripts.research_pipeline \
+  --database runtime/verification/research.sqlite3 capture
+```
+
+逐批导入规范化经营、估值、基金条款或已核验总收益，可使用 `ingest --input <批次JSON路径>`。批次必须有 facts、source_url、raw_file，可选 media_type；raw_file 相对批次文件定位，指向实际取回且有权使用的原文件，不是模型生成资料。三种 fact 的字段及拒绝条件以 `backend/storage/research.py` 的 `normalize_fact` 为准；测试构造器只供隔离算例，禁止当作真实输入。先核对原文身份、单位、业务／公开日期及语义，再标 verified；标签本身不是自动取证。
+
+获取 capture 返回的实际 ID 后使用以下命令；尖括号是实际返回值占位符，不是可直接复制的 ID：
+
+```bash
+uv run --locked --offline python -m scripts.research_pipeline --database runtime/verification/research.sqlite3 run --snapshot-id <snapshot_id>
+uv run --locked --offline python -m scripts.research_pipeline --database runtime/verification/research.sqlite3 replay --run-id <run_id>
+uv run --locked --offline python -m scripts.research_pipeline --database runtime/verification/research.sqlite3 trial --input <协议JSON路径>
+# 先登记协议，再产生新的当期运行；旧运行或事后补登记会被拒绝
+uv run --locked --offline python -m scripts.research_pipeline --database runtime/verification/research.sqlite3 forward --trial-id <trial_id> --run-id <新run_id>
+# 只有实际取得后续资料，才能创建新的结果快照；不足观察期保持 not_matured
+uv run --locked --offline python -m scripts.research_pipeline --database runtime/verification/research.sqlite3 score --trial-id <trial_id> --outcome-snapshot-id <后续snapshot_id>
+uv run --locked --offline python -m scripts.research_pipeline --database runtime/verification/research.sqlite3 history --trial-id <trial_id> --outcome-snapshot-id <后续snapshot_id>
+```
+
+协议JSON固定 name、hypothesis、subjects、benchmark_key、signal_rule（price_strong／evidence_watch）、period（short／medium／long）、horizon_sessions（20／60／120）、development／validation／test（各含start、end）、embargo_sessions、minimum_observations。对象必须采用来源精确的 subject_key，不能按名称猜；时间区间须在已核验日历范围内且互不重叠。协议必须在观察之前登记，不能为了补旧报告填写假时间。history 始终是有明确标识的回顾性时间切分诊断，不称“未见样本外”；score 也不会因夹具通过或达到最小样本数自动判投资有效。
+
+接口总入口为 `/api/research/status`；集合及详情可通过 `/collections`、`/snapshots`、`/runs/{id}`、`/trials/{id}` 读取。完整请求在 FastAPI 的 `/docs` 查看。服务仍只应监听本机，不提供公网鉴权或多用户隔离，不应直接暴露到互联网。
+
+升级前先按现有 SQLite 一致备份方式保存源库。升级后的有界原文、事实和快照可一并备份到**不存在的新文件**：
+
+```bash
+uv run --locked --offline python -m scripts.research_pipeline \
+  --database runtime/verification/research.sqlite3 backup \
+  --output runtime/verification/research-backup.sqlite3
+```
+
+该命令会执行正常迁移，不能替代升级前备份；通过 SQLite backup API 读取并校验，不直接只复制 WAL 模式的主文件，也不覆盖源库或旧备份。完整用户目录维护替换仍未实现。进程异常退出留下 running 时，确认旧服务及所有工作子进程停止后才可手工 `recover-collection --run-id … --confirm-workers-stopped`，不自动假定任务已撤销。
+
+当前基金比较只覆盖同指数、同类别的被动基金，并要求已核验总收益和近期交易状态。净值已内含费用不重复扣除；年费率条款不是渠道／金额／持有期总成本。主动基金、联接穿透、完整费用执行、生产分红拆分自动接入及真正足期样本外／前瞻验证仍待后续阶段。不要将缺项填零、累计净值当总收益，或将今天回填的历史报告当成当时系统已知。
+
+
 ## 完整启动流程
 
 需要安装 Git、[uv](https://docs.astral.sh/uv/) 和 Node.js 24 LTS。首次安装依赖需要联网；之后日常启动可以使用锁定文件和本地缓存。
@@ -84,7 +137,7 @@ uv run --locked --offline python scripts/start_local.py
 
 若“重新评估”返回 HTTP 404，先核对本地后端与网页版本及代理目标；当前源码已声明该 POST 路由，404 不应直接归因于行情网站。开发启动会检查 `/health` 的 `api_contract=market-workbench-v2`，拒绝静默复用不兼容的旧后端；请停止旧项目服务后重新运行 `scripts/start_local.py`，不自动终止其他进程。此诊断不表示已经定位用户本机 404 的唯一原因。
 
-两个批量网页入口适用于当前本机单进程服务，同一数据库／目标重复提交返回 409；目录采集最多 90 秒，行业最多 600 秒，超时返回 504。关闭页面只停止浏览器等待，不承诺撤销已提交数据；进程重启后的持久任务查询和断点恢复尚未实现。更新前仍应备份本地数据库。
+两个批量网页入口及行业 CLI 已增加同一数据库／目标的持久互斥，重复提交返回 409；目录采集最多 90 秒，行业最多 600 秒，超时返回 504。关闭页面只停止浏览器等待，不承诺撤销已提交数据；进程重启后可查询持久任务及尝试；自动断点恢复仍未实现，残留 running 须确认旧进程停止后人工处理。更新前仍应备份本地数据库。
 
 也可在另一个终端进入仓库根目录，继续使用原行业采集命令：
 

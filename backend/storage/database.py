@@ -66,6 +66,13 @@ def migrate(settings: Settings) -> int:
                 continue
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                # Another process may have migrated after the initial read.
+                current = connection.execute("SELECT checksum FROM schema_migration WHERE version=?", (version,)).fetchone()
+                if current is not None:
+                    if current[0] != checksum:
+                        raise ValueError("并发迁移的校验和不匹配")
+                    connection.execute("COMMIT")
+                    continue
                 _execute_script_atomically(connection, path.read_text(encoding="utf-8"))
                 connection.execute("INSERT INTO schema_migration(version, name, checksum) VALUES (?, ?, ?)", (version, path.name, checksum))
                 connection.execute("COMMIT")

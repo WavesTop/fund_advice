@@ -53,12 +53,18 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", choices=("catalog", "sectors"), required=True)
     parser.add_argument("--database", required=True)
+    parser.add_argument("--run-id")
     args = parser.parse_args(argv)
+    settings = Settings(database_path=Path(args.database))
+    if args.run_id:
+        from backend.integrations.http_transport import set_observer
+        from backend.storage.collection_runs import record_attempt
+        set_observer(lambda event: record_attempt(settings, args.run_id, event))
     started = now()
     try:
         # Upstream libraries may write diagnostics; stdout is reserved for this JSON contract.
         with redirect_stdout(sys.stderr):
-            result = collect(Settings(database_path=Path(args.database)), args.target)
+            result = collect(settings, args.target)
     except Exception as exc:
         result = {"target": args.target, "status": "failed", "started_at": started,
                   "completed_at": now(), "message": f"采集未完成：{type(exc).__name__}: {str(exc)[:1000]}"}

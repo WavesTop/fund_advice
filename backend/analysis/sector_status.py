@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from backend.core.config import Settings
+from backend.core.trading_calendar import CalendarUnavailable, TradingCalendar, get_calendar
 from backend.storage.database import connection_scope
 from backend.storage.related_market import current_associations
 from backend.analysis.sector_evidence import (
@@ -17,7 +18,7 @@ from backend.analysis.sector_evidence import (
 from backend.analysis.sector_strength import attach_strength, build_advantage_summary
 from backend.analysis.research_view import attach_research_views
 
-METHOD_VERSION = "price-state-v3"
+METHOD_VERSION = "price-state-v4-calendar"
 PERIODS = (
     ("short", "短期", "约 1 周至 1 个月", 20),
     ("medium", "中期", "约 1 至 3 个月", 60),
@@ -34,7 +35,7 @@ def _percent(value: Decimal) -> float:
     return float((value * 100).quantize(Decimal("0.01")))
 
 
-def analyze_index(rows: Sequence[Mapping[str, object]], *, as_of: date) -> dict[str, object]:
+def analyze_index(rows: Sequence[Mapping[str, object]], *, as_of: date, calendar: TradingCalendar | None = None) -> dict[str, object]:
     """Use only observations dated on/before as_of; never fill missing prices."""
     observations: list[tuple[date, object]] = []
     invalid_dates = False
@@ -80,6 +81,15 @@ def analyze_index(rows: Sequence[Mapping[str, object]], *, as_of: date) -> dict[
         if any((right[0] - left[0]).days > MAX_GAP_DAYS for left, right in zip(sample, sample[1:])):
             result["reason"] = f"观察窗口内存在超过 {MAX_GAP_DAYS} 个自然日的行情间隔，需核查连续性。"
             continue
+        if calendar is not None:
+            try:
+                quality = calendar.validate_grid([day.isoformat() for day, _ in sample], end=as_of, minimum=window + 1)
+            except CalendarUnavailable as exc:
+                quality = {"status": "blocked", "errors": [str(exc)]}
+            result["calendar_quality"] = quality
+            if quality["status"] != "ready":
+                result["reason"] = f"交易日历校验未通过：{quality['errors']}；缺值未填补。"
+                continue
         try:
             prices = [Decimal(str(row[1])) for row in sample]
             if any(not value.is_finite() or value <= 0 for value in prices):
@@ -119,8 +129,13 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     from backend.storage.sector_heat import read_sector_heat
 
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    # Conservative settlement cutoff, NOT a substitute for the exchange holiday calendar.
-    price_cutoff = now.date() if now.hour >= 16 else now.date() - timedelta(days=1)
+    calendar = get_calendar()
+    calendar_error = None
+    try:
+        price_cutoff = calendar.latest_completed(now)
+    except CalendarUnavailable as exc:
+        # Keep old observations inspectable, but block every comparison below.
+        price_cutoff, calendar_error = now.date(), str(exc)
     evidence = load_industry_evidence()
     heat = read_sector_heat(settings)
     # One read transaction keeps index identity, relations and prices consistent
@@ -133,7 +148,7 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
         for index in indexes:
             rows = connection.execute("SELECT date,close FROM market_index_daily WHERE index_code=? ORDER BY date", (index["code"],)).fetchall()
             funds = [fund for fund in associations if fund["index_code"] == index["code"]]
-            item = {**dict(index), **analyze_index([dict(row) for row in rows], as_of=price_cutoff),
+            item = {**dict(index), **analyze_index([dict(row) for row in rows], as_of=price_cutoff, calendar=calendar),
                     "funds": [dict(row) for row in funds], "universe_type": "tracked_index",
                     "kind": "参考指数", "heat_rank": None, "heat_value": None, "collection_error": None}
             items.append(item)
@@ -141,7 +156,7 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     boards = []
     for board in heat["items"]:
         rows = board.pop("rows")
-        analyzed = analyze_index(rows, as_of=price_cutoff)
+        analyzed = analyze_index(rows, as_of=price_cutoff, calendar=calendar)
         if heat["universe"].get("last_error"):
             board["collection_error"] = heat["universe"]["last_error"]
         if board.get("collection_error"):
@@ -150,6 +165,9 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
         boards.append({**board, **analyzed})
     items = boards + items
     for item in items:
+        if calendar_error:
+            for period in item["periods"]:
+                period.update(status="insufficient", label="日历待补齐", reason=calendar_error)
         context_code = item["code"] if evidence_matches(evidence["sectors"].get(item["code"]), item) else ""
         item["industry"] = industry_context(evidence, context_code, now)
         item["valuation"] = valuation_context(item["code"], now, subject=item)
@@ -181,9 +199,10 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     return {"method_version": "evidence-screen-v3", "price_method_version": METHOD_VERSION,
             "strength_method_version": "common-grid-quartile-v3", "coverage": coverage,
             "price_cutoff": price_cutoff.isoformat(),
-            "calendar_status": "exchange_calendar_not_integrated",
+            "calendar_status": "ready" if calendar_error is None else "unsupported_range",
+            "calendar_version": calendar.version, "calendar_hash": calendar.hash, "calendar_error": calendar_error,
             "evidence_version": evidence["version"], "generated_at": now.isoformat(timespec="seconds"),
             "universe": heat["universe"], "advantages": advantages,
             "comparison_as_of": comparison_dates, "turnover_as_of": heat["universe"].get("ranking_as_of"),
-            "advantage_rule": "同截止日、同完整观测日期序列可比；原始收益排名前25%；趋势为上涨或可识别修复/回落；最多5个。非投资排名，完整交易日历尚未接入。",
+            "advantage_rule": "同截止日、同完整观测日期序列可比；原始收益排名前25%；趋势为上涨或可识别修复/回落；最多5个。非投资排名，仅在已核验沪深日历覆盖范围内计算。",
             "items": items}

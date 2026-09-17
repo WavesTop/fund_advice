@@ -16,10 +16,10 @@ class BackendD11Tests(unittest.TestCase):
     def test_empty_database_and_repeat_migration_are_stable(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = self.settings(directory)
-            self.assertEqual(database.migrate(settings), 11)
-            self.assertEqual(database.migrate(settings), 11)
+            self.assertEqual(database.migrate(settings), 12)
+            self.assertEqual(database.migrate(settings), 12)
             with database.connection_scope(settings) as connection:
-                self.assertEqual(connection.execute("SELECT COUNT(*) FROM schema_migration").fetchone()[0], 11)
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM schema_migration").fetchone()[0], 12)
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM app_metadata").fetchone()[0], 0)
 
     def test_connection_pragmas_and_lifecycle(self):
@@ -61,7 +61,7 @@ class BackendD11Tests(unittest.TestCase):
             async def check_lifespan():
                 async with app.router.lifespan_context(app):
                     with database.connection_scope(settings) as connection:
-                        self.assertEqual(connection.execute("SELECT COUNT(*) FROM schema_migration").fetchone()[0], 11)
+                        self.assertEqual(connection.execute("SELECT COUNT(*) FROM schema_migration").fetchone()[0], 12)
             import asyncio
             asyncio.run(check_lifespan())
 

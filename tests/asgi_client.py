@@ -37,7 +37,7 @@ class ASGITestClient:
         finally:
             self.loop.close()
 
-    def request(self, method, url, *, params=None):
+    def request(self, method, url, *, params=None, json_body=None):
         if self.loop is None:
             raise RuntimeError('Use ASGITestClient in a context manager')
         parts = urlsplit(url)
@@ -52,8 +52,12 @@ class ASGITestClient:
                  'headers': [(b'host', b'testserver')], 'client': ('127.0.0.1', 1234),
                  'server': ('testserver', 80)}
 
+        request_body = b'' if json_body is None else json.dumps(json_body, allow_nan=False).encode('utf-8')
+        if json_body is not None:
+            scope['headers'].append((b'content-type', b'application/json'))
+
         async def receive():
-            return {'type': 'http.request', 'body': b'', 'more_body': False}
+            return {'type': 'http.request', 'body': request_body, 'more_body': False}
 
         async def send(message):
             messages.append(message)
@@ -66,5 +70,5 @@ class ASGITestClient:
     def get(self, url, *, params=None):
         return self.request('GET', url, params=params)
 
-    def post(self, url, *, params=None):
-        return self.request('POST', url, params=params)
+    def post(self, url, *, params=None, json_body=None):
+        return self.request('POST', url, params=params, json_body=json_body)

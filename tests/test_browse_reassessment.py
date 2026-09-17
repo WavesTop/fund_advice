@@ -179,7 +179,7 @@ class BrowseReassessmentTests(unittest.TestCase):
         self.assertEqual(result['price_cutoff'], '2026-09-15')
         self.assertEqual(result['items'][0]['as_of'], '2026-09-15')
         self.assertEqual(result['items'][0]['periods'][0]['return_pct'], 0)
-        self.assertEqual(result['calendar_status'], 'exchange_calendar_not_integrated')
+        self.assertEqual(result['calendar_status'], 'ready')
 
     def test_display_rounding_does_not_create_a_ranking_tie(self):
         items = []
