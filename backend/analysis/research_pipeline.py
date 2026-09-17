@@ -9,13 +9,14 @@ from pathlib import Path
 
 from backend.analysis.fund_selection import compare_passive_funds, _points, blocked_subjects
 from backend.analysis.sector_status import analyze_index
+from backend.analysis.sector_assessment import context_from_bundle, context_from_index, evaluate_period
 from backend.core.config import Settings
 from backend.core.errors import AppError
 from backend.core.trading_calendar import TradingCalendar, CalendarUnavailable, day, SHANGHAI
 from backend.storage.database import connection_scope
 from backend.storage.research import canonical, digest, get_snapshot, utc_now
 
-ALGORITHM_VERSION = "snapshot-research-v1"
+ALGORITHM_VERSION = "snapshot-research-v2"
 # Observability requirements, not fitted parameters or investment success thresholds.
 RULES = {"version": ALGORITHM_VERSION, "fund_lookback_sessions": 60,
          "valuation_min_samples": 60, "valuation_min_span_days": 365,
@@ -26,7 +27,8 @@ def implementation_hash() -> str:
     root = Path(__file__).resolve().parents[2]
     paths = ["backend/analysis/research_pipeline.py", "backend/analysis/fund_selection.py",
              "backend/analysis/sector_status.py", "backend/analysis/total_return.py",
-             "backend/core/trading_calendar.py", "backend/storage/research.py", "backend/analysis/validation.py"]
+             "backend/core/trading_calendar.py", "backend/storage/research.py", "backend/analysis/validation.py",
+             "backend/analysis/sector_assessment.py", "backend/storage/sector_fundamentals.py"]
     return sha256(b"".join(path.encode() + b"\0" + (root / path).read_bytes() for path in paths)).hexdigest()
 
 
@@ -64,7 +66,10 @@ def assess_subject(manifest: dict, subject: str) -> dict:
             result["operating"][metric] = {"value": rows[-1]["value"], "report_date": rows[-1]["effective_date"],
                 "revision_id": rows[-1]["revision_id"], "published_at": rows[-1]["published_at"],
                 "change_pp": str(Decimal(rows[-1]["value"]) - Decimal(rows[-2]["value"])) if len(rows) > 1 and not errors else None,
-                "qualification": "累计同比增速差，不是单月环比", "gaps": errors}
+                "qualification": "累计同比增速差，不是单月环比", "gaps": errors,
+                "observations": [{"value": row["value"], "report_date": row["effective_date"],
+                                  "published_at": row["published_at"], "source_url": row["source_url"],
+                                  "raw_asset_id": row["raw_asset_id"]} for row in rows[-2:]]}
     valuation_gaps = []
     # Do not choose whichever of PE or PB happens to give a more favourable percentile.
     rows, errors = _numeric(facts, subject, "pe_ttm", now.date())
@@ -90,6 +95,7 @@ def assess_subject(manifest: dict, subject: str) -> dict:
         result["valuation"] = {"metric": "pe_ttm", "value": latest["value"], "as_of": latest["effective_date"],
             "percentile": percentile, "sample_count": len(comparable), "nonpositive_history_count": len(rows) - len(comparable), "span_days": span,
             "input_revision_ids": [row["revision_id"] for row in comparable], "gaps": valuation_gaps,
+            "source_url": latest["source_url"], "raw_asset_id": latest["raw_asset_id"],
             "interpretation": "样本内描述分位，不是上涨概率或估值回归保证"}
     else:
         result["valuation"] = {"percentile": None, "gaps": valuation_gaps}
@@ -99,22 +105,18 @@ def assess_subject(manifest: dict, subject: str) -> dict:
         analysis = analyze_index([{"date": row["effective_date"], "close": row["value"]} for row in prices], as_of=end, calendar=calendar)
     except (ValueError, CalendarUnavailable) as exc:
         analysis = {"periods": [{"id": key, "status": "insufficient", "reason": str(exc)} for key in ("short", "medium", "long")]}
-    for period in analysis["periods"]:
-        gaps = operating_gaps + valuation_gaps
-        if period["status"] not in ("strong", "neutral", "weak"):
-            gaps = [period["reason"], *gaps]
-        known_negative = [key for key, value in result["operating"].items() if not value["gaps"] and Decimal(value["value"]) < 0]
-        if known_negative:
-            state, reason = "risk", "存在可核对的经营反证：" + ",".join(known_negative)
-        elif gaps:
-            state, reason = "insufficient", "研究必要资料未齐；不把缺项平均为中性"
-        elif period["status"] == "weak":
-            state, reason = "conflict", "经营观察与价格方向存在分歧"
-        else:
-            state, reason = "watch", "具备进一步研究的资料；尚缺预期差、催化与独立效果验证"
-        result["periods"].append({"id": period["id"], "state": state, "reason": reason,
-            "price": period, "gaps": gaps, "recommendation_status": "unvalidated"})
     result["operating_gaps"] = operating_gaps
+    result["quality_blocked"] = subject in blocked_subjects(manifest)
+    if subject.startswith("hot_board:"):
+        context = context_from_bundle(manifest.get("sector_fundamentals", {}).get(subject), now, calendar=calendar)
+    else:
+        context = context_from_index(result, now)
+    result["evidence_context"] = context
+    for period in analysis["periods"]:
+        judgment = evaluate_period(period, context)
+        result["periods"].append({"id": period["id"], "state": judgment["status"], "reason": judgment["summary"],
+            "label": judgment["label"], "price": period, "gaps": judgment["missing"], "assessment": judgment,
+            "recommendation_status": "unvalidated"})
     return result
 
 

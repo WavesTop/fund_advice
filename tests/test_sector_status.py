@@ -94,7 +94,7 @@ class SectorStatusTests(unittest.TestCase):
                                  evidence_url="https://example.test/evidence")
             endpoint = next(r.endpoint for r in create_app(settings).routes if r.path == "/api/sectors/opportunities")
             response = endpoint()
-            self.assertEqual(response["method_version"], "evidence-screen-v3")
+            self.assertEqual(response["method_version"], "sector-horizons-v1")
             self.assertEqual(len(response["items"]), 1)
             item = response["items"][0]
             self.assertEqual((item["code"], item["source_id"], item["observation_count"]), ("980017", "index_daily.sina", 121))

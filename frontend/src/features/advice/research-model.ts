@@ -1,4 +1,5 @@
 /** Current-data research DTO. No sample funds, inferred mappings, scores or trades. */
+import { parseSectorFundamentals, type SectorFundamentals } from '../market/sector-evidence-model';
 export const periodIds = ['short', 'medium', 'long'] as const;
 export type PeriodId = (typeof periodIds)[number];
 export type EvidenceState = 'watch' | 'conflict' | 'risk' | 'insufficient';
@@ -49,6 +50,7 @@ export interface ResearchItem {
   as_of: string | null;
   updated_at: string | null;
   collection_error?: string | null;
+  fundamentals?: SectorFundamentals;
   periods: ResearchPeriod[];
   funds: { code: string; name: string }[];
   research?: {
@@ -165,6 +167,7 @@ export function parseResearchResponse(raw: unknown): ResearchResponse {
         || (item.research !== undefined && !validResearch(item.research))) {
       throw new Error('研究对象或周期字段无效，未填补缺失数据。');
     }
+    if (item.fundamentals !== undefined) parseSectorFundamentals(item.fundamentals);
     const key = subjectKey(item as unknown as ResearchItem);
     if (keys.has(key)) throw new Error('研究对象身份重复，请核查数据来源。');
     keys.add(key);

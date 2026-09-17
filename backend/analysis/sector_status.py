@@ -136,6 +136,8 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     except CalendarUnavailable as exc:
         # Keep old observations inspectable, but block every comparison below.
         price_cutoff, calendar_error = now.date(), str(exc)
+    from backend.analysis.sector_assessment import context_from_bundle, evaluate_period
+    from backend.storage.research import read_manifest, timestamp
     evidence = load_industry_evidence()
     heat = read_sector_heat(settings)
     # One read transaction keeps index identity, relations and prices consistent
@@ -152,6 +154,9 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
                     "funds": [dict(row) for row in funds], "universe_type": "tracked_index",
                     "kind": "参考指数", "heat_rank": None, "heat_value": None, "collection_error": None}
             items.append(item)
+        subjects = [f"hot_board:{board['source_id']}:{board['code']}" for board in heat["items"]]
+        subjects += [f"tracked_index:{index['source_id']}:{index['code']}" for index in indexes]
+        manifest = read_manifest(connection, subjects, timestamp(now.isoformat()))
         connection.execute("COMMIT")
     boards = []
     for board in heat["items"]:
@@ -171,8 +176,20 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
         context_code = item["code"] if evidence_matches(evidence["sectors"].get(item["code"]), item) else ""
         item["industry"] = industry_context(evidence, context_code, now)
         item["valuation"] = valuation_context(item["code"], now, subject=item)
+        key = f"{item['universe_type']}:{item['source_id']}:{item['code']}"
+        if item["universe_type"] == "hot_board":
+            try:
+                context = context_from_bundle(manifest["sector_fundamentals"].get(key), now, board=item, calendar=calendar)
+            except CalendarUnavailable as exc:
+                context = context_from_bundle(None, now, board=item)
+                context["errors"].append(str(exc))
+        else:
+            # Local import avoids a module-initialization cycle with analyze_index.
+            from backend.analysis.research_pipeline import assess_subject
+            context = assess_subject(manifest, key)["evidence_context"]
+        item["fundamentals"] = context
         for period in item["periods"]:
-            period["opportunity"] = assess_opportunity(period, item["industry"], item["valuation"])
+            period["opportunity"] = evaluate_period(period, context)
     comparison_dates = {}
     for universe in ("hot_board", "tracked_index"):
         days = [item["as_of"] for item in items if item["universe_type"] == universe
@@ -192,11 +209,11 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
         coverage.append({"universe_type": universe, "total": len(group),
                          "price_eligible": {key: sum(any(p["id"] == key and p["strength"]["eligible"] for p in item["periods"])
                                                      for item in group) for key in ("short", "medium", "long")},
-                         "industry_current": sum(item["industry"]["status"] in ("supportive", "mixed", "pressured") for item in group),
-                         "valuation_observations": sum(bool(item["valuation"]["metrics"]) for item in group),
-                         "valuation_dated_current": sum(item["valuation"]["status"] == "available" and bool(item["valuation"]["as_of"]) for item in group),
+                         "industry_current": sum(item["fundamentals"].get("usable", False) and item["fundamentals"]["operating"]["status"] == "available" for item in group),
+                         "valuation_observations": sum(item["fundamentals"]["valuation"].get("median_pe_ttm") is not None or item["fundamentals"]["valuation"].get("index_pe_ttm") is not None for item in group),
+                         "valuation_dated_current": sum(item["fundamentals"]["valuation"]["status"] == "available" and bool(item["fundamentals"]["valuation"].get("as_of")) for item in group),
                          "formal_recommendation_ready": False})
-    return {"method_version": "evidence-screen-v3", "price_method_version": METHOD_VERSION,
+    return {"method_version": "sector-horizons-v1", "price_method_version": METHOD_VERSION,
             "strength_method_version": "common-grid-quartile-v3", "coverage": coverage,
             "price_cutoff": price_cutoff.isoformat(),
             "calendar_status": "ready" if calendar_error is None else "unsupported_range",

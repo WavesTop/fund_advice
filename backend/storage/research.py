@@ -271,6 +271,47 @@ def _read_fact(connection, revision, cutoff: str) -> dict:
     return {**row, **dict(details), **dict(asset), "last_observed_at": observed}
 
 
+def read_manifest(connection, subjects: list[str], cutoff: str, *, purpose: str = "research", mode: str = "system_as_of") -> dict:
+    """Select only knowledge available by cutoff; caller holds the read transaction."""
+    business_day = datetime.fromisoformat(cutoff.replace("Z", "+00:00")).astimezone(SHANGHAI).date().isoformat()
+    placeholders = ",".join("?" for _ in subjects)
+    rows = connection.execute(
+        f"""SELECT rowid AS ordinal,* FROM data_revision WHERE subject_key IN ({placeholders})
+            AND effective_date<=? AND first_seen_at<=? AND committed_at<=?
+            AND (published_at IS NULL OR published_at<=?) ORDER BY rowid""",
+        (*subjects, business_day, cutoff, cutoff, cutoff),
+    ).fetchall()
+    # Latest revision of each source-local natural key first, then quality gating.
+    # A quarantined correction must not silently resurrect its superseded value.
+    chosen = {(row["record_key"], row["source_id"]): row for row in rows}
+    facts, excluded = [], []
+    for row in chosen.values():
+        quality = connection.execute(
+            "SELECT state,reason FROM data_quality_event WHERE revision_id=? AND occurred_at<=? ORDER BY id DESC LIMIT 1",
+            (row["revision_id"], cutoff),
+        ).fetchone()
+        if quality is None or quality["state"] != "available":
+            excluded.append({"revision_id": row["revision_id"], "subject_key": row["subject_key"], "record_key": row["record_key"], "kind": "quality", "reason": quality["reason"] if quality else "缺少质量事件"})
+            continue
+        if row["valid_to"] and row["valid_to"] <= business_day:
+            excluded.append({"revision_id": row["revision_id"], "subject_key": row["subject_key"], "record_key": row["record_key"], "kind": "validity", "reason": "业务有效期已结束"})
+            continue
+        facts.append(_read_fact(connection, row, cutoff))
+    facts.sort(key=lambda item: (item["subject_key"], item["record_key"], item["source_id"]))
+    keys: dict[str, set[str]] = {}
+    for item in facts:
+        keys.setdefault(item["record_key"], set()).add(item["source_id"])
+    conflicts = [key for key, sources in keys.items() if len(sources) > 1]
+    calendar = get_calendar()
+    manifest = {"version": "system-snapshot-v2", "mode": mode, "cutoff": cutoff,
+                "purpose": purpose, "subjects": subjects, "facts": facts, "excluded": excluded,
+                "source_conflicts": conflicts, "calendar": calendar.document,
+                "calendar_hash": calendar.hash, "missing_subjects": [s for s in subjects if not any(f["subject_key"] == s for f in facts)]}
+    from backend.storage.sector_fundamentals import known_observations
+    manifest["sector_fundamentals"] = known_observations(connection, subjects, cutoff)
+    return manifest
+
+
 def freeze_snapshot(settings: Settings, subjects: list[str], *, cutoff: str | None = None,
                     purpose: str = "research", mode: str = "system_as_of") -> dict:
     if mode != "system_as_of":
@@ -287,45 +328,12 @@ def freeze_snapshot(settings: Settings, subjects: list[str], *, cutoff: str | No
             cutoff = timestamp(cutoff) if cutoff is not None else now
             if cutoff > now:
                 raise ValueError("快照截止时间不能在未来")
-            business_day = datetime.fromisoformat(cutoff.replace("Z", "+00:00")).astimezone(SHANGHAI).date().isoformat()
-            placeholders = ",".join("?" for _ in subjects)
-            rows = connection.execute(
-                f"""SELECT rowid AS ordinal,* FROM data_revision WHERE subject_key IN ({placeholders})
-                    AND effective_date<=? AND first_seen_at<=? AND committed_at<=?
-                    AND (published_at IS NULL OR published_at<=?) ORDER BY rowid""",
-                (*subjects, business_day, cutoff, cutoff, cutoff),
-            ).fetchall()
-            # Latest revision of each source-local natural key first, then quality gating.
-            # A quarantined correction must not silently resurrect its superseded value.
-            chosen = {(row["record_key"], row["source_id"]): row for row in rows}
-            facts, excluded = [], []
-            for row in chosen.values():
-                quality = connection.execute(
-                    "SELECT state,reason FROM data_quality_event WHERE revision_id=? AND occurred_at<=? ORDER BY id DESC LIMIT 1",
-                    (row["revision_id"], cutoff),
-                ).fetchone()
-                if quality is None or quality["state"] != "available":
-                    excluded.append({"revision_id": row["revision_id"], "subject_key": row["subject_key"], "record_key": row["record_key"], "kind": "quality", "reason": quality["reason"] if quality else "缺少质量事件"})
-                    continue
-                if row["valid_to"] and row["valid_to"] <= business_day:
-                    excluded.append({"revision_id": row["revision_id"], "subject_key": row["subject_key"], "record_key": row["record_key"], "kind": "validity", "reason": "业务有效期已结束"})
-                    continue
-                facts.append(_read_fact(connection, row, cutoff))
-            facts.sort(key=lambda item: (item["subject_key"], item["record_key"], item["source_id"]))
-            keys: dict[str, set[str]] = {}
-            for item in facts:
-                keys.setdefault(item["record_key"], set()).add(item["source_id"])
-            conflicts = [key for key, sources in keys.items() if len(sources) > 1]
-            calendar = get_calendar()
-            manifest = {"version": "system-snapshot-v1", "mode": mode, "cutoff": cutoff,
-                        "purpose": purpose, "subjects": subjects, "facts": facts, "excluded": excluded,
-                        "source_conflicts": conflicts, "calendar": calendar.document,
-                        "calendar_hash": calendar.hash, "missing_subjects": [s for s in subjects if not any(f["subject_key"] == s for f in facts)]}
+            manifest = read_manifest(connection, subjects, cutoff, purpose=purpose, mode=mode)
             hashed = digest(manifest)
             snapshot_id = hashed
             connection.execute("INSERT OR IGNORE INTO data_snapshot VALUES(?,?,?,?,?,?,?)",
                                (snapshot_id, purpose, mode, cutoff, now, hashed, canonical(manifest)))
-            connection.executemany("INSERT OR IGNORE INTO snapshot_item VALUES(?,?)", [(snapshot_id, fact["revision_id"]) for fact in facts])
+            connection.executemany("INSERT OR IGNORE INTO snapshot_item VALUES(?,?)", [(snapshot_id, fact["revision_id"]) for fact in manifest["facts"]])
             connection.execute("COMMIT")
         except Exception:
             connection.execute("ROLLBACK")

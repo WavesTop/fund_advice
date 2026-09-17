@@ -7,10 +7,11 @@ import {
   selectResearchItems, selectionFrom, sourceHref, subjectKey,
   type FundAssociation, type PeriodId, type ResearchItem, type ResearchPeriod,
 } from './research-model';
+import { SectorEvidencePanel } from '../market/SectorEvidencePanel';
+import { MarketDataRefresh } from '../market/MarketDataRefresh';
 import './research.css';
 
 const periodNames = { short: '短期', medium: '中期', long: '长期' };
-const evidenceLabels = { watch: '研究线索待核查', conflict: '证据存在分歧', risk: '已有风险或反证', insufficient: '研究依据不足' };
 const evidenceTone = { watch: 'blue', conflict: 'amber', risk: 'red', insufficient: 'neutral' } as const;
 const dateText = (value: string | null | undefined) => value?.slice(0, 10) || '未提供';
 
@@ -27,7 +28,7 @@ function PeriodObservation({ item, period, focused }: { item: ResearchItem; peri
   return <article className="research-observation" aria-label={`${item.name} ${period.name}研究`}>
     <div className="research-observation-heading">
       <Link to={researchHref(item)}>{item.name}</Link>
-      <Badge tone={evidenceTone[period.opportunity.status]}>{evidenceLabels[period.opportunity.status]}</Badge>
+      <Badge tone={evidenceTone[period.opportunity.status]}>{period.opportunity.label}</Badge>
     </div>
     <small className="muted">{item.code} · {item.source_id} · 行情截至 {dateText(item.as_of)}</small>
     <p className="research-conclusion">{period.opportunity.summary}</p>
@@ -70,7 +71,7 @@ export function ResearchAdvicePage() {
   const [fundInput, setFundInput] = useState(selection.fund);
   const [query, setQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(20);
-  const { result, loading, error, reload, notFound } = useResearchData(selection.fund);
+  const { result, loading, error, reload, notFound, cancelRead, applyEvaluation } = useResearchData(selection.fund);
   useEffect(() => setFundInput(selection.fund), [selection.fund]);
   useEffect(() => setVisibleCount(20), [query]);
   const data = result?.research;
@@ -82,7 +83,9 @@ export function ResearchAdvicePage() {
   return <div className="research-page">
     <PageHeader eyebrow="INVESTMENT RESEARCH" title="投资分析与建议"
       description="先核对真实基金与板块，再比较三周期研究线索、反证和基金匹配。"
-      actions={<button className="button primary" type="button" disabled={loading} onClick={reload}>{loading ? '读取中…' : '重新评估本地资料'}</button>} />
+      actions={result ? <MarketDataRefresh key={selection.fund} target="sectors" onStart={cancelRead} onSettled={(evaluation) => {
+        if (evaluation) applyEvaluation(evaluation); else reload();
+      }} /> : <button className="button primary" type="button" disabled={loading} onClick={reload}>{loading ? '读取中…' : '重试读取'}</button>} />
     <nav className="research-nav" aria-label="研究页面导航">
       <Link to={back}>返回浏览</Link><Link to="/advice">全部研究范围</Link>
       <Link to="/advice?mode=demo">打开交互演示</Link>
@@ -90,7 +93,7 @@ export function ResearchAdvicePage() {
     </nav>
     <Notice title="真实研究入口 · 正式投资推荐尚未完成">
       此页不使用虚构基金或随机走势。走势观察、投资研究、基金关联分别展示；不会生成买卖指令、目标金额或上涨概率。
-      重新评估只读取本地资料，不采集市场数据，也不调用 AI。
+      重新评估会采集行业行情、当前成分公司的经营和同日估值，再计算三周期判断；参考指数及旧人工背景不在此批量采集范围，也不调用 AI。
     </Notice>
     <form className="research-search" onSubmit={(event) => {
       event.preventDefault();
@@ -112,7 +115,7 @@ export function ResearchAdvicePage() {
           <div><dt>本次读取时间</dt><dd>{data.generated_at}</dd></div><div><dt>行情范围</dt><dd>{data.universe?.label || '本地已采集对象'}</dd></div>
           <div><dt>基金推荐 / 个人操作</dt><dd>尚未评估 / 不可用</dd></div></dl>
         {result.fund && <p>份额身份 {result.fund.share_id} · {result.fund.fund_type || '类型未提供'} · 来源 {result.fund.source_id} · <Link to={`/funds/${result.fund.code}`}>查看真实基金走势</Link></p>}
-        <p className="muted">读取时间不是资料发布日期。本次结果为当前数据投影，尚未保存为可复算的历史建议快照。</p>
+        <p className="muted">读取时间不是资料发布日期。页面展示当前数据投影；重新评估返回的固定研究引用可经研究 API 核对，首次读取不创建快照。</p>
         {data.universe?.last_error && <p className="research-warning">行业池最近更新失败；请以行情及榜单日期核对有效性。</p>}
       </Panel>
       {selected.problem ? <EmptyState title="该对象尚无可用的关联研究" description={selected.problem} action={<Link className="button secondary" to={back}>返回核对对象</Link>} /> : <>
@@ -121,7 +124,8 @@ export function ResearchAdvicePage() {
             const observations = periodObservations(data, id, selection);
             const summary = data.advantages?.find((entry) => entry.id === id);
             const horizon = selected.items.flatMap((item) => item.periods).find((period) => period.id === id)?.range;
-            return <Panel key={id} className={`research-period research-period-${id}`} title={periodNames[id]} subtitle={horizon ? `未来${horizon}` : '期限资料待提供'} action={<Badge tone="neutral">研究观察</Badge>}>
+            const conclusion = observations.length === 1 ? observations[0].periods.find((period) => period.id === id)?.opportunity : undefined;
+            return <Panel key={id} className={`research-period research-period-${id}`} title={periodNames[id]} subtitle={horizon ? `未来${horizon}` : '期限资料待提供'} action={<Badge tone={conclusion ? evidenceTone[conclusion.status] : 'neutral'}>{conclusion?.label || (observations.length ? '按对象分别评价' : '该周期暂无资料')}</Badge>}>
               {!focused && <p className="muted">沿用已核验行情的走势观察优先项；不是板块投资推荐榜，也不与参考指数混合排名。</p>}
               {observations.length ? observations.map((item) => {
                 const period = item.periods.find((entry) => entry.id === id);
@@ -130,6 +134,7 @@ export function ResearchAdvicePage() {
             </Panel>;
           })}
         </div>
+        {focused && selected.items.map((item) => <SectorEvidencePanel key={subjectKey(item)} evidence={item.fundamentals} name={item.name} />)}
         <Panel title="对应基金：关联核对与推荐缺口" subtitle="明确关联不等于基金择优，未完成核验不会出现默认候选。">
           {!focused ? <p className="muted">选择一个板块或指数查看其对应基金。下方列表包含已有指数观察，不会把它们与行业走势榜混为同一排名。</p>
             : matchItems.length ? matchItems.map((item) => {

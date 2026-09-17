@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -19,7 +20,17 @@ def connect(settings: Settings) -> sqlite3.Connection:
     try:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute(f"PRAGMA busy_timeout = {settings.busy_timeout_ms}")
-        mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+        deadline = time.monotonic() + settings.busy_timeout_ms / 1000
+        while True:
+            try:
+                mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+                break
+            except sqlite3.OperationalError as exc:
+                code = getattr(exc, "sqlite_errorcode", None)
+                remaining = deadline - time.monotonic()
+                if code is None or code & 0xff not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or remaining <= 0:
+                    raise
+                time.sleep(min(0.025, remaining))
         if str(mode).lower() != "wal":
             raise AppError("sqlite_configuration_error", f"无法启用 WAL（实际模式：{mode}）", 500)
         connection.execute("PRAGMA synchronous = FULL")

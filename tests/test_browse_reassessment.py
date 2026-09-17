@@ -165,7 +165,8 @@ class BrowseReassessmentTests(unittest.TestCase):
     def test_worker_cannot_shrink_coverage_denominator_to_claim_success(self):
         fixture = {'universe': {'ranking_as_of': '2026-09-16', 'requested_count': 3, 'catalog_count': 5},
                    'items': [{'code': 'BK0001', 'rows': prices(), 'collection_error': None, 'membership': {'status': 'ready'}}]}
-        with patch('scripts.refresh_market_data.refresh_sector_heat', return_value=fixture):
+        with patch('scripts.refresh_market_data.collect_sector_fundamentals', return_value={'status': 'not_collected', 'message': 'fixture'}), \
+             patch('scripts.refresh_market_data.refresh_sector_heat', return_value=fixture):
             result = collect(self.settings, 'sectors')
         self.assertEqual((result['status'], result['requested_count'], result['price_failed'], result['identity_excluded_count']),
                          ('partial', 3, 2, 2))

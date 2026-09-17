@@ -34,7 +34,7 @@ class ResearchAPITests(unittest.TestCase):
         return response.json()
 
     def test_status_and_health_report_capability_not_investment_success(self):
-        self.assertEqual(self.client.get('/health').json()['schema_version'],12)
+        self.assertEqual(self.client.get('/health').json()['schema_version'],13)
         status=self.client.get('/api/research/status').json()
         self.assertEqual(status['operation_status'],'unavailable')
         self.assertEqual(status['calendar_years'],[2025,2026])

@@ -158,12 +158,18 @@ class SnapshotResearchTests(unittest.TestCase):
                 fact.update(scope='broad_industry',semantic_status='background')
         output = assess_subject(self.snapshot(facts)['manifest'],SUBJECT)
         self.assertTrue(output['background_revision_ids'])
-        self.assertTrue(all(period['state']=='insufficient' for period in output['periods']))
+        # Background is still excluded from earnings; valid prices may describe the short horizon.
+        self.assertEqual(output['operating'], {})
+        self.assertTrue(all(period['state']=='insufficient' for period in output['periods'] if period['id']!='short'))
+        self.assertEqual(output['periods'][0]['assessment']['basis'], 'price_and_risk')
+        self.assertEqual(output['periods'][0]['assessment']['recommendation_status'], 'not_evaluated')
 
     def test_negative_profit_retains_risk_even_with_other_missing_inputs(self):
         facts = [numeric(value='10',effective='2026-06-30'),numeric(value='-10')]
         output = assess_subject(self.snapshot(facts)['manifest'],SUBJECT)
-        self.assertTrue(all(period['state']=='risk' for period in output['periods']))
+        self.assertTrue(all(period['state']=='risk' for period in output['periods'] if period['id']!='short'))
+        self.assertEqual(output['periods'][0]['state'], 'insufficient')  # no price observations
+        self.assertTrue(any('归母净利润同比' in value for value in output['periods'][0]['assessment']['challenges']))
         self.assertTrue(all(period['gaps'] for period in output['periods']))
 
     def test_valuation_single_date_or_nonpositive_history_never_gets_rank(self):
@@ -190,7 +196,11 @@ class SnapshotResearchTests(unittest.TestCase):
         quarantine(self.settings,point['revision_id'],'fixture wrong source')
         current = freeze_snapshot(self.settings,[SUBJECT,BENCHMARK,FUND_A,FUND_B])
         assessment = assess_subject(current['manifest'],SUBJECT)
-        self.assertTrue(all(period['state']=='insufficient' for period in assessment['periods']))
+        self.assertTrue(assessment['quality_blocked'])
+        self.assertFalse(assessment['evidence_context']['usable'])
+        self.assertIsNone(assessment['evidence_context']['valuation']['percentile'])
+        self.assertTrue(all(period['state']=='insufficient' for period in assessment['periods'] if period['id']!='short'))
+        self.assertTrue(all(period['recommendation_status']=='unvalidated' for period in assessment['periods']))
         output = compare_passive_funds(current['manifest'],SUBJECT)
         self.assertTrue(all(item['status']=='insufficient' for item in output['items']))
 

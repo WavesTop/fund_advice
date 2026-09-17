@@ -1,0 +1,10 @@
+.sector-evidence-panel { margin-block: 1rem; padding: 1rem; border: 1px solid var(--border, #e0e6ed); border-radius: 12px; min-width: 0; overflow-wrap: anywhere; }
+.sector-evidence-panel h3, .sector-evidence-panel h4 { margin-block: .75rem .5rem; }
+.sector-evidence-panel small { display: block; margin-top: .25rem; }
+.sector-evidence-panel summary { cursor: pointer; padding-block: .35rem; }
+.sector-evidence-panel ul { padding-left: 1.25rem; }
+.sector-evidence-values { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: .8rem; }
+.sector-evidence-values dt { font-size: .9rem; }
+.sector-evidence-values dd { margin: .35rem 0 0; font-weight: 600; }
+.sector-evidence-panel .table-wrap { overflow-x: auto; }
+.sector-evidence-panel .data-table { min-width: 650px; }

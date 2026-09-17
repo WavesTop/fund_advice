@@ -132,4 +132,4 @@ class DurableCollectionTests(unittest.TestCase):
     def test_concurrent_migrations_recheck_after_lock(self):
         with ThreadPoolExecutor(max_workers=3) as executor:
             values = list(executor.map(lambda _:migrate(self.settings), range(6)))
-        self.assertEqual(values,[12]*6)
+        self.assertEqual(values,[13]*6)

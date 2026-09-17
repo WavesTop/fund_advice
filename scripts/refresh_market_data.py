@@ -11,6 +11,7 @@ import sys
 from backend.core.config import Settings
 from scripts.import_fund_catalog import refresh_fund_catalog
 from scripts.import_sector_heat import refresh_sector_heat
+from backend.integrations.sector_financials import collect_sector_fundamentals
 
 
 def now() -> str:
@@ -37,6 +38,9 @@ def collect(settings: Settings, target: str) -> dict:
             or not isinstance(catalog_count, int) or isinstance(catalog_count, bool) or catalog_count < requested):
         raise ValueError("行业采集覆盖统计不一致，不能认定更新成功")
     status = "failed" if not price_ok else "success" if price_ok == members_ok == requested and not universe.get("last_error") else "partial"
+    financials = collect_sector_fundamentals(settings, items)
+    if status == "success" and financials["status"] != "success":
+        status = "partial"
     errors = [{"code": item["code"], "message": item.get("collection_error") or item.get("membership", {}).get("error")}
               for item in items if item.get("collection_error") or item.get("membership", {}).get("error")]
     return {"target": target, "status": status, "started_at": started, "completed_at": now(),
@@ -44,9 +48,10 @@ def collect(settings: Settings, target: str) -> dict:
             "catalog_count": catalog_count, "identity_excluded_count": catalog_count - requested,
             "price_updated": price_ok, "price_failed": requested - price_ok,
             "membership_updated": members_ok, "membership_failed": requested - members_ok,
-            "errors": errors, "manual_evidence_refreshed": False,
+            "errors": errors, "manual_evidence_refreshed": False, "fundamentals": financials,
             "message": f"目录 {catalog_count} 个，纳入可核验行业 {requested} 个；日线成功 {price_ok}/{requested}，成分成功 {members_ok}/{requested}。"
-                       "失败项保留可核对的旧资料；行业经营和估值人工快照、已有参考指数未由本按钮更新。"}
+                       f"成分经营与同日估值：{financials['message']}。"
+                       "旧人工背景及已有参考指数未由本按钮更新；失败项不计作本轮完整研究。"}
 
 
 def main(argv=None) -> int:

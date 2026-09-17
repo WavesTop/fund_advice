@@ -107,14 +107,19 @@ class MarketWorkbenchTests(unittest.TestCase):
             {"code": "BK1", "rows": [PRICE], "collection_error": None, "membership": {"status": "failed", "error": "members offline"}},
             {"code": "BK2", "rows": [PRICE], "collection_error": "prices offline", "membership": {"status": "ready"}},
         ]}
-        with patch("scripts.refresh_market_data.refresh_sector_heat", return_value=fixture) as fetcher:
+        financial_stage = {"status": "not_collected", "message": "fixture: no verified members"}
+        with patch("scripts.refresh_market_data.collect_sector_fundamentals", return_value=financial_stage) as financials, \
+             patch("scripts.refresh_market_data.refresh_sector_heat", return_value=fixture) as fetcher:
             result = collect(self.settings, "sectors")
         fetcher.assert_called_once_with(self.settings, industry_only=True)
+        financials.assert_called_once_with(self.settings, fixture["items"])
+        self.assertEqual(result["fundamentals"], financial_stage)
         self.assertEqual((result["status"], result["price_updated"], result["price_failed"]), ("partial", 1, 1))
         self.assertEqual((result["membership_updated"], result["membership_failed"]), (1, 1))
         self.assertFalse(result["manual_evidence_refreshed"])
         fixture["items"][0]["collection_error"] = "also offline"
-        with patch("scripts.refresh_market_data.refresh_sector_heat", return_value=fixture):
+        with patch("scripts.refresh_market_data.collect_sector_fundamentals", return_value=financial_stage), \
+             patch("scripts.refresh_market_data.refresh_sector_heat", return_value=fixture):
             self.assertEqual(collect(self.settings, "sectors")["status"], "failed")
 
     def test_refresh_uses_bounded_worker_not_read_only_opportunities(self):

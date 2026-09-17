@@ -41,7 +41,15 @@ export function useResearchData(fundCode: string) {
     load();
     return () => request.current?.abort();
   }, [load]);
+  const cancelRead = useCallback(() => request.current?.abort(), []);
+  const applyEvaluation = useCallback((raw: unknown) => {
+    const research = parseResearchResponse(raw);
+    request.current?.abort();
+    setState((previous) => previous.key === fundCode && previous.result
+      ? { ...previous, result: { ...previous.result, research }, loading: false, error: '', notFound: false }
+      : previous);
+  }, [fundCode]);
   // Effects run after render: hide the prior identity immediately on a route change.
   const visible = state.key === fundCode ? state : { key: fundCode, result: null, loading: true, error: '', notFound: false };
-  return { ...visible, reload: load };
+  return { ...visible, reload: load, cancelRead, applyEvaluation };
 }

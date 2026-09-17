@@ -5,6 +5,8 @@ import { Badge, EmptyState, Notice, Panel } from '../../shared/ui';
 import './sector-opportunities.css';
 import { SectorSummaryTable } from './SectorSummaryTable';
 import { SectorHistory } from './SectorHistory';
+import { SectorEvidencePanel } from './SectorEvidencePanel';
+import type { SectorFundamentals } from './sector-evidence-model';
 import { researchHref, subjectKey } from '../advice/research-model';
 import { directoryPage } from './fund-directory-model';
 import { MarketDataRefresh } from './MarketDataRefresh';
@@ -103,6 +105,7 @@ export type SectorOpportunity = {
   observation_count: number;
   funds: { code: string; name: string; relation_status?: string; relation_reason?: string }[];
   periods: SectorOpportunityPeriod[];
+  fundamentals?: SectorFundamentals;
   industry?: IndustryEvidence;
   valuation?: ValuationEvidence;
   universe_type?: 'hot_board' | 'tracked_index';
@@ -455,9 +458,10 @@ export function OpportunityCard({ item, heatBasis, from }: { item: SectorOpportu
           <div className="sector-missing">暂无周期资料</div>
         )}
       </div>
+      <SectorEvidencePanel evidence={item.fundamentals} name={item.name} />
       {item.industry && (
         <details className="sector-industry-evidence">
-          <summary>行业证据 · {item.industry.label}</summary>
+          <summary>旧行业背景参考（非当前成分报表） · {item.industry.label}</summary>
           <p>{item.industry.summary}</p>
           <small>
             {item.industry.scope} · {item.industry.mapping_note} · 同比 pp，非月环比
@@ -495,14 +499,14 @@ export function OpportunityCard({ item, heatBasis, from }: { item: SectorOpportu
           )}
         </details>
       )}
-      {!item.industry && (
+      {!item.industry && !item.fundamentals && (
         <div className="sector-industry-missing">
           缺少该板块行业经营与估值证据，暂不能给投资方向。
         </div>
       )}
       {item.valuation && (
         <div className="sector-valuation">
-          <strong>估值</strong>
+          <strong>旧估值背景参考（非本轮采集）</strong>
           <span>
             {item.valuation.status === 'not_applicable'
               ? '不适用'

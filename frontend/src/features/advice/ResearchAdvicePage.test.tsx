@@ -18,12 +18,12 @@ describe('real research page', () => {
   });
   it('retains a full prior result when a refresh fails', async () => {
     const fetcher = vi.fn().mockImplementationOnce(async () => new Response(JSON.stringify(researchFixture())))
-      .mockRejectedValueOnce(new Error('test offline'));
+      .mockRejectedValue(new Error('test offline'));
     vi.stubGlobal('fetch', fetcher);
     renderPage();
     await screen.findByRole('heading', { name: '短期' });
-    fireEvent.click(screen.getByRole('button', { name: '重新评估本地资料' }));
-    await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button', { name: '重新评估' }));
+    await screen.findByText(/本次更新失败，保留上次结果/);
     expect(screen.getByText(/本次更新失败，保留上次结果/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '长期' })).toBeInTheDocument();
   });
@@ -69,4 +69,26 @@ describe('real research page', () => {
     expect(screen.queryByRole('heading', { name: '旧查询基金 · 000001' })).not.toBeInTheDocument();
   });
 
+});
+
+describe('differentiated horizons and collected data', () => {
+  it('uses the evaluation returned by POST and renders different horizon conclusions', async () => {
+    const latest = researchFixture();
+    const labels = ['上涨走势', '经营增长与走势相符', '经营改善，定价待验证'];
+    latest.items[0].periods = latest.items[0].periods.map((period, index) => ({ ...period,
+      ma_bias_pct: 1, risk: 'normal', opportunity: { ...period.opportunity,
+        label: labels[index], status: index === 2 ? 'insufficient' : 'watch', summary: `更新后的${labels[index]}` } }));
+    const fetcher = vi.fn(async (_path: string, options?: RequestInit) => new Response(JSON.stringify(options?.method === 'POST'
+      ? { refresh: { target: 'sectors', status: 'partial', message: '合成财报已采集，估值历史待积累' }, evaluation: latest }
+      : researchFixture())));
+    vi.stubGlobal('fetch', fetcher);
+    renderPage('/advice?sector=BK_TEST&source=fixture.board&universe=hot_board');
+    await screen.findByRole('heading', { name: '短期' });
+    expect(screen.queryByText('研究观察')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新评估' }));
+    await screen.findByText('更新后的经营增长与走势相符');
+    for (const label of labels) expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[1][1]?.method).toBe('POST');
+  });
 });
