@@ -18,7 +18,7 @@ from backend.analysis.sector_evidence import (
 from backend.analysis.sector_strength import attach_strength, build_advantage_summary
 from backend.analysis.research_view import attach_research_views
 
-METHOD_VERSION = "price-state-v4-calendar"
+METHOD_VERSION = "price-state-v5-historical-display"
 PERIODS = (
     ("short", "短期", "约 1 周至 1 个月", 20),
     ("medium", "中期", "约 1 至 3 个月", 60),
@@ -121,8 +121,23 @@ def analyze_index(rows: Sequence[Mapping[str, object]], *, as_of: date, calendar
         result.update(observation_start=sample[0][0].isoformat(), observation_end=sample[-1][0].isoformat(),
                       observation_grid=sha256(",".join(day.isoformat() for day, _ in sample).encode()).hexdigest(),
                       _ranking_return=str(change))
+    if calendar is not None and latest is not None and latest < as_of and not invalid_dates:
+        historical = analyze_index(rows, as_of=latest, calendar=calendar)
+        for period, past in zip(periods, historical["periods"]):
+            if past["status"] in ("strong", "neutral", "weak"):
+                period["historical"] = _historical_display(past, latest.isoformat())
     return {"as_of": latest.isoformat() if latest else None,
             "observation_count": len(observations), "periods": periods}
+
+
+def _historical_display(period: dict, as_of: str) -> dict:
+    # No rank or current-eligibility fields cross into the historical display contract.
+    return {"available": True, "as_of": as_of, "label": period["label"],
+            "return_pct": period["return_pct"], "ma_bias_pct": period["ma_bias_pct"],
+            "max_drawdown_pct": period["max_drawdown_pct"],
+            "observation_start": period.get("observation_start"),
+            "observation_end": period.get("observation_end"),
+            "note": "历史窗口已校验；不代表最新行情，不参与当前排名。"}
 
 
 def sector_opportunities(settings: Settings) -> dict[str, object]:
@@ -166,6 +181,8 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
             board["collection_error"] = heat["universe"]["last_error"]
         if board.get("collection_error"):
             for period in analyzed["periods"]:
+                if period["status"] in ("strong", "neutral", "weak"):
+                    period["historical"] = _historical_display(period, analyzed["as_of"])
                 period.update(status="stale", label="行情待更新", reason="本次采集失败，旧行情仅供核对，不参与当前判断。")
         boards.append({**board, **analyzed})
     items = boards + items
@@ -213,7 +230,9 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
                          "valuation_observations": sum(item["fundamentals"]["valuation"].get("median_pe_ttm") is not None or item["fundamentals"]["valuation"].get("index_pe_ttm") is not None for item in group),
                          "valuation_dated_current": sum(item["fundamentals"]["valuation"]["status"] == "available" and bool(item["fundamentals"]["valuation"].get("as_of")) for item in group),
                          "formal_recommendation_ready": False})
-    return {"method_version": "sector-horizons-v1", "price_method_version": METHOD_VERSION,
+    from backend.storage.collection_runs import latest_sector_status
+    return {"collection_status": latest_sector_status(settings),
+            "method_version": "sector-horizons-v1", "price_method_version": METHOD_VERSION,
             "strength_method_version": "common-grid-quartile-v3", "coverage": coverage,
             "price_cutoff": price_cutoff.isoformat(),
             "calendar_status": "ready" if calendar_error is None else "unsupported_range",

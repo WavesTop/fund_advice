@@ -102,7 +102,11 @@ def parse_rows(rows: list, kind: str, business_date: str, now: datetime) -> tupl
             if day(published) >= local_day:
                 excluded[code] = "公告尚未到达保守可用时点"
                 continue
-        values = {name: _decimal(raw[name]) for name in expected}
+        try:
+            values = {name: _decimal(raw[name]) for name in expected}
+        except ValueError as exc:
+            excluded[code] = f"数值字段无效：{exc}"
+            continue
         if kind == "income" and values["TOTAL_OPERATE_INCOME"] is not None and Decimal(values["TOTAL_OPERATE_INCOME"]) < 0:
             excluded[code] = "营业总收入为负，须核查来源"
             continue
@@ -142,7 +146,9 @@ def fetch_table(settings: Settings, kind: str, business_date: str, now: datetime
         sources.append({"url": url, "asset_id": asset_id})
         root = json.loads(body, parse_float=str)
         if not isinstance(root, dict) or root.get("success") is not True or not isinstance(root.get("result"), dict):
-            raise ValueError("财务来源没有返回成功的结构化结果")
+            code = root.get("code") if isinstance(root, dict) else None
+            message = root.get("message") if isinstance(root, dict) else "响应不是对象"
+            raise ValueError(f"财务来源{report}/{business_date}未返回成功结果；code={code!r} message={str(message)[:300]}")
         result = root["result"]
         count, pages = _integer(result.get("count")), _integer(result.get("pages"))
         if count > PAGE_SIZE * MAX_PAGES or pages > MAX_PAGES or pages != ((count + PAGE_SIZE - 1) // PAGE_SIZE):
@@ -205,6 +211,10 @@ def operating_sample(members: list[dict], reports: list[str], datasets: dict) ->
                     "delta": str(current_sum - base_sum) if common else None,
                     "covered": len(common), "total": total, "sample_codes": common,
                     "complete": total > 0 and len(common) == total,
+                    "supported_total": len(supported), "unsupported_total": total - len(supported),
+                    "supported_complete": bool(supported) and len(common) == len(supported),
+                    "coverage_pct": str(Decimal(len(common)) / total * 100) if total else None,
+                    "scope": "当前成分中已接入的沪深A股可比样本；complete仍以全部成分为分母",
                     "published_at": max(public_dates) if public_dates else None,
                     "excluded": omissions,
                     "baseline": "positive" if base_sum is not None and base_sum > 0 else "nonpositive" if base_sum is not None else "missing",
@@ -226,6 +236,8 @@ def valuation_sample(members: list[dict], dataset: dict, as_of: str) -> dict:
     median = (values[n // 2] if n % 2 else (values[n // 2 - 1] + values[n // 2]) / 2) if n else None
     return {"status": "available" if len(observed) == len(members) and members else "partial" if observed else "missing",
             "as_of": as_of, "covered": len(observed), "total": len(members),
+            "supported_total": len(codes), "unsupported_total": len(members) - len(codes),
+            "supported_complete": bool(codes) and len(observed) == len(codes),
             "median_pe_ttm": str(median) if median is not None else None,
             "positive_count": len(positive), "nonpositive_count": len(observed) - len(positive),
             "positive_codes": positive, "error": dataset.get("error"),
@@ -235,7 +247,7 @@ def valuation_sample(members: list[dict], dataset: dict, as_of: str) -> dict:
 
 
 def collect_sector_fundamentals(settings: Settings, boards: list[dict], *, fetcher=None,
-                                now: datetime | None = None, clock=time.monotonic) -> dict:
+                                now: datetime | None = None, clock=time.monotonic, progress=None) -> dict:
     migrate(settings)
     now = now or datetime.now(SHANGHAI)
     if now.tzinfo is None:
@@ -272,6 +284,8 @@ def collect_sector_fundamentals(settings: Settings, boards: list[dict], *, fetch
                 "message": "没有当前可核对的沪深A股成分，未请求财务来源"}
     datasets, errors, deadline = {}, [], clock() + BUDGET_SECONDS
     for kind, report in keys:
+        if progress:
+            progress({"stage": "financials", "dataset": kind, "business_date": report, "state": "running"})
         try:
             dataset = fetch_table(settings, kind, report, now, fetcher=fetcher, deadline=deadline, clock=clock)
         except Exception as exc:
@@ -279,6 +293,10 @@ def collect_sector_fundamentals(settings: Settings, boards: list[dict], *, fetch
             dataset = {"status": "failed", "rows": {}, "excluded": {}, "sources": [], "error": message}
             errors.append(message)
         datasets[(kind, report)] = dataset
+        if progress:
+            progress({"stage": "financials", "dataset": kind, "business_date": report,
+                      "state": dataset["status"], "row_count": len(dataset["rows"]),
+                      "error": dataset.get("error")})
     for board, initial in valid:
         members = board["membership"]["members"]
         operating = operating_sample(members, reports, datasets)

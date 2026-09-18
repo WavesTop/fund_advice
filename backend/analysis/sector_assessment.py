@@ -128,6 +128,9 @@ def evaluate_period(period: dict, context: dict) -> dict:
             challenges.append(f"观察窗口最大回撤{period['max_drawdown_pct']}%；窗口最大回撤不等于当前回撤。")
     else:
         missing.append(period.get("reason") or "行情或交易日期不足")
+    historical = period.get("historical", {})
+    if not price_ready and historical.get("available"):
+        supports.append(f"历史截至{historical['as_of']}，窗口价格变化{historical['return_pct']}%；仅作历史描述，当前不可比较。")
     operating = context.get("operating", {})
     periods = operating.get("periods", []) if context.get("usable", False) else []
     latest = periods[0]["metrics"] if periods else {}
@@ -138,6 +141,8 @@ def evaluate_period(period: dict, context: dict) -> dict:
         if row.get("covered"):
             description = f"{latest_date} {title}：{row['value']}%" if row.get("value") is not None else f"{latest_date} {title}：基期非正/缺失，不计算增长率；当期金额{row.get('current_sum')}元"
             description += f"；同口径样本{row['covered']}/{row['total']}。"
+            if "supported_total" in row:
+                description += f"已接入范围{row['supported_total']}只，范围外{row.get('unsupported_total', 0)}只；不等同全板块完整。"
             value = _value(row)
             (challenges if value is not None and value < 0 else supports).append(description)
         if not row.get("complete"):

@@ -8,6 +8,8 @@ function Metric({ metric }: { metric?: EvidenceMetric }) {
   if (!metric) return <>未取得</>;
   return <><strong>{metric.value === null ? metric.covered ? '基期非正，增速不适用' : '未取得' : `${Number(metric.value).toFixed(2)}%`}</strong>
     <small>可比样本 {metric.covered}/{metric.total}{metric.complete ? ' · 样本已齐' : ' · 不代表全板块'}</small>
+    {metric.supported_total !== undefined && <small>已接入范围 {metric.supported_total} 只 · 范围外 {metric.unsupported_total ?? 0} 只
+      {metric.supported_complete ? ' · 已接入范围样本已齐' : ' · 已接入范围仍有缺项'}</small>}
     <small>最新公告日 {dateText(metric.published_at)}</small>
     {metric.current_sum != null && <small>当期合计 {(Number(metric.current_sum) / 1e8).toFixed(2)} 亿元</small>}
     {!!metric.excluded.length && <details><summary>查看未覆盖原因（{metric.excluded.length}）</summary>

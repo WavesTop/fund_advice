@@ -156,26 +156,33 @@ def fetch_ths_sector_daily(member: dict[str, Any], ths_code: str, *, timeout: fl
     if str(root.get("name", "")).strip() != expected_name:
         raise ValueError("同花顺日线名称与东方财富板块严格同名校验失败")
     rows, seen = [], set()
+    cutoff = min(date.fromisoformat(member["ranking_as_of"]),
+                 date.fromisoformat(member["price_cutoff"]) if member.get("price_cutoff")
+                 else get_calendar().latest_completed(datetime.now(SHANGHAI)))
     for value in str(root.get("data", "")).split(";"):
         fields = value.split(",")
-        if len(fields) < 7 or not re.fullmatch(r"\d{8}", fields[0]):
+        if not value.strip():
             continue
+        if not re.fullmatch(r"\d{8}", fields[0]):
+            raise ValueError(f"{member['code']} 同花顺日线日期无效：{fields[0]!r}")
         day = datetime.strptime(fields[0], "%Y%m%d").date().isoformat()
-        if day in seen or day > member["ranking_as_of"]:
+        if day > cutoff.isoformat():
             continue
+        if len(fields) < 7 or day in seen:
+            raise ValueError(f"{member['code']} {day} 同花顺日线字段不完整或日期重复")
         seen.add(day)
         row = {"date": day}
         for field, raw in zip(("open", "high", "low", "close", "volume", "amount"), fields[1:7]):
-            row[field] = _number(raw, field, positive=field in ("open", "close", "high", "low"))
+            try:
+                row[field] = _number(raw, field, positive=field in ("open", "close", "high", "low"))
+            except ValueError as exc:
+                raise ValueError(f"{member['code']} {day} {field} 原始值={raw!r}：{exc}") from exc
         if Decimal(row["high"]) < max(Decimal(row["open"]), Decimal(row["close"])) or Decimal(row["low"]) > min(Decimal(row["open"]), Decimal(row["close"])):
             raise ValueError("同花顺板块日线OHLC关系无效")
         rows.append(row)
     if not rows:
         raise ValueError("同花顺未返回可用板块日线")
     rows.sort(key=lambda row: row["date"])
-    local_now = datetime.now(SHANGHAI)
-    if local_now.hour < 16 and rows[-1]["date"] == local_now.date().isoformat():
-        rows.pop()
     if not rows:
         raise ValueError("剔除盘中未结算日线后没有可用数据")
     return rows
@@ -263,7 +270,9 @@ def fetch_sector_directory(fetcher: Fetcher, *, timeout: float = 12.0,
 
 
 def fetch_sector_daily(member: dict[str, Any], fetcher: Fetcher, *, timeout: float = 12.0) -> list[dict[str, str]]:
-    end = date.fromisoformat(member["ranking_as_of"])
+    end = min(date.fromisoformat(member["ranking_as_of"]),
+              date.fromisoformat(member["price_cutoff"]) if member.get("price_cutoff")
+              else get_calendar().latest_completed(datetime.now(SHANGHAI)))
     start = end - timedelta(days=365)
     params = {"secid": "90." + member["code"], "fields1": "f1,f2,f3,f4,f5,f6",
               "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
@@ -286,7 +295,10 @@ def fetch_sector_daily(member: dict[str, Any], fetcher: Fetcher, *, timeout: flo
         seen.add(day)
         row = {"date": fields[0]}
         for field, raw in zip(("open", "close", "high", "low", "volume", "amount"), fields[1:7]):
-            row[field] = _number(raw, field, positive=field in ("open", "close", "high", "low"))
+            try:
+                row[field] = _number(raw, field, positive=field in ("open", "close", "high", "low"))
+            except ValueError as exc:
+                raise ValueError(f"{member['code']} {day} {field} 原始值={raw!r}：{exc}") from exc
         opening, closing, high, low = (Decimal(row[key]) for key in ("open", "close", "high", "low"))
         if high < max(opening, closing) or low > min(opening, closing) or high < low:
             raise ValueError("板块日线OHLC关系无效")
@@ -319,7 +331,12 @@ def fetch_sector_constituents(member: dict[str, Any], fetcher: Fetcher, *, timeo
             if not isinstance(name, str) or not name.strip() or code in seen:
                 raise ValueError("成分证券名称缺失或代码重复")
             seen.add(code)
-            market_cap = _number(raw.get("f20"), "成分总市值")
+            # Market cap is optional metadata, not the membership identity or an index weight.
+            # Keep the security and denominator even if this field is unavailable.
+            try:
+                market_cap = _number(raw.get("f20"), "成分总市值")
+            except ValueError:
+                market_cap = None
             result.append({"stock_code": code, "stock_name": name.strip(), "market": market,
                            "source_order": len(result) + 1, "market_cap": market_cap})
         page += 1
@@ -374,7 +391,7 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
         selected = [item for item in candidates if item["code"] in ths_crosswalk]
         members = selected
     else:
-        members = [dict(item, heat_rank=rank) for rank, item in enumerate(directory[:100], 1)]
+        members = [dict(item, heat_rank=rank) for rank, item in enumerate(directory if industry_only else directory[:100], 1)]
         ths_crosswalk = {}
     identity_candidates = [dict(member, membership=previous.get(member["code"], {}).get("membership", {}))
                            for member in members]
@@ -388,6 +405,7 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
         progress(f"完整目录 {len(directory)} 个板块；纳入 {len(members)} 个可核验板块，开始采集日线。")
 
     def collect(member: dict[str, Any]) -> dict[str, Any]:
+        member = {**member, "price_cutoff": get_calendar().latest_completed(current).isoformat()}
         old = previous.get(member["code"], {})
         # A changed identity cannot inherit another board's stored history.
         if old.get("name") != member["name"]:
@@ -414,7 +432,11 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
             if rows and fetched[-1]["date"] < rows[-1]["date"]:
                 raise ValueError("返回行情早于已保存行情，拒绝回退当前序列")
             if not rows or fetched[-1]["date"] >= rows[-1]["date"]:
-                rows = fetched
+                next_source = "sector_daily.ths" if industry_only and ths_code else "sector_daily.eastmoney"
+                next_code = "bk_" + ths_code if industry_only and ths_code else "90." + member["code"]
+                prefix = [row for row in rows if row["date"] < fetched[0]["date"]] if (
+                    history_source_id == next_source and history_source_code == next_code) else []
+                rows = prefix + fetched
                 updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
                 if industry_only and ths_code:
                     history_source_id, history_source_code = "sector_daily.ths", "bk_" + ths_code

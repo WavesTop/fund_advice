@@ -1,9 +1,11 @@
 /** Current-data research DTO. No sample funds, inferred mappings, scores or trades. */
 import { parseSectorFundamentals, type SectorFundamentals } from '../market/sector-evidence-model';
+import type { HistoricalPrice } from '../market/sector-history-display';
 export const periodIds = ['short', 'medium', 'long'] as const;
 export type PeriodId = (typeof periodIds)[number];
 export type EvidenceState = 'watch' | 'conflict' | 'risk' | 'insufficient';
 export interface ResearchPeriod {
+  historical?: HistoricalPrice;
   id: PeriodId;
   name: string;
   range: string;

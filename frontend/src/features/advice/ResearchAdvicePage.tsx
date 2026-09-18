@@ -1,3 +1,4 @@
+import { priceDisplay } from '../market/sector-history-display';
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Badge, EmptyState, Notice, PageHeader, Panel } from '../../shared/ui';
@@ -23,6 +24,7 @@ function EvidenceList({ title, values }: { title: string; values: string[] }) {
 
 function PeriodObservation({ item, period, focused }: { item: ResearchItem; period: ResearchPeriod; focused: boolean }) {
   const state = item.research?.periods.find((entry) => entry.id === period.id);
+  const display = priceDisplay(period, Boolean(item.collection_error));
   const marketUnavailable = Boolean(item.collection_error) || ['stale', 'insufficient'].includes(period.status);
   const boardParams = new URLSearchParams({ q: item.code, scope: item.universe_type === 'hot_board' ? 'hot' : 'tracked', view: 'details' });
   return <article className="research-observation" aria-label={`${item.name} ${period.name}研究`}>
@@ -33,8 +35,8 @@ function PeriodObservation({ item, period, focused }: { item: ResearchItem; peri
     <small className="muted">{item.code} · {item.source_id} · 行情截至 {dateText(item.as_of)}</small>
     <p className="research-conclusion">{period.opportunity.summary}</p>
     <dl className="research-metrics">
-      <div><dt>过去 {period.lookback_sessions} 个交易日</dt><dd>{marketUnavailable ? '—' : percent(period.return_pct)}</dd></div>
-      <div><dt>窗口最大回撤</dt><dd>{marketUnavailable ? '—' : percent(period.max_drawdown_pct)}</dd></div>
+      <div><dt>过去 {period.lookback_sessions} 个交易日{display.historical && <> · 历史截至 {display.asOf}</>}</dt><dd>{display.available ? percent(display.change) : '—'}</dd></div>
+      <div><dt>窗口最大回撤</dt><dd>{display.available ? percent(display.drawdown) : '—'}</dd></div>
       <div><dt>同池历史排名</dt><dd>{!marketUnavailable && period.strength?.eligible && period.strength.rank != null
         ? `${period.strength.rank} / ${period.strength.sample_count}` : '不可比较'}</dd></div>
     </dl>

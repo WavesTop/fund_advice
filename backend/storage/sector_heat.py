@@ -60,6 +60,7 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
             component.pop(key)
         component["market_cap"] = float(Decimal(component["market_cap"])) if component["market_cap"] is not None else None
         component["weight"] = float(Decimal(component["weight"])) if component["weight"] is not None else None
+        component["market_cap_status"] = "available" if component["market_cap"] is not None else "unavailable"
         membership_rows.setdefault(row["board_code"], []).append(component)
     items = []
     for member in members:
@@ -83,6 +84,8 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
             "error": membership["error"] if membership else "尚未采集成分股快照。",
             "weight_basis": "not_provided",
             "members": membership_rows.get(item["code"], []),
+            "market_cap_missing_count": sum(row["market_cap"] is None for row in membership_rows.get(item["code"], [])),
+            "quality_note": "市值为可选资料；缺失不删除证券，也不等于权重为零。",
         }
         items.append(item)
     status = "empty" if not items else (

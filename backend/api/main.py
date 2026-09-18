@@ -72,6 +72,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def fund_series(code: str, kind: Literal["price", "nav"] | None = None) -> dict[str, object]:
         return get_timeseries(resolved, code, kind)
 
+    @app.get("/api/sectors/collection-status")
+    def sector_collection_status() -> dict[str, object]:
+        from backend.storage.collection_runs import latest_sector_status
+        return latest_sector_status(resolved)
+
     @app.get("/api/sectors/{code}/series")
     def sector_series(code: str, source_id: str, universe_type: Literal["hot_board", "tracked_index"],
                       start: str | None = None, end: str | None = None) -> dict[str, object]:

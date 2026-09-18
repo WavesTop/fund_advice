@@ -11,7 +11,7 @@ from backend.core.config import Settings
 from backend.core.errors import AppError
 from backend.analysis.sector_status import sector_opportunities
 from backend.storage.sector_heat import record_sector_heat_failure
-from backend.storage.collection_runs import start_run, finish_run
+from backend.storage.collection_runs import start_run, finish_run, latest_sector_status
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +29,7 @@ def refresh_market_data(settings: Settings, target: str) -> dict:
     if not lock.acquire(blocking=False):
         raise AppError("market_refresh_in_progress", "同一数据源正在联网采集中，请勿重复提交", 409)
     run_id = None
+    evaluation = None
     terminal_state, terminal_result = "failed", {"message": "采集未正常完成"}
     try:
         run_id = start_run(settings, target)
@@ -83,5 +84,7 @@ def refresh_market_data(settings: Settings, target: str) -> dict:
         try:
             if run_id is not None:
                 finish_run(settings, run_id, terminal_state, terminal_result)
+                if evaluation is not None:
+                    evaluation["collection_status"] = latest_sector_status(settings, run_id=run_id)
         finally:
             lock.release()

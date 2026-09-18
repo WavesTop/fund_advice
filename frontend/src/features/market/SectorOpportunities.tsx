@@ -13,6 +13,8 @@ import { MarketDataRefresh } from './MarketDataRefresh';
 import { parseSectorEvaluation } from './sector-evaluation-model';
 import { sectorDetailHref } from './sector-detail-model';
 import './fund-directory.css';
+import { priceDisplay, type HistoricalPrice } from './sector-history-display';
+import { readSectorCache, writeSectorCache, sectorCacheRevision } from './sector-request-state';
 
 type PeriodStatus = 'strong' | 'neutral' | 'weak' | 'insufficient' | 'stale';
 type PeriodRisk = 'elevated' | 'normal' | 'unknown';
@@ -21,6 +23,7 @@ type SortKey = 'heat' | 'short' | 'medium' | 'long';
 type SortDirection = 'asc' | 'desc';
 
 export type SectorOpportunityPeriod = {
+  historical?: HistoricalPrice;
   id: 'short' | 'medium' | 'long';
   name: '短期' | '中期' | '长期';
   range: string;
@@ -148,6 +151,9 @@ type Universe = {
   last_attempt_at?: string | null;
 };
 export type OpportunitiesResponse = {
+  collection_status?: { state: string; run_id: string | null; database_id: string;
+    result?: { progress?: { stage: string; dataset?: string; business_date?: string };
+      last_progress?: { stage: string; dataset?: string; business_date?: string } } | null };
   coverage?: { universe_type: string; total: number; industry_current: number;
     valuation_observations: number; valuation_dated_current: number;
     price_eligible: { short: number; medium: number; long: number } }[];
@@ -253,7 +259,7 @@ function statusTone(status: OpportunityStatus): 'green' | 'blue' | 'red' | 'ambe
 }
 
 function PeriodCard({ period }: { period: SectorOpportunityPeriod }) {
-  const unavailable = period.status === 'stale' || period.status === 'insufficient';
+  const display = priceDisplay(period);
   return (
     <div className={`sector-period sector-period-${period.status}`}>
       <div className="sector-period-heading">
@@ -271,6 +277,7 @@ function PeriodCard({ period }: { period: SectorOpportunityPeriod }) {
           >
             {period.label}
           </Badge>
+          {display.historical && <small className="sector-data-warning">历史截至 {display.asOf}；当前不可比较</small>}
           {period.status === 'stale' && <small className="sector-data-warning">行情待更新</small>}
           {period.status === 'insufficient' && (
             <small className="sector-data-warning">行情不足</small>
@@ -278,7 +285,7 @@ function PeriodCard({ period }: { period: SectorOpportunityPeriod }) {
         </div>
       </div>
       <div className="sector-strength-line">
-        已发生涨跌：{unavailable ? '—' : formatPercent(period.return_pct)} · 同周期排名：
+        已发生涨跌：{display.available ? formatPercent(display.change) : '—'} · 同周期排名：
         {period.strength?.eligible && period.strength.rank != null
           ? `第 ${period.strength.rank} / ${period.strength.sample_count}${period.strength.tied_count && period.strength.tied_count > 1 ? `（并列 ${period.strength.tied_count}）` : ''}`
           : period.strength?.reason || '未排名'}
@@ -339,15 +346,15 @@ function PeriodCard({ period }: { period: SectorOpportunityPeriod }) {
         <div className="sector-period-metrics">
           <span>
             <small>阶段涨跌</small>
-            <b>{unavailable ? '—' : formatPercent(period.return_pct)}</b>
+            <b>{display.available ? formatPercent(display.change) : '—'}</b>
           </span>
           <span>
             <small>相对窗口均线</small>
-            <b>{unavailable ? '—' : formatPercent(period.ma_bias_pct)}</b>
+            <b>{display.available ? formatPercent(display.bias) : '—'}</b>
           </span>
           <span>
             <small>最大回撤</small>
-            <b>{unavailable ? '—' : formatPercent(period.max_drawdown_pct)}</b>
+            <b>{display.available ? formatPercent(display.drawdown) : '—'}</b>
           </span>
         </div>
         <div className={`sector-risk sector-risk-${period.risk}`}>
@@ -562,8 +569,8 @@ export function OpportunityCard({ item, heatBasis, from }: { item: SectorOpportu
 }
 
 export function SectorOpportunities() {
-  const [data, setData] = useState<OpportunitiesResponse | null>(null);
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [data, setData] = useState<OpportunitiesResponse | null>(readSectorCache);
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>(() => readSectorCache() ? 'ready' : 'loading');
   const [loadError, setLoadError] = useState('');
   const [showMethod, setShowMethod] = useState(false);
   const [params, setParams] = useSearchParams();
@@ -595,13 +602,14 @@ export function SectorOpportunities() {
     setParams(next);
   };
   const request = useRef<AbortController | null>(null);
-  const hasData = useRef(false);
+  const hasData = useRef(Boolean(readSectorCache()));
   const load = useCallback(() => {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
     if (!hasData.current) setState('loading');
     setLoadError('');
+    const loadRevision = sectorCacheRevision();
     fetch('/api/sectors/opportunities', { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -609,13 +617,19 @@ export function SectorOpportunities() {
       })
       .then((result) => {
         if (controller.signal.aborted) return;
+        if (loadRevision !== sectorCacheRevision()) {
+          const latest = readSectorCache();
+          if (latest) { hasData.current = true; setData(latest); setState('ready'); }
+          return;
+        }
+        writeSectorCache(result);
         hasData.current = true;
         setData(result);
         setState('ready');
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
-        setLoadError('请确认本地数据服务已启动，或稍后重试。');
+        setLoadError(cause instanceof Error ? cause.message : '本地资料读取失败；已有结果保留，请核对服务状态。');
         setState(hasData.current ? 'ready' : 'error');
       });
   }, []);
@@ -648,6 +662,8 @@ export function SectorOpportunities() {
     return () => request.current?.abort();
   }, [load]);
 
+  const taskProgress = data?.collection_status?.result?.progress ?? data?.collection_status?.result?.last_progress;
+
   return (
     <div className="sector-opportunities">
       <Notice title="真实板块行情与分层证据，不是基金推荐或买卖信号" tone="info">
@@ -671,12 +687,19 @@ export function SectorOpportunities() {
           if (!evaluation) { load(); return; }
           request.current?.abort();
           hasData.current = true;
+          writeSectorCache(evaluation);
           setData(evaluation);
           setLoadError('');
           setState('ready');
         }} />
       </div>
-      <p className="muted">“重新评估”先联网采集可核验行业名单、日线和成分，再返回本次评估。经营／估值人工快照不会自动刷新；已有参考指数仍须从关联基金详情更新，资料日期不等于评估时间。缺项或更新失败时不能视为完整投资判断。</p>
+      <p className="muted">“重新评估”先联网采集可核验行业名单、日线和成分，再返回本次评估。当前成分的经营报表和同日估值随本次任务采集；已有参考指数仍须从关联基金详情更新，资料日期不等于评估时间。缺项或更新失败时不能视为完整投资判断。</p>
+      {data?.collection_status && <p className="muted" aria-label="板块采集任务状态">
+        最近采集任务：{data.collection_status.state} · {data.collection_status.run_id || '尚未开始'}
+        {taskProgress && <> · 阶段 {taskProgress.stage}
+          {taskProgress.dataset && <> / {taskProgress.dataset}</>}</>}
+        {' '}· 数据库标识 {data.collection_status.database_id}。进入页面只读取已保存资料，不启动联网采集。
+      </p>}
       {data?.coverage && <section className="sector-coverage" aria-label="板块研究数据覆盖">
         <strong>当前资料覆盖，不是投资评分</strong>
         {data.coverage.map((coverage) => <p key={coverage.universe_type}>

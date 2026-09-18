@@ -1,3 +1,4 @@
+import { writeSectorCache } from './sector-request-state';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -9,7 +10,8 @@ function payload() {
   return { ...data, items: data.items.map((item) => ({ ...item, observation_count: 121,
     periods: item.periods.map((period) => ({ ...period, ma_bias_pct: 1, risk: 'normal' })) })) };
 }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  writeSectorCache(null); cleanup(); vi.unstubAllGlobals(); });
 
 describe('sector summary and original evidence', () => {
   it('defaults to a compact three-period summary and retains exact source identity in links', async () => {

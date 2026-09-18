@@ -18,7 +18,7 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def collect(settings: Settings, target: str) -> dict:
+def collect(settings: Settings, target: str, *, progress=None) -> dict:
     started = now()
     if target == "catalog":
         result = refresh_fund_catalog(settings)
@@ -27,7 +27,11 @@ def collect(settings: Settings, target: str) -> dict:
                 "message": f"基金目录已联网更新，共导入 {result['row_count']} 条份额身份；净值和 K 线请在基金详情更新。"}
     if target != "sectors":
         raise ValueError("不支持的采集目标")
+    if progress:
+        progress({"stage": "market", "state": "running"})
     result = refresh_sector_heat(settings, industry_only=True)
+    if progress:
+        progress({"stage": "market", "state": "completed"})
     items = result["items"]
     price_ok = sum(bool(item.get("rows")) and not item.get("collection_error") for item in items)
     members_ok = sum(item.get("membership", {}).get("status") == "ready" for item in items)
@@ -38,7 +42,12 @@ def collect(settings: Settings, target: str) -> dict:
             or not isinstance(catalog_count, int) or isinstance(catalog_count, bool) or catalog_count < requested):
         raise ValueError("行业采集覆盖统计不一致，不能认定更新成功")
     status = "failed" if not price_ok else "success" if price_ok == members_ok == requested and not universe.get("last_error") else "partial"
-    financials = collect_sector_fundamentals(settings, items)
+    if progress:
+        progress({"stage": "financials", "state": "running"})
+    financials = (collect_sector_fundamentals(settings, items, progress=progress) if progress
+                  else collect_sector_fundamentals(settings, items))
+    if progress:
+        progress({"stage": "financials", "state": financials["status"]})
     if status == "success" and financials["status"] != "success":
         status = "partial"
     errors = [{"code": item["code"], "message": item.get("collection_error") or item.get("membership", {}).get("error")}
@@ -63,13 +72,14 @@ def main(argv=None) -> int:
     settings = Settings(database_path=Path(args.database))
     if args.run_id:
         from backend.integrations.http_transport import set_observer
-        from backend.storage.collection_runs import record_attempt
+        from backend.storage.collection_runs import record_attempt, record_progress
         set_observer(lambda event: record_attempt(settings, args.run_id, event))
     started = now()
     try:
         # Upstream libraries may write diagnostics; stdout is reserved for this JSON contract.
         with redirect_stdout(sys.stderr):
-            result = collect(settings, args.target)
+            result = collect(settings, args.target, progress=(
+                (lambda event: record_progress(settings, args.run_id, event)) if args.run_id else None))
     except Exception as exc:
         result = {"target": args.target, "status": "failed", "started_at": started,
                   "completed_at": now(), "message": f"采集未完成：{type(exc).__name__}: {str(exc)[:1000]}"}

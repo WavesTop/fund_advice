@@ -29,8 +29,15 @@ def finish_run(settings: Settings, run_id: str, state: str, result: dict) -> Non
     if state not in ("success", "partial", "failed", "timeout", "interrupted"):
         raise ValueError("无效采集终态")
     with connection_scope(settings) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute("SELECT result_json FROM collection_run WHERE run_id=? AND state='running'", (run_id,)).fetchone()
+        previous = json.loads(row["result_json"] or "{}") if row else {}
+        result = dict(result)
+        if previous.get("progress"):
+            result["last_progress"] = previous["progress"]
         count = connection.execute("UPDATE collection_run SET state=?,finished_at=?,result_json=? WHERE run_id=? AND state='running'",
                                    (state, utc_now(), canonical(result), run_id)).rowcount
+        connection.execute("COMMIT")
     if count != 1:
         raise AppError("collection_already_finished", "采集任务不存在或已经结束", 409)
 
@@ -63,4 +70,30 @@ def runs(settings: Settings, limit: int = 20) -> list[dict]:
         for row in result:
             row["result"] = json.loads(row.pop("result_json") or "null")
             row["attempts"] = [dict(event) for event in connection.execute("SELECT occurred_at,attempt,url,http_status,error,raw_asset_id FROM collection_attempt WHERE run_id=? ORDER BY id", (row["run_id"],))]
+    return result
+
+
+def record_progress(settings: Settings, run_id: str, event: dict) -> None:
+    """Update only an active run; finish_run still owns the immutable terminal transition."""
+    with connection_scope(settings) as connection:
+        connection.execute(
+            "UPDATE collection_run SET result_json=? WHERE run_id=? AND state='running'",
+            (canonical({"progress": event, "updated_at": utc_now()}), run_id),
+        )
+
+
+def latest_sector_status(settings: Settings, *, run_id: str | None = None) -> dict:
+    migrate(settings)
+    with connection_scope(settings) as connection:
+        row = connection.execute(
+            "SELECT * FROM collection_run WHERE target='sectors' AND (? IS NULL OR run_id=?) ORDER BY rowid DESC LIMIT 1",
+            (run_id, run_id),
+        ).fetchone()
+        result = dict(row) if row else {"state": "not_started", "run_id": None}
+        if row:
+            result["result"] = json.loads(result.pop("result_json") or "null")
+            result["attempt_count"] = connection.execute(
+                "SELECT COUNT(*) FROM collection_attempt WHERE run_id=?", (row["run_id"],)
+            ).fetchone()[0]
+    result["database_id"] = sha256(str(settings.database_path.resolve()).encode()).hexdigest()[:16]
     return result

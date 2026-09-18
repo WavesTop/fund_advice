@@ -169,10 +169,16 @@ class SectorFinancialTests(unittest.TestCase):
                     {'SECURITY_CODE':'600547','TRADE_DATE':'2026-09-16'}):
             with self.subTest(row=row), self.assertRaises(ValueError): parse_rows([row], 'valuation', '2026-09-16', NOW)
 
-    def test_nonfinite_or_boolean_values_rejected(self):
+    def test_nonfinite_or_boolean_values_excluded_with_reason(self):
         for bad in ('NaN','Infinity',True,10.5):
-            with self.subTest(bad=bad), self.assertRaises(ValueError):
-                parse_rows([{'SECURITY_CODE':'600547','TRADE_DATE':'2026-09-16','PE_TTM':bad}], 'valuation', '2026-09-16', NOW)
+            with self.subTest(bad=bad):
+                valid, excluded = parse_rows([
+                    {'SECURITY_CODE':'600547','TRADE_DATE':'2026-09-16','PE_TTM':bad},
+                    {'SECURITY_CODE':'600489','TRADE_DATE':'2026-09-16','PE_TTM':'15'},
+                ], 'valuation', '2026-09-16', NOW)
+                self.assertNotIn('600547', valid)
+                self.assertEqual(valid['600489']['PE_TTM'], '15')
+                self.assertIn('数值字段无效', excluded['600547'])
 
     def test_truncated_page_is_not_a_success(self):
         source = lambda *_: json.dumps({'success':True,'result':{'count':2,'pages':1,'data':[]}}).encode()

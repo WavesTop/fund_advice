@@ -4,6 +4,9 @@ export interface EvidenceMetric {
   covered: number;
   total: number;
   complete: boolean;
+  supported_total?: number;
+  unsupported_total?: number;
+  supported_complete?: boolean;
   published_at?: string | null;
   current_sum?: string | null;
   base_sum?: string | null;
@@ -63,7 +66,12 @@ function metric(value: unknown): boolean {
     && (!value.complete || value.covered === value.total) && excluded(value.excluded)
     && (value.published_at === undefined || timestamp(value.published_at))
     && (value.current_sum === undefined || decimal(value.current_sum))
-    && (value.base_sum === undefined || decimal(value.base_sum));
+    && (value.base_sum === undefined || decimal(value.base_sum))
+    && (value.supported_total === undefined || count(value.supported_total) && Number(value.supported_total) <= Number(value.total))
+    && (value.unsupported_total === undefined || count(value.unsupported_total))
+    && (value.supported_total === undefined || value.unsupported_total === undefined
+      || Number(value.supported_total) + Number(value.unsupported_total) === value.total)
+    && (value.supported_complete === undefined || typeof value.supported_complete === 'boolean');
 }
 export function parseSectorFundamentals(raw: unknown): SectorFundamentals {
   const invalid = () => { throw new Error('板块经营/估值证据格式无效，未填补缺项。'); };
