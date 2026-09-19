@@ -22,6 +22,7 @@ class PortfolioLedgerTests(unittest.TestCase):
                 {"code": "510500", "name": "中证500ETF", "fund_type": "ETF"},
             ],
             policy_version="fixture",
+            source_id="fund_catalog.test_fixture",
         )
         self.client = ASGITestClient(create_app(self.settings))
         self.client.__enter__()

@@ -369,6 +369,8 @@ describe('真实基金详情', () => {
     await waitFor(() =>
       expect(screen.getByRole('img', { name: '012970真实净值走势' })).toBeInTheDocument(),
     );
+    expect(screen.getByText(/已退役历史来源（只读、不可用于交易）/)).toBeInTheDocument();
+    expect(screen.queryByText(/fund_nav\.eastmoney/)).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenLastCalledWith('/api/funds/012970/refresh', { method: 'POST' });
   });
   it('数据服务断开时提示重新启动本地网页', async () => {

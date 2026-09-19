@@ -16,6 +16,11 @@ from zoneinfo import ZoneInfo
 from backend.core.config import Settings
 from backend.core.errors import AppError
 from backend.core.relation_policy import public_source
+from backend.core.source_admission import (
+    SourceAdmissionError,
+    reject_retired_source_reference,
+    writable_source_id,
+)
 from backend.core.trading_calendar import day, get_calendar, SHANGHAI
 from backend.storage.database import connection_scope, migrate
 
@@ -174,6 +179,13 @@ def append_facts(settings: Settings, facts: list[dict], *, source_url: str,
                  raw_body: bytes, media_type: str = "application/json") -> dict:
     if not isinstance(facts, list) or not facts or len(facts) > MAX_FACTS:
         raise ValueError("事实批次不能为空或超过限制")
+    try:
+        reject_retired_source_reference(source_url, field="source_url")
+        for index, fact in enumerate(facts):
+            if isinstance(fact, dict):
+                writable_source_id(fact.get("source_id"), field=f"facts[{index}].source_id")
+    except SourceAdmissionError as exc:
+        raise ValueError(str(exc)) from exc
     if not public_source(source_url) or not isinstance(raw_body, bytes) or not raw_body or len(raw_body) > 20 * 1024 * 1024:
         raise ValueError("缺少合法来源地址/原始资料或资料超过20MiB")
     media_type = text(media_type, "media_type", maximum=200)

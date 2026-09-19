@@ -16,7 +16,6 @@ from backend.core.config import Settings
 from backend.storage.catalog import list_catalog
 from backend.storage.timeseries import import_timeseries
 from scripts.data_source_registry import load_registry, sources_for
-from scripts.fund_nav_eastmoney import fetch_paged_nav
 from scripts.probe_fund_source import ProbeError
 from scripts.probe_fund_timeseries import normalize, run_adapter
 
@@ -106,19 +105,11 @@ def _import_exchange(settings: Settings, code: str, dataset: str, start_date: st
 
 def _import_nav(settings: Settings, code: str, start_date: str, end_date: str,
                 registry_path: str | None, timeout: float, before_request: Any = None) -> dict[str, object]:
-    registry, sources = _automatic_sources("fund_nav", registry_path)
-    source = sources[0]
-    if source["provider"] != "eastmoney":
-        raise ValueError("注册表中的基金净值自动来源不是东方财富")
-    # The F10 endpoint returns both NAV values on the same source row.  It is
-    # paged explicitly instead of using pingzhongdata.js, whose large payload
-    # can be silently truncated for funds such as 000001.
-    if before_request is None:
-        rows = fetch_paged_nav(code, start_date, end_date, timeout)
-    else:
-        rows = fetch_paged_nav(code, start_date, end_date, timeout, before_request=before_request)
-    return import_timeseries(settings, code, "nav", rows, source_id=source["id"],
-                             policy_version=registry["policy_version"])
+    # Historical rows already stored with ``fund_nav.eastmoney`` remain
+    # readable for provenance.  New NAV collection is fail-closed until an
+    # approved automatic source is implemented.
+    _automatic_sources("fund_nav", registry_path)
+    raise ValueError("场外基金净值暂无可自动采集的已核验来源")
 
 
 def refresh_fund_timeseries(settings: Settings, code: str, *, start_date: str | None = None,

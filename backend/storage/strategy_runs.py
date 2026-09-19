@@ -415,20 +415,39 @@ def _link_decision_trade_in_transaction(
             business_date = date.fromisoformat(str(ownership["business_date"]))
             output = _json(str(ownership["output_json"]))
             inputs = _json(str(ownership["input_json"]))
-            earliest_text = output.get("execution_policy", {}).get("earliest_execution_session")
+            execution_policy = output.get("execution_policy", {})
+            earliest_text = execution_policy.get("earliest_execution_session")
+            latest_text = execution_policy.get("latest_execution_session", earliest_text)
             earliest = date.fromisoformat(earliest_text) if isinstance(earliest_text, str) else None
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            latest = date.fromisoformat(latest_text) if isinstance(latest_text, str) else None
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise AppError(
                 "strategy_trade_link_window_unavailable",
-                "建议缺少可核验的最早执行交易日，不能关联执行",
+                "建议缺少可核验的执行交易日窗口，不能关联执行",
                 409,
             ) from exc
-        if earliest is None or business_date < earliest:
+        if earliest is None or latest is None or latest < earliest:
+            raise AppError(
+                "strategy_trade_link_window_unavailable",
+                "建议缺少可核验的执行交易日窗口，不能关联执行",
+                409,
+            )
+        if business_date < earliest:
             raise AppError(
                 "strategy_trade_link_time_invalid",
                 "执行日期早于建议规定的最早可执行交易日",
                 409,
                 {"earliest_execution_session": earliest_text},
+            )
+        if business_date > latest:
+            raise AppError(
+                "strategy_trade_link_expired",
+                "执行日期已超过建议的最晚有效交易日，请重新生成建议",
+                409,
+                {
+                    "latest_execution_session": latest_text,
+                    "business_date": business_date.isoformat(),
+                },
             )
         decision_date = _local_business_date(str(ownership["decision_created_at"]), "决定")
         if business_date < decision_date:

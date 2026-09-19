@@ -2,6 +2,7 @@ import { priceDisplay } from '../market/sector-history-display';
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Badge, EmptyState, Notice, PageHeader, Panel } from '../../shared/ui';
+import { sourceLabel } from '../../shared/source-label';
 import { useResearchData } from './useResearchData';
 import {
   periodIds, periodObservations, percent, researchHref, safeReturnPath,
@@ -32,7 +33,7 @@ function PeriodObservation({ item, period, focused }: { item: ResearchItem; peri
       <Link to={researchHref(item)}>{item.name}</Link>
       <Badge tone={evidenceTone[period.opportunity.status]}>{period.opportunity.label}</Badge>
     </div>
-    <small className="muted">{item.code} · {item.source_id} · 行情截至 {dateText(item.as_of)}</small>
+    <small className="muted">{item.code} · {sourceLabel(item.source_id)} · 行情截至 {dateText(item.as_of)}</small>
     <p className="research-conclusion">{period.opportunity.summary}</p>
     <dl className="research-metrics">
       <div><dt>过去 {period.lookback_sessions} 个交易日{display.historical && <> · 历史截至 {display.asOf}</>}</dt><dd>{display.available ? percent(display.change) : '—'}</dd></div>
@@ -61,7 +62,7 @@ function FundMatch({ fund }: { fund: FundAssociation }) {
   return <article className="research-fund-match">
     <div><Link to={`/funds/${fund.code}?from=${encodeURIComponent(`/advice?fund=${fund.code}`)}`}>{fund.name}</Link>
       <small>{fund.code} · {fund.status === 'linked' ? '已记录指数关联' : '关联暂不开放'}</small></div>
-    <p>核验于 {dateText(fund.verified_at)} · {fund.source_id || '来源未提供'} {href && <a href={href} target="_blank" rel="noreferrer">关系来源</a>}</p>
+    <p>核验于 {dateText(fund.verified_at)} · {sourceLabel(fund.source_id, '来源未提供')} {href && <a href={href} target="_blank" rel="noreferrer">关系来源</a>}</p>
     <ul>{fund.limitations.map((text, index) => <li key={index}>{text}</li>)}</ul>
     {fund.status === 'linked' && <Link className="button secondary" to={`/advice?fund=${fund.code}`}>查看该基金的关联研究</Link>}
   </article>;
@@ -116,7 +117,7 @@ export function ResearchAdvicePage() {
         <dl className="research-context"><div><dt>研究方法</dt><dd>{data.method_version}</dd></div>
           <div><dt>本次读取时间</dt><dd>{data.generated_at}</dd></div><div><dt>行情范围</dt><dd>{data.universe?.label || '本地已采集对象'}</dd></div>
           <div><dt>基金推荐 / 个人操作</dt><dd>尚未评估 / 不可用</dd></div></dl>
-        {result.fund && <p>份额身份 {result.fund.share_id} · {result.fund.fund_type || '类型未提供'} · 来源 {result.fund.source_id} · <Link to={`/funds/${result.fund.code}`}>查看真实基金走势</Link></p>}
+        {result.fund && <p>份额身份 {result.fund.share_id} · {result.fund.fund_type || '类型未提供'} · 来源 {sourceLabel(result.fund.source_id)} · <Link to={`/funds/${result.fund.code}`}>查看真实基金走势</Link></p>}
         <p className="muted">读取时间不是资料发布日期。页面展示当前数据投影；重新评估返回的固定研究引用可经研究 API 核对，首次读取不创建快照。</p>
         {data.universe?.last_error && <p className="research-warning">行业池最近更新失败；请以行情及榜单日期核对有效性。</p>}
       </Panel>
@@ -150,7 +151,7 @@ export function ResearchAdvicePage() {
         <Panel title={focused ? '当前研究对象' : '全部已采集研究对象'} subtitle="可搜索和进入研究详情；资料不足不等于不看好。">
           <label className="field"><span>搜索板块或指数</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名称或代码" /></label>
           <div className="table-wrap"><table className="data-table research-directory"><thead><tr><th>对象 / 来源</th><th>资料日期</th><th>基金关联</th><th>研究</th></tr></thead>
-            <tbody>{directoryItems.slice(0, visibleCount).map((item) => <tr key={subjectKey(item)}><td>{item.name}<small>{item.code} · {item.source_id} · {item.universe_type === 'hot_board' ? '行业 / 板块' : '参考指数'}</small></td>
+            <tbody>{directoryItems.slice(0, visibleCount).map((item) => <tr key={subjectKey(item)}><td>{item.name}<small>{item.code} · {sourceLabel(item.source_id)} · {item.universe_type === 'hot_board' ? '行业 / 板块' : '参考指数'}</small></td>
               <td>{dateText(item.as_of)}{item.collection_error && <small>更新失败</small>}</td>
               <td>{item.research?.fund_associations.filter((fund) => fund.status === 'linked').length ?? 0} 只已记录关联<small>未完成基金择优</small></td>
               <td><Link to={researchHref(item)}>查看三周期研究</Link></td></tr>)}</tbody></table></div>

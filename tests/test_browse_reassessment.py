@@ -42,7 +42,8 @@ class BrowseReassessmentTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.settings = Settings(database_path=Path(self.temp.name) / 'app.sqlite3')
         import_catalog(self.settings, [{'code': f'{n:06}', 'name': f'测试基金{n}', 'fund_type': 'ETF'}
-                                       for n in range(1, 18)], policy_version='fixture')
+                                       for n in range(1, 18)], policy_version='fixture',
+                       source_id='fund_catalog.test_fixture')
         self.client = self.enterContext(TestClient(create_app(self.settings)))
         clock = self.enterContext(patch('backend.analysis.sector_status.datetime'))
         clock.now.return_value = NOW
@@ -91,7 +92,8 @@ class BrowseReassessmentTests(unittest.TestCase):
                              evidence_url='https://example.test/prospectus')
         self.assertEqual(self.client.get('/api/funds?codes=000001').json()['items'][0]['relation_status'], 'linked')
         record_relation_check(self.settings, '000001', outcome='failed', error='synthetic failure')
-        import_catalog(self.settings, [{'code': '000001', 'name': '更名后的基金', 'fund_type': 'ETF'}], policy_version='fixture')
+        import_catalog(self.settings, [{'code': '000001', 'name': '更名后的基金', 'fund_type': 'ETF'}],
+                       policy_version='fixture', source_id='fund_catalog.test_fixture')
         item = self.client.get('/api/funds?codes=000001').json()['items'][0]
         self.assertEqual((item['name'], item['relation_status'], item['related_sectors']), ('更名后的基金', 'withheld', []))
 

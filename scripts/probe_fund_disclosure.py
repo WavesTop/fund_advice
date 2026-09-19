@@ -28,6 +28,9 @@ SOURCE_ERRORS = {
     "missing_dependency", "network_timeout", "network_error", "upstream_failure",
     "invalid_response", "empty_response",
 }
+RETIRED_DATASETS = {
+    "holdings", "fee", "dividend-announcements", "dividend-events", "split-events",
+}
 
 
 def _child_code():
@@ -56,19 +59,7 @@ try:
     import pandas as pd
     request=json.loads(sys.argv[1]); dataset=request["dataset"]; code=request["code"]
     source_evidence=None
-    if dataset == "holdings":
-        frame=ak.fund_portfolio_hold_em(symbol=code, date=request["year"])
-    elif dataset == "dividend-events":
-        frame=ak.fund_fh_em(year=request["year"])
-        frame=frame[frame["基金代码"] == code]
-    elif dataset == "split-events":
-        frame=ak.fund_cf_em(year=request["year"])
-        frame=frame[frame["基金代码"] == code]
-    elif dataset == "fee":
-        frame=ak.fund_fee_em(symbol=code, indicator=request["indicator"])
-    elif dataset == "dividend-announcements":
-        frame=ak.fund_announcement_dividend_em(symbol=code)
-    elif dataset == "dividend-cumulative":
+    if dataset == "dividend-cumulative":
         prefix="sh" if code.startswith("5") else "sz"
         symbol=prefix+code; matches=[]
         for category,kind in (("ETF基金","ETF"),("LOF基金","LOF")):
@@ -81,8 +72,10 @@ try:
             raise ValueError("identity mismatch")
         source_evidence={"identity":matches[0],"catalogs":["ETF基金","LOF基金"]}
         frame=ak.fund_etf_dividend_sina(symbol=prefix+code)
-    else:
+    elif dataset == "fund-profile":
         frame=ak.fund_info_ths(symbol=code)
+    else:
+        raise ValueError("unsupported retired source")
     print(json.dumps({"columns":[str(c) for c in frame.columns],
                       "dtypes":{str(c):str(t) for c,t in frame.dtypes.items()},
                       "rows":[[scalar(v) for v in row] for row in frame.itertuples(index=False,name=None)],
@@ -100,6 +93,8 @@ except Exception as exc:
 
 
 def run_adapter(request, timeout):
+    if request.get("dataset") in RETIRED_DATASETS:
+        raise ProbeError("source_retired", "该披露数据集的东方财富入口已退役，禁止发起新请求")
     started = time.monotonic()
     try:
         result = subprocess.run(
@@ -348,6 +343,8 @@ def parse_args(argv=None):
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args(argv)
+    if args.dataset in RETIRED_DATASETS:
+        parser.error("该披露数据集的东方财富入口已退役；请使用管理人、交易所或监管机构正式材料")
     if len(args.code) != 6 or not args.code.isascii() or not args.code.isdigit():
         parser.error("--code 必须是六位 ASCII 数字")
     if args.dataset in ("holdings", "dividend-events", "split-events") and (

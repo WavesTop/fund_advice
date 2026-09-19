@@ -1,6 +1,7 @@
 /** Current-data research DTO. No sample funds, inferred mappings, scores or trades. */
 import { parseSectorFundamentals, type SectorFundamentals } from '../market/sector-evidence-model';
 import type { HistoricalPrice } from '../market/sector-history-display';
+import { containsRetiredSourceReference } from '../../shared/source-label';
 export const periodIds = ['short', 'medium', 'long'] as const;
 export type PeriodId = (typeof periodIds)[number];
 export type EvidenceState = 'watch' | 'conflict' | 'risk' | 'insufficient';
@@ -248,7 +249,7 @@ export function percent(value: number | null): string {
   return value === null || !Number.isFinite(value) ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 export function sourceHref(value: string | null | undefined): string | undefined {
-  if (!value) return undefined;
+  if (!value || containsRetiredSourceReference(value)) return undefined;
   try {
     const url = new URL(value);
     return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : undefined;

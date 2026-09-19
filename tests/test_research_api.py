@@ -8,8 +8,10 @@ from asgi_client import ASGITestClient
 from backend.api.main import create_app
 from backend.core.config import Settings
 from backend.storage.catalog import import_catalog
+from backend.storage.database import connection_scope
 from backend.storage.related_market import import_related_index
 from backend.storage.research import canonical
+from backend.storage.timeseries import import_timeseries
 from backend.integrations.research_inputs import capture_current_inputs
 from scripts.research_pipeline import main as cli_main
 from research_fixtures import *
@@ -60,7 +62,8 @@ class ResearchAPITests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/research/capture',json_body={}).status_code,422)
 
     def test_capture_uses_now_not_existing_import_date_and_returns_run(self):
-        import_catalog(self.settings,[{'code':'510001','name':'测试','fund_type':'ETF'}],policy_version='fixture')
+        import_catalog(self.settings,[{'code':'510001','name':'测试','fund_type':'ETF'}],policy_version='fixture',
+                       source_id='fund_catalog.test_fixture')
         row={'date':'2026-09-16','open':'10','high':'12','low':'9','close':'11','volume':None,'amount':None}
         import_related_index(self.settings,fund_code='510001',index_code='000016',index_name='测试指数',rows=[row],source_id='fixture.index',relation_source_id='fixture.prospectus',evidence_url='https://example.test/prospectus')
         response=self.client.post('/api/research/capture',json_body={})
@@ -70,6 +73,26 @@ class ResearchAPITests(unittest.TestCase):
         self.assertEqual(snapshot['manifest']['facts'][0]['first_seen_at'],NOW)
         self.assertEqual(response.json()['fidelity'],'local_projection_not_original_response')
         self.assertFalse(any(f.get('series_kind')=='total_return' for f in snapshot['manifest']['facts']))
+
+    def test_capture_does_not_republish_read_only_retired_projection(self):
+        import_catalog(self.settings,[{'code':'510001','name':'测试','fund_type':'ETF'}],policy_version='fixture',
+                       source_id='fund_catalog.test_fixture')
+        import_timeseries(self.settings, '510001', 'price', [{
+            'date':'2026-09-16','open':'10','high':'12','low':'9','close':'11',
+            'volume':None,'amount':None,
+        }], source_id='exchange_daily.sina', policy_version='fixture')
+        with connection_scope(self.settings) as connection:
+            connection.execute(
+                "UPDATE fund_timeseries_projection SET source_id='exchange_daily.eastmoney' "
+                "WHERE code='510001' AND kind='price'"
+            )
+        result = capture_current_inputs(self.settings, ['fund:catalog:510001'])
+        self.assertTrue(any('已退役历史来源只读保留' in item['reason'] for item in result['gaps']))
+        snapshot = self.client.get('/api/research/snapshots/'+result['snapshot_id']).json()
+        self.assertEqual(snapshot['manifest']['facts'], [])
+        with connection_scope(self.settings) as connection:
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM data_revision').fetchone()[0], 0)
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM raw_asset').fetchone()[0], 0)
 
     def test_actual_asgi_trial_forward_score_and_history_contract(self):
         with clock('2026-09-16T12:58:00.000000Z'):

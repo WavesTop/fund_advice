@@ -21,6 +21,7 @@ SOURCE_ERRORS = {
     "network_timeout": "来源网络请求超时",
     "network_error": "无法连接来源，请检查网络、代理或来源可用性",
     "upstream_failure": "来源调用或解析失败，需核验接口返回结构",
+    "source_retired": "东方财富基金目录来源已退役，禁止发起新请求",
 }
 
 
@@ -69,64 +70,14 @@ def load_samples(path=DEFAULT_SAMPLES):
 
 
 def _child_code():
-    return r'''
-import json
-try:
-    import akshare as ak
-    frame = ak.fund_name_em()
-    columns = [str(c) for c in frame.columns]
-    code_col = "基金代码" if "基金代码" in columns else None
-    name_col = "基金简称" if "基金简称" in columns else None
-    rows = []
-    if code_col and name_col:
-        for _, row in frame.iterrows():
-            rows.append({
-                "code": row[code_col] if isinstance(row[code_col], str) else None,
-                "name": row[name_col] if isinstance(row[name_col], str) else None,
-                "fund_type": row.get("基金类型") if isinstance(row.get("基金类型"), str) else None,
-            })
-    print(json.dumps({"columns": columns, "rows": rows, "akshare_version": getattr(ak, "__version__", None)}, ensure_ascii=False))
-except ImportError:
-    print(json.dumps({"error": "missing_dependency"}))
-except Exception as exc:
-    module = type(exc).__module__.lower()
-    if type(exc).__name__ in ("TimeoutError", "Timeout", "ConnectTimeout", "ReadTimeout"):
-        category = "network_timeout"
-    else:
-        category = "network_error" if any(x in module for x in ("requests", "urllib", "httpx", "socket")) else "upstream_failure"
-    print(json.dumps({"error": category}))
-'''
+    # Retained only so old tests and reports can identify the retired probe.
+    # It deliberately contains no adapter import or network-capable code.
+    return 'import json; print(json.dumps({"error": "source_retired"}))'
 
 
 def run_catalog(timeout):
-    started = time.monotonic()
-    try:
-        completed = subprocess.run(
-            [sys.executable, "-c", _child_code()],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ProbeError("timeout", "来源请求超过硬超时限制") from exc
-    except OSError as exc:
-        raise ProbeError("subprocess_error", "来源探针子进程无法启动") from exc
-    except UnicodeError as exc:
-        raise ProbeError("invalid_response", "来源返回编码无法解析") from exc
-    if completed.returncode != 0:
-        raise ProbeError("upstream_failure", "来源接口调用失败")
-    try:
-        result = json.loads(completed.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        raise ProbeError("invalid_response", "来源返回无法解析")
-    if not isinstance(result, dict):
-        raise ProbeError("invalid_response", "来源返回无法解析")
-    if result.get("error"):
-        code = result["error"]
-        if not isinstance(code, str) or code not in SOURCE_ERRORS:
-            raise ProbeError("invalid_response", "来源返回无法识别的错误类别")
-        raise ProbeError(code, SOURCE_ERRORS[code])
-    return result, time.monotonic() - started
+    del timeout
+    raise ProbeError("source_retired", SOURCE_ERRORS["source_retired"])
 
 
 def write_report(output_dir, report):
@@ -191,7 +142,7 @@ def build_report(samples, result, elapsed, started_at):
         raise ProbeError("no_matches", "来源结果未匹配任何样本")
     return {
         "status": "success",
-        "interface": "akshare.fund_name_em",
+        "interface": "retired.fund_catalog",
         "artifact_kind": "adapter_output_summary",
         "started_at": started_at,
         "elapsed_seconds": round(elapsed, 3),
@@ -200,7 +151,7 @@ def build_report(samples, result, elapsed, started_at):
         "row_count": len(rows),
         "columns": columns,
         "request_params": {},
-        "source_url": "https://fund.eastmoney.com/js/fundcode_search.js",
+        "source_url": None,
         "pagination": "来源一次返回当前目录，接口无分页参数；不保证包含历史终止基金",
         "limitations": ["名称、类型仅是目录标签，不证明产品归属、份额关系或场内身份",
                         "来源缺少币种、成立日、终止日、公开时点；代码缺失不能判定基金不存在"],
@@ -242,7 +193,7 @@ def main(argv=None):
     except ProbeError as exc:
         if args.catalog and started_at:
             failure = {
-                "status": "error", "interface": "akshare.fund_name_em",
+                "status": "error", "interface": "retired.fund_catalog",
                 "artifact_kind": "adapter_output_summary", "started_at": started_at,
                 "elapsed_seconds": round(time.monotonic() - probe_started, 3), "python_version": sys.version.split()[0],
                 "akshare_version": installed_akshare_version(), "row_count": None, "columns": [],

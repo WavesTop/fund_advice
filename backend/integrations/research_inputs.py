@@ -10,7 +10,9 @@ from decimal import Decimal
 import json
 from pathlib import Path
 
+from backend.analysis.strategy_readiness import assess_strategy_series
 from backend.core.config import Settings
+from backend.core.source_admission import contains_retired_source_reference
 from backend.core.trading_calendar import get_calendar, day
 from backend.storage.database import connection_scope, migrate
 from backend.storage.research import append_facts, canonical, freeze_snapshot, utc_now
@@ -30,21 +32,51 @@ def capture_current_inputs(settings: Settings, subjects: list[str] | None = None
         indexes = [dict(row) for row in connection.execute("SELECT * FROM market_index_projection")]
         for identity in indexes:
             key = f"tracked_index:{identity['source_id']}:{identity['code']}"
+            if contains_retired_source_reference(identity["source_id"]):
+                gaps.append({"subject_key": key,
+                             "reason": "已退役历史来源只读保留，不生成新的研究事实",
+                             "source_id": identity["source_id"]})
+                continue
             rows = [dict(row) for row in connection.execute("SELECT * FROM market_index_daily WHERE index_code=? ORDER BY date", (identity["code"],))]
             url = "https://www.csindex.com.cn/" if identity["source_id"] == "index_daily.csi_official" else "https://quotes.sina.cn/"
             groups.append((key, identity["source_id"], "price", rows, "verified", url))
         for item in connection.execute("SELECT * FROM sector_heat_member"):
             key = f"hot_board:{item['source_id']}:{item['code']}"
             history_source = item["history_source_id"] or item["source_id"]
+            if (contains_retired_source_reference(item["source_id"])
+                    or contains_retired_source_reference(history_source)):
+                gaps.append({"subject_key": key,
+                             "reason": "已退役历史来源只读保留，不生成新的研究事实",
+                             "source_id": history_source})
+                continue
             semantics = "verified" if history_source == item["source_id"] and not item["collection_error"] else "unverified"
             if semantics != "verified":
                 gaps.append({"subject_key": key, "reason": "跨来源参考行情或本轮采集失败，不作为投资输入核验通过"})
             groups.append((key, history_source, "price", json.loads(item["rows_json"]), semantics,
                            "https://d.10jqka.com.cn/" if history_source == "sector_daily.ths" else ""))
         for item in connection.execute("SELECT * FROM fund_timeseries_projection"):
+            if contains_retired_source_reference(item["source_id"]):
+                gaps.append({
+                    "subject_key": f"fund:catalog:{item['code']}",
+                    "reason": "已退役历史来源只读保留，不生成新的研究事实",
+                    "source_id": item["source_id"],
+                })
+                continue
             table = "fund_price_daily" if item["kind"] == "price" else "fund_nav_daily"
             rows = [dict(row) for row in connection.execute(f"SELECT * FROM {table} WHERE code=? ORDER BY date", (item["code"],))]
-            groups.append((f"fund:catalog:{item['code']}", item["source_id"], item["kind"], rows, "verified", "https://fund.eastmoney.com/" if "eastmoney" in item["source_id"] else "https://github.com/WavesTop/fund_advice"))
+            eligibility = assess_strategy_series(kind=item["kind"], source_id=item["source_id"])
+            semantics = "verified" if eligibility["eligible_for_signal"] else "unverified"
+            if semantics != "verified":
+                gaps.append({
+                    "subject_key": f"fund:catalog:{item['code']}",
+                    "reason": "基金序列来源未取得主证据用途资格，只归档为未核验本地投影",
+                    "source_id": item["source_id"],
+                    "blockers": eligibility["signal_blockers"],
+                })
+            groups.append((
+                f"fund:catalog:{item['code']}", item["source_id"], item["kind"], rows,
+                semantics, "https://github.com/WavesTop/fund_advice",
+            ))
         connection.execute("COMMIT")
     if subjects is None:
         subjects = sorted({group[0] for group in groups})

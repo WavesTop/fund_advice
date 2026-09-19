@@ -4,6 +4,8 @@ import datetime as dt
 import json
 from pathlib import Path
 
+from backend.core.source_admission import contains_retired_source_reference
+
 
 DEFAULT_REGISTRY = Path(__file__).resolve().parents[1] / "config/data-source-registry.json"
 DECISIONS = {"conditional", "discovery_only", "authoritative_evidence", "rejected", "not_verified"}
@@ -63,6 +65,12 @@ def load_registry(path=DEFAULT_REGISTRY):
             raise RegistryError("自动来源必须提供适配器和优先级")
         if source["decision"] in {"rejected", "not_verified", "discovery_only"} and source["automatic"]:
             raise RegistryError("未准入或仅发现来源不能自动采集")
+        retired = any(contains_retired_source_reference(source.get(field))
+                      for field in ("id", "provider", "adapter"))
+        if retired and (
+                source["decision"] != "rejected" or source["allowed_uses"] or source["automatic"]
+                or source["adapter"] is not None or source["priority"] is not None):
+            raise RegistryError("东方财富来源已退役，只能保留不可执行的历史来源元数据")
         if not isinstance(source["limitations"], list) or not source["limitations"] or any(
                 not isinstance(item, str) or not item.strip() for item in source["limitations"]):
             raise RegistryError("limitations必须是非空字符串数组")

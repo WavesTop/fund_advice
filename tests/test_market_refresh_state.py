@@ -15,7 +15,8 @@ class FailedRefreshStateTests(unittest.TestCase):
     def test_error_payload_includes_latest_relation_state_and_preserved_prices(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = Settings(database_path=Path(directory) / "app.sqlite3")
-            import_catalog(settings, [{"code": "510050", "name": "测试ETF", "fund_type": "ETF"}], policy_version="fixture")
+            import_catalog(settings, [{"code": "510050", "name": "测试ETF", "fund_type": "ETF"}],
+                           policy_version="fixture", source_id="fund_catalog.test_fixture")
             row = {"date": "2026-09-11", "open": "10", "high": "12", "low": "9", "close": "11", "volume": None, "amount": None}
             import_timeseries(settings, "510050", "price", [row], source_id="fixture", policy_version="v1")
             import_related_index(settings, fund_code="510050", index_code="000016", index_name="测试指数", rows=[row], source_id="fixture.index", relation_source_id="fixture.prospectus", evidence_url="https://example.test/evidence")

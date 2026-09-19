@@ -1,4 +1,9 @@
-"""Import the reviewed AKShare fund catalogue into the local SQLite projection."""
+"""Fund catalogue refresh entry point.
+
+The former Eastmoney-backed collector is retired.  Existing catalogue rows keep
+their original source id for audit, while this entry point fails before making a
+network request until an approved replacement source is registered.
+"""
 from __future__ import annotations
 
 import argparse
@@ -10,23 +15,22 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.core.config import Settings
-from backend.storage.catalog import import_catalog
-from scripts.data_source_registry import RegistryError, load_registry, sources_for
+from scripts.data_source_registry import load_registry, sources_for
 
 
 def fetch_catalog():
-    import akshare as ak
-    frame = ak.fund_name_em()
-    return frame.to_dict(orient="records")
+    raise RuntimeError("基金目录的东方财富采集入口已退役；尚未配置可自动采集的替代来源")
 
 
 def refresh_fund_catalog(settings: Settings, *, registry_path=None) -> dict:
-    """One reviewed network collection path shared by the CLI and the web refresh worker."""
-    registry = load_registry(registry_path) if registry_path else load_registry()
+    """Reject refresh before I/O when no approved automatic catalogue source exists."""
+    load_registry(registry_path) if registry_path else load_registry()
     sources = (sources_for("fund_catalog", "catalog_seed", path=registry_path)
                if registry_path else sources_for("fund_catalog", "catalog_seed"))
-    source = next(item for item in sources if item["id"] == "fund_catalog.eastmoney" and item["automatic"])
-    return import_catalog(settings, fetch_catalog(), policy_version=registry["policy_version"], source_id=source["id"])
+    approved = [item for item in sources if item["automatic"] and item["adapter"]]
+    if not approved:
+        raise RuntimeError("基金目录的东方财富采集入口已退役；尚未配置可自动采集的替代来源")
+    raise RuntimeError("基金目录存在注册来源但尚未实现对应采集适配器")
 
 
 def main(argv=None) -> int:

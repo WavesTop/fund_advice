@@ -57,6 +57,17 @@ class ResearchViewTests(unittest.TestCase):
                 self.assertEqual(fund["status"], "withheld")
                 self.assertIsNone(fund["evidence_url"])
 
+    def test_retired_relation_is_withheld_without_an_outbound_link(self):
+        item = sample()
+        item["funds"][0].update(
+            relation_source_id="fund_profile.eastmoney+csi_index.official",
+            evidence_url="https://fund.eastmoney.com/000001.html",
+        )
+        fund = fund_associations(item, generated_at=NOW)[0]
+        self.assertEqual(fund["status"], "withheld")
+        self.assertIsNone(fund["evidence_url"])
+        self.assertIn("已退役历史来源", fund["limitations"][0])
+
     def test_invalid_fund_identity_is_not_replaced(self):
         for code in ("123", "０００００１", None, "abc123"):
             with self.subTest(code=code):

@@ -7,6 +7,7 @@ import {
   restrictSeries,
   validateFundCode,
 } from './model';
+import { sourceHref } from './real-market-support';
 
 const filters = { query: '', type: '', sector: '', coverage: '', sort: 'code', onlyHeld: false };
 
@@ -42,6 +43,11 @@ describe('基金浏览条件与身份', () => {
     expect(resolvePage('-1', 9, 6)).toBe(1);
     expect(resolvePage('1.2', 9, 6)).toBe(1);
     expect(resolvePage('NaN', 0, 6)).toBe(1);
+  });
+  it('已退役来源地址不会变成可点击外链', () => {
+    expect(sourceHref('https://fund.eastmoney.com/000001.html')).toBeUndefined();
+    expect(sourceHref('https://datacenter-web.example/api')).toBeUndefined();
+    expect(sourceHref('https://example.org/evidence')).toBe('https://example.org/evidence');
   });
 });
 

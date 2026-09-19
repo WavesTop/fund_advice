@@ -24,11 +24,12 @@ if str(ROOT) not in sys.path:
 from backend.core.config import Settings
 from backend.core.trading_calendar import get_calendar
 from backend.integrations.http_transport import get_bytes
-from backend.storage.sector_heat import read_sector_heat, record_sector_heat_failure, save_sector_heat
+from backend.storage.sector_heat import (SectorHistoryIntegrityError, merge_consistent_sector_history,
+                                         read_sector_heat, record_sector_heat_failure, save_sector_heat)
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 Fetcher = Callable[[str, float], dict[str, Any]]
-COLLECTOR_VERSION = "sector-ths-only-v3"
+COLLECTOR_VERSION = "sector-ths-only-v5-history-integrity"
 
 
 class _ThsConstituentParser(HTMLParser):
@@ -146,34 +147,70 @@ def fetch_ths_sector_daily(member: dict[str, Any], ths_code: str, *, timeout: fl
     return rows
 
 
-def fetch_ths_industry_directory(*, now: datetime | None = None) -> list[dict[str, Any]]:
+def _source_error(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {str(exc)[:500]}"
+
+
+def fetch_ths_industry_directory(*, now: datetime | None = None) -> dict[str, Any]:
+    """Return industry rows together with truthful directory/summary provenance."""
     current = now or datetime.now(timezone.utc)
     cutoff = get_calendar().latest_completed(current.astimezone(SHANGHAI)).isoformat()
     seed_path = ROOT / "config" / "ths-industry-boards.json"
+    attempts: list[dict[str, Any]] = []
+    directory_mode = "live"
+    live_directory_error = None
     try:
         import akshare as ak
         names = ak.stock_board_industry_name_ths()
         name_rows = [{"name": str(row["name"]).strip(), "code": str(row["code"]).strip()} for _, row in names.iterrows()]
+        if not name_rows:
+            raise ValueError("同花顺在线行业目录为空")
+        attempts.append({"dataset": "directory", "subject": "ths_industry",
+                         "endpoint": "akshare.stock_board_industry_name_ths", "provenance": "live",
+                         "status": "available", "row_count": len(name_rows), "error": None})
     except Exception as exc:
+        live_directory_error = _source_error(exc)
+        attempts.append({"dataset": "directory", "subject": "ths_industry",
+                         "endpoint": "akshare.stock_board_industry_name_ths", "provenance": "live",
+                         "status": "failed", "row_count": 0, "error": live_directory_error})
         try:
             name_rows = json.loads(seed_path.read_text(encoding="utf-8"))
+            if not isinstance(name_rows, list) or not name_rows:
+                raise ValueError("本地同花顺行业种子目录为空或结构无效")
+            directory_mode = "seed"
+            attempts.append({"dataset": "directory", "subject": "ths_industry",
+                             "endpoint": "config/ths-industry-boards.json", "provenance": "seed",
+                             "status": "available", "row_count": len(name_rows), "error": None})
         except Exception as fallback_exc:
+            attempts.append({"dataset": "directory", "subject": "ths_industry",
+                             "endpoint": "config/ths-industry-boards.json", "provenance": "seed",
+                             "status": "failed", "row_count": 0, "error": _source_error(fallback_exc)})
             raise RuntimeError(
                 f"同花顺行业目录读取失败：{type(exc).__name__}: {exc}；"
                 f"本地种子目录也不可用：{type(fallback_exc).__name__}: {fallback_exc}"
             ) from exc
     turnover_by_name: dict[str, Decimal] = {}
+    summary_error = None
     try:
         import akshare as ak
         summary = ak.stock_board_industry_summary_ths()
+        if len(summary) == 0:
+            raise ValueError("同花顺行业摘要为空")
         for _, row in summary.iterrows():
             name = str(row["板块"]).strip()
             try:
                 turnover_by_name[name] = Decimal(str(row["总成交额"])) * Decimal("100000000")
             except (InvalidOperation, ValueError):
                 turnover_by_name[name] = Decimal(0)
-    except Exception:
+        attempts.append({"dataset": "industry_summary", "subject": "ths_industry",
+                         "endpoint": "akshare.stock_board_industry_summary_ths", "provenance": "live",
+                         "status": "available", "row_count": len(turnover_by_name), "error": None})
+    except Exception as exc:
+        summary_error = _source_error(exc)
         turnover_by_name = {}
+        attempts.append({"dataset": "industry_summary", "subject": "ths_industry",
+                         "endpoint": "akshare.stock_board_industry_summary_ths", "provenance": "live",
+                         "status": "failed", "row_count": 0, "error": summary_error})
     rows = []
     for raw in name_rows:
         name, code = str(raw["name"]).strip(), str(raw["code"]).strip()
@@ -183,8 +220,25 @@ def fetch_ths_industry_directory(*, now: datetime | None = None) -> list[dict[st
                      "heat_value": format(turnover_by_name.get(name, Decimal(0)), "f"),
                      "heat_updated_at": current.astimezone(SHANGHAI).isoformat(timespec="seconds"),
                      "ranking_as_of": cutoff})
-    return [dict(row, heat_rank=rank) for rank, row in enumerate(
+    ranked = [dict(row, heat_rank=rank) for rank, row in enumerate(
         sorted(rows, key=lambda item: (-Decimal(item["heat_value"]), item["code"])), 1)]
+    return {
+        "rows": ranked,
+        "provenance": {
+            "directory": {
+                "mode": directory_mode,
+                "endpoint": ("akshare.stock_board_industry_name_ths" if directory_mode == "live"
+                             else "config/ths-industry-boards.json"),
+                "live_error": live_directory_error,
+            },
+            "summary": {
+                "status": "failed" if summary_error else "available",
+                "endpoint": "akshare.stock_board_industry_summary_ths",
+                "error": summary_error,
+            },
+        },
+        "source_attempts": attempts,
+    }
 
 
 def _stock_market(code: str) -> int:
@@ -282,10 +336,16 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
     source_outcomes: list[dict] = []
     previous_snapshot = read_sector_heat(settings)
     try:
-        directory = fetch_ths_industry_directory(now=current)
-        source_outcomes.append({"dataset": "directory", "subject": "ths_industry",
-                                "endpoint": "akshare.stock_board_industry_name_ths",
-                                "status": "available", "row_count": len(directory), "error": None})
+        directory_result = fetch_ths_industry_directory(now=current)
+        if (not isinstance(directory_result, dict) or not isinstance(directory_result.get("rows"), list)
+                or not isinstance(directory_result.get("provenance"), dict)
+                or not isinstance(directory_result.get("source_attempts"), list)):
+            raise ValueError("同花顺行业目录结果缺少来源证明")
+        directory = directory_result["rows"]
+        directory_provenance = directory_result["provenance"]
+        source_outcomes.extend(directory_result["source_attempts"])
+        if not directory:
+            raise ValueError("同花顺行业目录没有可发布的行业")
         old_ranking_date = previous_snapshot["universe"]["ranking_as_of"]
         if old_ranking_date and directory[0]["ranking_as_of"] < old_ranking_date:
             raise ValueError("来源排名日期早于已保存排名，不能用旧榜覆盖新榜")
@@ -310,30 +370,51 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
         attempts: list[dict] = []
         native_source_id, native_source_code = "sector_daily.ths", "bk_" + member["code"]
         native = old.get("history_source_id") == native_source_id and old.get("history_source_code") == native_source_code
+        fetched: list[dict[str, Any]] = []
         try:
             fetched = fetch_ths_sector_daily(member, member["code"], timeout=timeout)
+            cutoff = date.fromisoformat(member["price_cutoff"])
             quality = get_calendar().validate_grid(
-                [row["date"] for row in fetched[-121:]],
-                end=date.fromisoformat(member["price_cutoff"]), minimum=121,
+                [row["date"] for row in fetched], end=cutoff, minimum=121,
             )
+            if quality["status"] != "ready":
+                raise SectorHistoryIntegrityError(f"同花顺日线交易日校验失败：{quality['errors']}")
+            if native and rows:
+                candidate_rows, merge_details = merge_consistent_sector_history(rows, fetched)
+            else:
+                candidate_rows = fetched
+                merge_details = {
+                    "previous_row_count": len(rows) if native else 0,
+                    "fetched_row_count": len(fetched),
+                    "overlap_row_count": 0,
+                    "preserved_row_count": 0,
+                    "merged_row_count": len(fetched),
+                }
+            merged_quality = get_calendar().validate_grid(
+                [row["date"] for row in candidate_rows], end=cutoff, minimum=121,
+            )
+            if merged_quality["status"] != "ready":
+                raise SectorHistoryIntegrityError(
+                    f"合并后的同花顺日线交易日校验失败：{merged_quality['errors']}"
+                )
+            rows = candidate_rows
             attempts.append({"dataset": "daily", "subject": member["code"],
                              "endpoint": "https://d.10jqka.com.cn/v4/line/",
-                             "status": "available" if quality["status"] == "ready" else "failed",
-                             "row_count": len(fetched), "first_date": fetched[0]["date"],
-                             "last_date": fetched[-1]["date"],
-                             "error": None if quality["status"] == "ready" else str(quality["errors"])})
-            if quality["status"] != "ready":
-                raise ValueError(f"同花顺日线交易日校验失败：{quality['errors']}")
-            if rows and fetched[-1]["date"] < rows[-1]["date"]:
-                raise ValueError("返回行情早于已保存行情，拒绝回退当前序列")
-            prefix = [row for row in rows if row["date"] < fetched[0]["date"]] if native else []
-            rows = prefix + fetched
+                             "status": "available", "row_count": len(fetched),
+                             "first_date": fetched[0]["date"], "last_date": fetched[-1]["date"],
+                             "error": None, **merge_details})
             updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
-            if native and rows:
+            attempts.append({"dataset": "daily", "subject": member["code"],
+                             "endpoint": "https://d.10jqka.com.cn/v4/line/", "status": "failed",
+                             "row_count": len(fetched),
+                             "first_date": fetched[0]["date"] if fetched else None,
+                             "last_date": fetched[-1]["date"] if fetched else None,
+                             "error": error})
+            if native and rows and not isinstance(exc, SectorHistoryIntegrityError):
                 quality = get_calendar().validate_grid(
-                    [row["date"] for row in rows[-121:]],
+                    [row["date"] for row in rows],
                     end=date.fromisoformat(member["price_cutoff"]), minimum=121,
                 )
                 if quality["status"] == "ready":
@@ -383,7 +464,7 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
     completed_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
     save_sector_heat(settings, as_of=members[0]["ranking_as_of"], updated_at=completed_at,
                      catalog_count=len(directory), members=results, requested_count=len(members),
-                     universe_scope="verified_industry_all")
+                     universe_scope="verified_industry_all", directory_provenance=directory_provenance)
     saved = read_sector_heat(settings)
     saved["collector_version"] = COLLECTOR_VERSION
     completed = get_calendar().latest_completed(current)
@@ -423,7 +504,8 @@ def main(argv: list[str] | None = None) -> int:
         set_observer(None)
     universe = result["universe"]
     finish_run(settings, run_id, "success" if universe["status"] == "ready" else "partial", {"universe": universe,
-        "collector_version": COLLECTOR_VERSION, "source_attempts": result.get("source_attempts", [])})
+        "collector_version": COLLECTOR_VERSION, "source_attempts": result.get("source_attempts", []),
+        "directory_provenance": result.get("directory_provenance", {})})
     print(f"排名日期 {universe['as_of']}；热门 {universe['member_count']}；"
           f"采集完成 {universe['collected_count']}；失败或旧行情 {universe['failed_count']}。", flush=True)
     return 0 if universe["status"] == "ready" else 1

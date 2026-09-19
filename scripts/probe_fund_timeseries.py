@@ -32,14 +32,8 @@ SOURCE_ERRORS = {
     "unsupported_symbol": "行情探针不支持此代码范围",
     "duplicate_response": "来源在同一日期返回冲突数据",
 }
-INTERFACES = {
-    "unit-nav": "akshare.fund_open_fund_info_em",
-    "cumulative-nav": "akshare.fund_open_fund_info_em",
-    "exchange-nav": "akshare.fund_etf_fund_info_em",
-    "etf-daily": "akshare.fund_etf_hist_em",
-    "lof-daily": "akshare.fund_lof_hist_em",
-    "calendar": "akshare.tool_trade_date_hist_sina",
-}
+INTERFACES = {"calendar": "akshare.tool_trade_date_hist_sina"}
+RETIRED_DATASETS = ("unit-nav", "cumulative-nav", "exchange-nav")
 LIMITATIONS = {
     "unit-nav": ["来源接口不接受日期参数；探针获取成立以来全量数据后在本地筛选"],
     "cumulative-nav": ["来源接口不接受日期参数；探针获取成立以来全量数据后在本地筛选"],
@@ -64,14 +58,16 @@ def market_symbol(code):
 
 
 def source_interface(request):
-    provider = request.get("provider", "eastmoney")
+    provider = request.get("provider", "sina")
     if provider == "sina" and request["dataset"] in QUOTE_DATASETS:
         return "akshare.fund_etf_hist_sina"
     if provider == "tencent":
         return "fund_quote_sources.fetch_tencent_daily"
     if provider == "baostock":
         return "fund_quote_sources.fetch_baostock_daily"
-    return INTERFACES[request["dataset"]]
+    if request["dataset"] == "calendar":
+        return INTERFACES["calendar"]
+    raise ProbeError("unsupported_source", "该数据集没有可用的已核验来源")
 
 
 def sina_identity(catalog, symbol, dataset):
@@ -121,7 +117,7 @@ try:
     sys.path.insert(0, sys.argv[2])
     dataset = request["dataset"]
     code = request.get("code")
-    provider = request.get("provider", "eastmoney")
+    provider = request.get("provider", "sina")
     identity = None
     start, end = request["start_date"], request["end_date"]
     if provider == "tencent":
@@ -138,17 +134,10 @@ try:
         catalog = ak.fund_etf_category_sina(symbol="ETF基金" if dataset == "etf-daily" else "LOF基金")
         identity = sina_identity(catalog, symbol, dataset)
         frame = ak.fund_etf_hist_sina(symbol=symbol)
-    elif dataset in ("unit-nav", "cumulative-nav"):
-        indicator = "单位净值走势" if dataset == "unit-nav" else "累计净值走势"
-        frame = ak.fund_open_fund_info_em(symbol=code, indicator=indicator, period="成立来")
-    elif dataset == "exchange-nav":
-        frame = ak.fund_etf_fund_info_em(fund=code, start_date=start, end_date=end)
-    elif dataset == "etf-daily":
-        frame = ak.fund_etf_hist_em(symbol=code, period="daily", start_date=start, end_date=end, adjust="")
-    elif dataset == "lof-daily":
-        frame = ak.fund_lof_hist_em(symbol=code, period="daily", start_date=start, end_date=end, adjust="")
-    else:
+    elif dataset == "calendar":
         frame = ak.tool_trade_date_hist_sina()
+    else:
+        raise ValueError("unsupported source")
     columns = [str(c) for c in frame.columns]
     rows = [[scalar(value) for value in row] for row in frame.itertuples(index=False, name=None)]
     dtypes = {str(column): str(dtype) for column, dtype in frame.dtypes.items()}
@@ -361,12 +350,12 @@ def make_report(request, payload, elapsed, started_at):
     return {
         "status": "success" if result["normalized_rows"] else "empty",
         "artifact_kind": "bounded_adapter_probe", "production_ready": False,
-        "request": request, "interface": source_interface(request), "provider": request.get("provider", "eastmoney"),
+        "request": request, "interface": source_interface(request), "provider": request.get("provider", "sina"),
         "params": adapter_params(request), "python_version": sys.version.split()[0],
         "akshare_version": payload.get("akshare_version") or installed_akshare_version(),
         "started_at": started_at, "finished_at": _utc_now(), "elapsed_seconds": round(elapsed, 3),
         **result, "source_evidence": payload.get("source_evidence"),
-        "limitations": report_limitations(request["dataset"], request.get("provider", "eastmoney")), "error": None,
+        "limitations": report_limitations(request["dataset"], request.get("provider", "sina")), "error": None,
     }
 
 
@@ -389,7 +378,7 @@ def adapter_params(request):
     return {}
 
 
-def report_limitations(dataset, provider="eastmoney"):
+def report_limitations(dataset, provider="sina"):
     if provider == "sina" and dataset in QUOTE_DATASETS:
         return ["取来源全部历史后本地筛选；实际首尾日期不等于完整上市期保证",
                 "新浪与腾讯部分历史 OHLC 存在差异，不可假设逐点一致或静默拼接",
@@ -421,12 +410,14 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", required=True, choices=DATASETS)
     parser.add_argument("--code")
-    parser.add_argument("--provider", choices=("auto", "sina", "tencent", "baostock", "eastmoney"), default="auto")
+    parser.add_argument("--provider", choices=("auto", "sina", "tencent", "baostock"), default="auto")
     parser.add_argument("--start-date", required=True)
     parser.add_argument("--end-date", required=True)
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args(argv)
+    if args.dataset in RETIRED_DATASETS:
+        parser.error("该净值探针原东方财富入口已退役；当前没有可用的替代来源")
     if args.dataset == "calendar" and args.code is not None:
         parser.error("--calendar 不接受 --code")
     if args.dataset != "calendar" and (not args.code or len(args.code) != 6 or not args.code.isascii() or not args.code.isdigit()):
@@ -437,7 +428,7 @@ def parse_args(argv=None):
         parser.error("--provider sina/tencent/baostock 只适用于 ETF／LOF 日行情")
     if args.dataset == "lof-daily" and args.provider == "baostock":
         parser.error("BaoStock 当前只用于已验证的 ETF 日线")
-    if args.dataset in QUOTE_DATASETS and args.provider != "eastmoney":
+    if args.dataset in QUOTE_DATASETS:
         try:
             market_symbol(args.code)
         except ProbeError as exc:
@@ -462,9 +453,9 @@ def main(argv=None):
     request = {"dataset": args.dataset, "code": args.code, "start_date": args.start_date, "end_date": args.end_date}
     started_at, clock = _utc_now(), time.monotonic()
     payload = None
-    providers = (("sina", "tencent", "baostock", "eastmoney") if args.dataset == "etf-daily" else
-                 ("sina", "tencent", "eastmoney")) if args.provider == "auto" and args.dataset in QUOTE_DATASETS else (
-        ("sina" if args.dataset == "calendar" else "eastmoney") if args.provider == "auto" else args.provider,)
+    providers = (("sina", "tencent", "baostock") if args.dataset == "etf-daily" else
+                 ("sina", "tencent")) if args.provider == "auto" and args.dataset in QUOTE_DATASETS else (
+        "sina" if args.provider == "auto" else args.provider,)
     attempts = []
     try:
         for index, provider in enumerate(providers):

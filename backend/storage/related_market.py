@@ -5,6 +5,13 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 
 from backend.core.config import Settings
+from backend.core.errors import AppError
+from backend.core.source_admission import (
+    SourceAdmissionError,
+    contains_retired_source_reference,
+    reject_retired_source_reference,
+    writable_source_id,
+)
 from backend.storage.database import connection_scope, migrate
 from backend.storage.timeseries import _clean_rows, get_fund
 from backend.core.relation_policy import relation_problems, timestamp
@@ -17,6 +24,13 @@ def _now() -> str:
 def import_related_index(settings: Settings, *, fund_code: str, index_code: str, index_name: str,
                          rows: Iterable[Mapping[str, object]], source_id: str,
                          relation_source_id: str, evidence_url: str) -> None:
+    try:
+        source_id = writable_source_id(source_id, field="source_id")
+        relation_source_id = writable_source_id(relation_source_id, field="relation_source_id")
+        reject_retired_source_reference(evidence_url, field="evidence_url")
+    except SourceAdmissionError as exc:
+        raise AppError("relation_source_not_allowed", "基金关联来源不允许写入", 422,
+                       {"reason": str(exc)}) from exc
     normalized = _clean_rows("price", rows)
     now = _now()
     problems = relation_problems({"relation_type": "tracked_index", "relation_source_id": relation_source_id,
@@ -73,7 +87,8 @@ def current_associations(connection, *, generated_at: str, fund_codes: list[str]
         return []
     where = " WHERE f.code IN (" + ",".join("?" for _ in fund_codes) + ")" if fund_codes else ""
     rows = [dict(row) for row in connection.execute(
-        """SELECT f.code,f.name,r.index_code,r.relation_type,r.source_id AS relation_source_id,
+        """SELECT f.code,f.name,f.source_id AS catalog_source_id,
+                  r.index_code,r.relation_type,r.source_id AS relation_source_id,
                   r.evidence_url,r.verified_at,i.name AS index_name,i.source_id AS market_source_id,
                   i.updated_at AS market_updated_at,v.outcome,v.index_code AS checked_index_code,
                   v.checked_at,v.error AS check_error
@@ -108,6 +123,11 @@ def current_associations(connection, *, generated_at: str, fund_codes: list[str]
             row["relation_status"] = "linked"
         row["limitations"] = problems
         row["relation_reason"] = "；".join(problems)
+        if any(contains_retired_source_reference(row.get(field))
+               for field in ("relation_source_id", "evidence_url", "market_source_id")):
+            # Preserve the original URL in SQLite for audit, but never expose a
+            # retired provider as a current outbound link.
+            row["evidence_url"] = None
         row["effective_from"] = row["effective_to"] = None
     return rows
 

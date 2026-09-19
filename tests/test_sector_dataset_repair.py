@@ -24,7 +24,7 @@ def dataset():
 
 
 def board():
-    return {"source_id": "sector_daily.eastmoney", "code": "BK0422", "kind": "行业", "name": "合成行业",
+    return {"source_id": "sector_daily.ths", "code": "881121", "kind": "行业", "name": "合成行业",
             "membership": {"status": "ready", "as_of": "2026-09-18", "member_count": 1,
                            "members": [{"stock_code": "600001", "stock_name": "合成股票", "market": 1}]}}
 

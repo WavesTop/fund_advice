@@ -6,6 +6,7 @@ from backend.api.main import create_app
 from backend.core.config import Settings
 from backend.core.errors import AppError
 from backend.storage.catalog import import_catalog
+from backend.storage.database import connection_scope
 from backend.storage.timeseries import get_fund, get_timeseries, import_timeseries
 from scripts.import_fund_timeseries import series_dataset
 
@@ -17,7 +18,7 @@ class FundTimeseriesTests(unittest.TestCase):
         import_catalog(self.settings, [
             {"code": "510050", "name": "上证50ETF", "fund_type": "指数型-股票"},
             {"code": "005911", "name": "科技精选", "fund_type": "混合型"},
-        ], policy_version="catalog-policy")
+        ], policy_version="catalog-policy", source_id="fund_catalog.test_fixture")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -56,13 +57,35 @@ class FundTimeseriesTests(unittest.TestCase):
             {"date": "2026-09-10", "unit_nav": "1.2345", "accumulated_nav": None},
             {"date": "2026-09-11", "unit_nav": "1.2500", "accumulated_nav": "2.5000"},
         ]
-        import_timeseries(self.settings, "005911", "nav", rows, source_id="fund_nav.eastmoney", policy_version="d0-test")
+        import_timeseries(self.settings, "005911", "nav", rows, source_id="fund_nav.test_fixture", policy_version="d0-test")
         stored = get_timeseries(self.settings, "005911")
         self.assertEqual(stored["kind"], "nav")
         self.assertEqual(stored["rows"], rows)
         self.assertEqual(series_dataset(get_fund(self.settings, "510050")), "etf-daily")
         self.assertIsNone(series_dataset(get_fund(self.settings, "005911")))
         self.assertIsNone(series_dataset({"name": "沪深300ETF联接A", "fund_type": "指数型-股票"}))
+
+    def test_retired_source_cannot_replace_series_but_legacy_rows_remain_readable(self):
+        rows = [{"date": "2026-09-11", "unit_nav": "1.2500", "accumulated_nav": "2.5000"}]
+        import_timeseries(self.settings, "005911", "nav", rows,
+                          source_id="fund_nav.test_fixture", policy_version="d0-test")
+        for source_id in (
+            "fund_nav.eastmoney", "FUND_NAV.EAST-MONEY", "东方财富.基金净值",
+            "东财.基金净值", "fund_nav.emdata", "fund_nav.push2his",
+        ):
+            with self.subTest(source_id=source_id), self.assertRaises(AppError) as caught:
+                import_timeseries(self.settings, "005911", "nav", [
+                    {"date": "2026-09-12", "unit_nav": "9", "accumulated_nav": "9"},
+                ], source_id=source_id, policy_version="d0-test")
+            self.assertEqual(caught.exception.body.code, "timeseries_source_not_allowed")
+        current = get_timeseries(self.settings, "005911", "nav")
+        self.assertEqual((current["source_id"], current["rows"]), ("fund_nav.test_fixture", rows))
+        with connection_scope(self.settings) as connection:
+            connection.execute(
+                "UPDATE fund_timeseries_projection SET source_id='fund_nav.eastmoney' WHERE code='005911' AND kind='nav'"
+            )
+        legacy = get_timeseries(self.settings, "005911", "nav")
+        self.assertEqual((legacy["source_id"], legacy["rows"]), ("fund_nav.eastmoney", rows))
 
     def test_http_routes_are_registered(self):
         app = create_app(self.settings)

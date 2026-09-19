@@ -161,32 +161,26 @@ class ProbeTests(unittest.TestCase):
             with self.assertRaises(probe.ProbeError):
                 probe.build_report(sample_document()["samples"], result, 0.1, "test")
 
-    def test_real_child_hard_timeout(self):
-        started = time.monotonic()
-        with patch.object(probe, "_child_code", return_value="import time; time.sleep(3)"):
-            with self.assertRaises(probe.ProbeError) as error:
-                probe.run_catalog(0.05)
-        self.assertEqual(error.exception.code, "timeout")
-        self.assertLess(time.monotonic() - started, 2)
+    def test_catalog_source_is_retired_before_starting_child(self):
+        with patch.object(probe.subprocess, "run") as runner, self.assertRaises(probe.ProbeError) as error:
+            probe.run_catalog(0.05)
+        self.assertEqual(error.exception.code, "source_retired")
+        runner.assert_not_called()
 
-    def test_child_failure_is_safe_and_reported(self):
-        with patch.object(probe, "_child_code", return_value="raise RuntimeError('API_KEY=SECRET_VALUE')"):
-            status, stdout, stderr = self.invoke_main()
+    def test_retired_catalog_is_safely_reported(self):
+        status, stdout, stderr = self.invoke_main()
         self.assertNotEqual(status, 0)
         content = (Path(stdout.strip()) / "report.json").read_text()
-        self.assertNotIn("SECRET_VALUE", content + stderr)
         report = json.loads(content)
-        self.assertEqual(report["error"]["code"], "upstream_failure")
+        self.assertEqual(report["error"]["code"], "source_retired")
         self.assertIsInstance(report["elapsed_seconds"], (int, float))
         self.assertIn("akshare_version", report)
 
-    def test_untrusted_child_error_is_not_echoed(self):
-        child = 'print(\'{"error": "API_KEY=SECRET_VALUE"}\')'
-        with patch.object(probe, "_child_code", return_value=child):
+    def test_retired_catalog_does_not_evaluate_child_code(self):
+        with patch.object(probe, "_child_code", side_effect=AssertionError("must not execute")):
             with self.assertRaises(probe.ProbeError) as error:
                 probe.run_catalog(2)
-        self.assertEqual(error.exception.code, "invalid_response")
-        self.assertNotIn("SECRET_VALUE", str(error.exception))
+        self.assertEqual(error.exception.code, "source_retired")
 
     def test_output_failure_does_not_claim_success_or_expose_exception(self):
         with patch.object(probe, "run_catalog", return_value=(catalog_result(), 0.1)):

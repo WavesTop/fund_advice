@@ -1,4 +1,5 @@
 import { parseSectorFundamentals } from './sector-evidence-model';
+import { containsRetiredSourceReference } from '../../shared/source-label';
 
 const periodIds = ['short', 'medium', 'long'] as const;
 type PeriodId = (typeof periodIds)[number];
@@ -178,7 +179,7 @@ export function percent(value: number | null): string {
 }
 
 export function sourceHref(value: string | null | undefined): string | undefined {
-  if (!value) return undefined;
+  if (!value || containsRetiredSourceReference(value)) return undefined;
   try {
     const url = new URL(value);
     return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password

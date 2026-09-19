@@ -122,13 +122,15 @@ class ProviderSelectionTests(unittest.TestCase):
         providers = []
         def adapter(request, _timeout):
             providers.append(request["provider"])
-            if request["provider"] != "eastmoney":
+            if request["provider"] != "baostock":
                 raise probe.ProbeError("truncated_response", probe.SOURCE_ERRORS["truncated_response"])
-            return frame(TENCENT_COLUMNS, TENCENT_ROWS, "eastmoney"), 0.01
+            payload = frame(TENCENT_COLUMNS, TENCENT_ROWS, "baostock")
+            payload["quote_units"] = {"volume": "shares", "amount": "CNY"}
+            return payload, 0.01
         exit_code, report, _, _, _ = self.run_main(adapter)
         self.assertEqual(exit_code, 0)
-        self.assertEqual(providers, ["sina", "tencent", "baostock", "eastmoney"])
-        self.assertEqual(report["provider"], "eastmoney")
+        self.assertEqual(providers, ["sina", "tencent", "baostock"])
+        self.assertEqual(report["provider"], "baostock")
 
     def test_explicit_provider_makes_one_attempt(self):
         for provider, columns, rows in (("sina", SINA_COLUMNS, SINA_ROWS), ("tencent", TENCENT_COLUMNS, TENCENT_ROWS)):
@@ -147,9 +149,9 @@ class ProviderSelectionTests(unittest.TestCase):
 
         exit_code, report, run, stdout, stderr = self.run_main(adapter)
         self.assertEqual(exit_code, 2)
-        self.assertEqual(run.call_count, 4)
+        self.assertEqual(run.call_count, 3)
         self.assertEqual([attempt["provider"] for attempt in report["attempts"]],
-                         ["sina", "tencent", "baostock", "eastmoney"])
+                         ["sina", "tencent", "baostock"])
         self.assertEqual(report["error"]["code"], "network_error")
         self.assertNotIn("secret", stdout + stderr)
 

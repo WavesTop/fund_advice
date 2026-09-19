@@ -29,7 +29,7 @@ class MarketWorkbenchTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.settings = Settings(database_path=Path(self.temp.name) / "app.sqlite3")
         self.funds = [{"code": f"{i:06}", "name": f"成长测试{i}", "fund_type": "ETF"} for i in range(1, 18)]
-        import_catalog(self.settings, self.funds, policy_version="fixture")
+        import_catalog(self.settings, self.funds, policy_version="fixture", source_id="fund_catalog.test_fixture")
 
     def relation(self, index="980017", source="index_daily.sina"):
         import_related_index(self.settings, fund_code="000001", index_code=index, index_name="测试指数", rows=[PRICE],
@@ -50,7 +50,8 @@ class MarketWorkbenchTests(unittest.TestCase):
             self.assertEqual(list_catalog(self.settings, "成长", page=99, page_size=size)["items"], [])
 
     def test_search_metacharacters_are_literal_not_sql_wildcards(self):
-        import_catalog(self.settings, [{"code": "123456", "name": "100%增长_A", "fund_type": "混合"}], policy_version="fixture")
+        import_catalog(self.settings, [{"code": "123456", "name": "100%增长_A", "fund_type": "混合"}],
+                       policy_version="fixture", source_id="fund_catalog.test_fixture")
         for query in ("%", "_", "100%"):
             self.assertEqual([item["code"] for item in list_catalog(self.settings, query)["items"]], ["123456"])
         self.assertEqual(list_catalog(self.settings, "' OR 1=1 --")["total"], 0)
@@ -87,20 +88,16 @@ class MarketWorkbenchTests(unittest.TestCase):
 
     def test_catalog_network_failure_preserves_previous_import(self):
         before = list_catalog(self.settings)
-        with patch("scripts.import_fund_catalog.fetch_catalog", side_effect=RuntimeError("fixture offline")) as fetcher:
-            with self.assertRaises(RuntimeError):
-                refresh_fund_catalog(self.settings)
-        fetcher.assert_called_once()
+        with patch("scripts.import_fund_catalog.fetch_catalog") as fetcher, self.assertRaises(RuntimeError):
+            refresh_fund_catalog(self.settings)
+        fetcher.assert_not_called()
         after = list_catalog(self.settings)
         self.assertEqual((after["total"], after["updated_at"]), (before["total"], before["updated_at"]))
 
-    def test_catalog_worker_calls_real_shared_import_and_persists_rows(self):
-        fresh = [{"code": "888888", "name": "新基金", "fund_type": "混合"}]
-        with patch("scripts.import_fund_catalog.fetch_catalog", return_value=fresh) as fetcher:
-            result = collect(self.settings, "catalog")
-        fetcher.assert_called_once()
-        self.assertEqual(result["status"], "success")
-        self.assertEqual(list_catalog(self.settings, "888888")["items"][0]["name"], "新基金")
+    def test_catalog_worker_fails_closed_without_retired_network_call(self):
+        with patch("scripts.import_fund_catalog.fetch_catalog") as fetcher, self.assertRaises(RuntimeError):
+            collect(self.settings, "catalog")
+        fetcher.assert_not_called()
 
     def test_sector_worker_reports_actual_partial_counts_and_unchanged_manual_evidence(self):
         fixture = {"universe": {"ranking_as_of": "2026-09-14"}, "items": [

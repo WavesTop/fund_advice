@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Badge, EmptyState, Modal, Notice, PageHeader, Panel, Stat, Tabs } from '../../shared/ui';
+import { sourceLabel } from '../../shared/source-label';
 import {
   apiRequest,
   formatDateTime,
@@ -564,7 +565,7 @@ export function RealPortfolioPage() {
                           <tr key={position.fund_code}>
                             <td><Link to={`/funds/${position.fund_code}`}>{position.fund_name || position.fund_code}</Link><small>{position.fund_code}</small></td>
                             <td className="numeric">{position.confirmed_units}</td>
-                            <td>{valuations[position.fund_code]?.status === 'ready' ? formatMoney(valuations[position.fund_code].marketValue) : valuations[position.fund_code]?.status === 'loading' ? '读取中…' : '未取得'}<small>{valuations[position.fund_code]?.status === 'ready' ? `${valuations[position.fund_code].date} · ${valuations[position.fund_code].kind === 'price' ? '收盘价' : '单位净值'} · ${valuations[position.fund_code].source || '来源未标注'}` : '不按零计算'}</small></td>
+                            <td>{valuations[position.fund_code]?.status === 'ready' ? formatMoney(valuations[position.fund_code].marketValue) : valuations[position.fund_code]?.status === 'loading' ? '读取中…' : '未取得'}<small>{valuations[position.fund_code]?.status === 'ready' ? `${valuations[position.fund_code].date} · ${valuations[position.fund_code].kind === 'price' ? '收盘价' : '单位净值'} · ${sourceLabel(valuations[position.fund_code].source, '来源未标注')}` : '不按零计算'}</small></td>
                             <td><Badge tone={position.cost_history_complete ? 'green' : 'amber'}>{position.cost_history_complete ? '完整' : '初始成本不完整'}</Badge></td>
                             <td><div className="toolbar portfolio-row-actions">
                               <button className="button small secondary" onClick={() => openEvent('buy', position.fund_code)}>加仓</button>

@@ -7,10 +7,8 @@ from typing import Any
 
 from backend.core.config import Settings
 from backend.core.errors import AppError
+from backend.core.source_admission import SourceAdmissionError, writable_source_id
 from backend.storage.database import connection_scope, migrate
-
-
-SOURCE_ID = "fund_catalog.eastmoney"
 
 
 def _now() -> str:
@@ -42,10 +40,15 @@ def _clean_row(row: Mapping[str, Any]) -> dict[str, str]:
 
 
 def import_catalog(settings: Settings, rows: Iterable[Mapping[str, Any]], *, policy_version: str,
-                   source_id: str = SOURCE_ID) -> dict[str, Any]:
+                   source_id: str) -> dict[str, Any]:
     """Validate all rows, then atomically upsert one import batch."""
-    if source_id != SOURCE_ID or not isinstance(policy_version, str) or not policy_version.strip():
-        raise AppError("catalog_source_not_allowed", "基金目录只能使用已核验的自动来源", 422)
+    try:
+        source_id = writable_source_id(source_id)
+    except SourceAdmissionError as exc:
+        raise AppError("catalog_source_not_allowed", "基金目录来源不允许写入", 422,
+                       {"reason": str(exc)}) from exc
+    if not isinstance(policy_version, str) or not policy_version.strip():
+        raise AppError("catalog_source_not_allowed", "基金目录策略版本必须显式提供", 422)
     try:
         normalized = [_clean_row(row) for row in rows]
         by_code: dict[str, dict[str, str]] = {}

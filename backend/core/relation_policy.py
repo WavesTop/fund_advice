@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from datetime import datetime
 from urllib.parse import urlsplit
 
+from backend.core.source_admission import contains_retired_source_reference
+
 
 def timestamp(value: object) -> datetime | None:
     if not isinstance(value, str):
@@ -33,6 +35,9 @@ def relation_problems(fund: Mapping[str, object], *, generated_at: str) -> list[
     problems: list[str] = []
     if fund.get("relation_type") != "tracked_index":
         problems.append("未提供明确的跟踪指数关系。")
+    if any(contains_retired_source_reference(fund.get(field))
+           for field in ("relation_source_id", "evidence_url", "market_source_id")):
+        problems.append("基金—指数关系引用已退役历史来源，只保留审计记录。")
     if not fund.get("relation_source_id") or not public_source(fund.get("evidence_url")):
         problems.append("缺少可核对的基金—指数关系来源。")
     verified = timestamp(fund.get("verified_at"))

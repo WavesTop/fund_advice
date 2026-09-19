@@ -10,17 +10,19 @@
 
 ## 当前状态
 
-已实现 §3.1 的前端界面与演示交互，并开始接入 §3.2 的真实基金数据。基金库现从本地 FastAPI 与 SQLite 查询真实基金目录；已采集的基金详情展示真实净值或场内日 K 线。“基金与板块 → 板块机会”已接入三周期轻量证据筛查：真实指数行情、经过核验的行业统计与有限估值观察，展示支持、反证和待确认条件。持仓、旧建议交互、收益复盘、策略及原板块详情仍为演示；默认建议入口改为当前真实研究，正式投资推荐尚未完成。
+默认界面已切换为本地正式数据链：基金库、板块研究、持仓账本、策略建议、用户决定、成交关联、收益曲线和系统状态均读取 FastAPI 与 SQLite，不再由演示 Provider 生成结果。持仓可新增、修订和反向更正；策略服务能形成买入、加仓、持有、减仓、清仓、等待六类判断，并把建议、用户选择和实际成交分别留痕。
 
 板块机会接口和页面底部同时展示[板块分析底层数据支撑](docs/sector-analysis-data-support.md)：行情、成分、流通市值、经营、估值历史、市场宽度、相对基准、催化、行业专属指标与基金暴露分别报告覆盖分母。缺失维度不会由价格走势代填。
 
-**当前不可用于真实投资或记账。** 基金目录以及详情页明确标注来源的净值／K 线来自本地数据库；未采集序列保持空白。明确标注演示的建议、持仓和收益仍为虚构样例，填写的演示记录仅保存在当前浏览器的本地存储。精确核算、模拟、AI 调用和后台执行仍待后续阶段接入。
+**当前仍不可用于真实投资。** 正式账本和规则回放已经可复算，但投资资格采用失败即阻断：目录、行情、基金关系、历史时点版本、完整官方交易日历、总收益、产品申赎条款、稳定基金池、板块研究信号、现金收益基准、共享实盘／回测组合引擎、成交前原子重验或滚动样本外验证任一缺失，建议只能返回等待；风险降低信号仅作为待人工核价的风险提示，不生成可直接执行金额。系统不会自动下单。
 
-### 当前优先改进：展示与研究
+### 当前优先改进：主证据与投资级验证
 
-本批修改集中于基金／板块展示、三周期真实研究和对应基金关联。基金查询恢复搜索词与页码，详情保留真实身份并区分行情／入库时间；板块默认三周期摘要，可切完整证据。`/advice` 默认查看当前真实研究，交互演示通过 `/advice?mode=demo` 进入，旧演示决策记录保持可读。
+当前优先级是把管理人正式文件、逐点首次可知时间、不可变原始资料、分红再投资总收益、基金真实费率与确认日、历史可投基金池及板块证据接到同一条版本链。旧数据库中的退役来源记录只用于溯源和规则行为回放，页面统一标为只读、不可交易，不会请求、刷新或自动回退。
 
-基金关联仅使用已存储的明确指数关系，展示来源和核验时间；名称相似、行情领先或关联存在均不等于投资推荐。当前没有通过完整基金择优、历史验证和个人约束，不生成正式买卖建议或金额。完整输入快照、行业投资候选和对应基金筛选的后续步骤，以及本批尚未完成的前端／真实数据验收，见 [投资分析计划 §1.4](docs/investment-analysis-plan.md#14-轻量入口)。
+当前 4 条旧基金—指数关系均被投影为 `withheld`，不返回关联行情或证据外链，正式策略基金池为 0。页面可以保留此前存档的历史机械回放供审计；重新运行正式回放会明确报告没有通过关系与历史要求的基金，不会把退役存量重新授予交易资格。
+
+基金关联只使用已存储的明确指数关系，展示来源和核验时间；名称相似、行情领先或关联存在均不等于投资推荐。历史回放同时给出现金、同基金买入持有和逐基金同敞口无成本对照，拆分市场敞口、信号／执行和模拟成本，并进行费率压力、持仓周期、逐年、前后区间及风险质量检查。未通过投资级门槛时，这些结果只用于验证规则和发现缺陷。
 
 ### 基金库与板块机会工作台
 
@@ -136,11 +138,17 @@ cd ..
 
 ### 2. 初始化本地数据
 
-首次启动可以先导入真实基金目录，并采集全部可核验行业板块。两条命令都会访问公开数据来源：
+首次启动可以采集全部可核验行业板块。东方财富基金目录入口已经退役，旧库中的目录仍可读取，但目前不会联网刷新：
 
 ```bash
-uv run --locked --offline python scripts/import_fund_catalog.py
 uv run --locked --offline python scripts/import_sector_heat.py --industry-only
+```
+
+已独立保存且通过清单、原始响应 SHA-256、同花顺代码／年份、交易日历和当前重叠全字段核验的年度档案，可先只读检查，再在指定新备份文件后原子恢复。恢复器只接受名称以 `annual-live` 结尾的完整 90 行业档案；任一行业缺失、身份变化或重叠值冲突都会拒绝写入：
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/restore_sector_history.py --database runtime/database/app.sqlite3 --archive /absolute/path/to/verified-annual-live --dry-run
+PYTHONPATH=. .venv/bin/python scripts/restore_sector_history.py --database runtime/database/app.sqlite3 --archive /absolute/path/to/verified-annual-live --apply --backup runtime/backups/sector-history-before-restore.sqlite3
 ```
 
 行业命令完整读取同花顺行业目录，并按同花顺原生行业代码取得日线。重复运行会刷新本地快照；单个行业失败会保留可核对的旧数据和失败原因。
@@ -165,9 +173,9 @@ uv run --locked --offline python scripts/start_local.py
 
 | 入口 | 实际行为 | 不包含的内容 |
 | --- | --- | --- |
-| 基金库“更新基金目录” | 联网获取并导入基金份额身份，完成后重读当前搜索结果。 | 不批量下载全库净值／K 线。 |
-| 基金详情“获取真实数据／更新数据” | 保留已有真实采集链路，更新该基金序列并核验、更新关联指数；分别返回成功或失败。 | 不保证所有场内基金自动同时取得价格和净值。 |
-| 板块机会／真实行业详情／研究页“重新评估” | `POST /api/sectors/refresh` 联网采集可核验行业目录、日线、成分及成分经营／同日估值，成功或部分成功后在同一次请求内计算并返回评估；前端直接显示该响应，不另发成功后的 GET。 | 不更新经营／估值人工快照，也不批量更新已有参考指数；参考指数仍沿关联基金详情更新。不调用 AI、不执行交易。 |
+| 基金库“更新基金目录” | 当前明确返回来源已退役；本地旧目录仍可只读检索。 | 不发起旧来源请求；接入并核验管理人正式目录前不会伪报更新成功。 |
+| 基金详情“获取真实数据／更新数据” | 仅对身份可核验的场内 ETF／LOF 尝试新浪、腾讯和 BaoStock 行情链，并分别返回成功或失败。 | 普通开放式基金净值没有已核验免费替代源时明确失败，不回退到已退役来源。 |
+| 板块机会／真实行业详情／研究页“重新评估” | `POST /api/sectors/refresh` 联网采集可核验行业目录、日线和普通分页成分；成功或部分成功后在同一次请求内计算并返回评估。成分经营／同日估值目前没有真实上游适配器，会明确保存为未采集或阻断。 | 不伪造经营或估值成功，不批量更新已有参考指数；参考指数仍沿关联基金详情更新。不调用 AI、不执行交易。 |
 
 联网更新显示进行中、成功、部分成功或失败；失败项保留可核对的旧资料，失败后也重读本地已提交状态，不把原数据当作本次成功结果。已经展开的板块日线在资料版本变化后重新读取，不继续展示旧图缓存。覆盖面板分别显示行业池／参考指数池的行情可比数、有效经营依据数和估值日期覆盖，不等于投资评分。
 
@@ -238,32 +246,28 @@ uv run --locked --offline python -m unittest discover -s tests -p 'test_*quote*.
 下面的探针命令会访问公开来源，运行结果保存在忽略提交的 `runtime/probes/`；`uv --offline` 只阻止依赖下载，不阻止探针联网。
 
 ```bash
-uv run --locked --offline python scripts/probe_fund_source.py --catalog
-uv run --locked --offline python scripts/probe_fund_timeseries.py --dataset exchange-nav --code 510050 --start-date 20251031 --end-date 20260115 --timeout 40
 uv run --locked --offline python scripts/probe_fund_timeseries.py --dataset etf-daily --code 513660 --start-date 20260415 --end-date 20260424
 uv run --locked --offline python scripts/probe_fund_timeseries.py --dataset lof-daily --code 160706 --start-date 20000101 --end-date 20260913
 uv run --locked --offline python scripts/probe_fund_timeseries.py --dataset etf-daily --code 510050 --provider tencent --start-date 20250101 --end-date 20260913 --timeout 45
 uv run --locked --offline python scripts/probe_fund_timeseries.py --dataset etf-daily --code 510050 --provider baostock --start-date 20260901 --end-date 20260913 --timeout 45
 uv run --locked --offline python scripts/probe_fund_timeseries.py --dataset calendar --start-date 20260213 --end-date 20260228
-uv run --locked --offline python scripts/probe_fund_disclosure.py --dataset holdings --code 005911 --year 2025 --timeout 40
-uv run --locked --offline python scripts/probe_fund_disclosure.py --dataset fee --code 009314 --indicator '赎回费率' --timeout 40
-uv run --locked --offline python scripts/probe_fund_disclosure.py --dataset dividend-events --code 510050 --year 2025 --timeout 60
-uv run --locked --offline python scripts/probe_fund_disclosure.py --dataset split-events --code 515050 --year 2026 --timeout 60
+uv run --locked --offline python scripts/probe_fund_disclosure.py --dataset dividend-cumulative --code 510050 --timeout 40
+uv run --locked --offline python scripts/probe_fund_disclosure.py --dataset fund-profile --code 000051 --timeout 40
 ```
 
-序列探针支持 `unit-nav`、`cumulative-nav`、`exchange-nav`、`etf-daily`、`lof-daily`、`calendar`。除日历外必须传六位基金代码；日期格式为 `YYYYMMDD`。每次只请求一个数据集，运行后输出包含 `report.json` 的目录。退出码 `0` 为取得候选数据，`3` 为空结果，`2` 为参数、来源、数据校验或输出失败。
+序列探针当前联网支持 `etf-daily`、`lof-daily`、`calendar`。`unit-nav`、`cumulative-nav`、`exchange-nav` 的原东方财富入口已退役，调用会在联网前失败。除日历外必须传六位基金代码；日期格式为 `YYYYMMDD`。每次只请求一个数据集，运行后输出包含 `report.json` 的目录。退出码 `0` 为取得候选数据，`3` 为空结果，`2` 为参数、来源、数据校验或输出失败。
 
-行情默认 `--provider auto`。ETF 依次尝试新浪、腾讯、BaoStock、东方财富，LOF 依次尝试新浪、腾讯、东方财富；网络、超时、上游调用失败、空结果或无法证明历史完整时继续下一来源。可指定 `sina`、`tencent`、`baostock` 或 `eastmoney` 单独核验，实际来源和尝试结果写入 `provider`、`attempts`。每个来源分别受 `--timeout` 硬超时限制，同一来源不重试。身份错配、无效行情和字段校验失败会立即停止，防止其他来源掩盖脏数据。净值和日历继续使用原接口。
+行情默认 `--provider auto`。ETF 依次尝试新浪、腾讯、BaoStock，LOF 依次尝试新浪、腾讯；网络、超时、上游调用失败、空结果或无法证明历史完整时继续下一来源。可指定 `sina`、`tencent` 或 `baostock` 单独核验，实际来源和尝试结果写入 `provider`、`attempts`。每个来源分别受 `--timeout` 硬超时限制，同一来源不重试。身份错配、无效行情和字段校验失败会立即停止。
 
 新浪一次返回可得历史，成交量实际为份、成交额为元；腾讯按年请求，原始成交量为手、成交额为万元，使用十进制换算。腾讯端点最多返回 640 条且可能忽略开始日期，因此按窗口本地筛选并检查截断，逐年范围与返回条数见 `source_evidence`。腾讯数值可能经过舍入，两源结果不拼接、不求平均。行情数据为经过样本核对的不复权日线；场外基金使用净值序列。
 
-BaoStock 免费登录接口已验证沪深 ETF，返回成交量为份、成交额为元；当前实测只返回有限的近期历史，探针会把缺失长历史识别为 `truncated_response` 并继续尝试东方财富。BaoStock 未覆盖已测 LOF，因此不进入 LOF 自动链。同花顺接口存在间歇性 502，且 LOF 日期集合与新浪有明显差异；网易公开历史接口持续返回 502；Tushare 需要用户 Token。这些来源不加入无需配置的默认链。
+BaoStock 免费登录接口已验证沪深 ETF，返回成交量为份、成交额为元；当前实测只返回有限的近期历史，探针会把缺失长历史识别为 `truncated_response`，之后明确报告当前回退链已耗尽。BaoStock 未覆盖已测 LOF，因此不进入 LOF 自动链。同花顺接口存在间歇性 502，且 LOF 日期集合与新浪有明显差异；网易公开历史接口持续返回 502；Tushare 需要用户 Token。这些来源不加入无需配置的默认链。
 
 新浪先用 ETF／LOF 分类目录核对代码，腾讯核对返回的证券代码与类型；身份与请求不符或没有身份依据时明确报错。历史退市基金可能需要另外补充身份依据，不能由代码前缀直接认定类型。
 
 复查时对照 `adapter` 与 `normalized_rows`，查看 `source` 和 `selected` 的条数及日期范围、`normalization` 的字段／单位和 `limitations`。普通净值与日历先取来源全量再本地筛选；场内净值分页由 AKShare 处理。输出属于适配器结果，不能恢复上游原始小数精度，也不证明历史公开时点或生产接入已通过。净值币种仍需身份资料核验；ETF 与 LOF 行情能力分别检查。
 
-披露探针支持 `holdings`、`fee`、`dividend-announcements`、`dividend-cumulative`、`dividend-events`、`split-events` 和 `fund-profile`。持仓保留每个报告期的来源行数和 100 行上限标记，不声明完整组合；费率条件保留原文，不直接执行计费；结构化分红和拆分值均标为候选，必须继续用管理人或交易所公告确认单位、业务日期和修订关系。
+披露探针当前联网支持新浪的 `dividend-cumulative` 与同花顺的 `fund-profile`。`holdings`、`fee`、`dividend-announcements`、`dividend-events`、`split-events` 的东方财富入口已经退役，调用会在联网前失败；相应正式事实应改由管理人、交易所或监管机构材料导入。
 
 D0 的最终来源判断保存在 `config/data-source-registry.json`，由 `scripts/data_source_registry.py` 校验和查询。后续 D1/D2 按数据集和 `allowed_uses` 读取该注册表：自动采集只选择 `automatic=true` 的来源；`discovery_only` 结果不能直接写成正式事实；`authoritative_evidence` 用于确认关系、规则及公司行动；`rejected` 和 `not_verified` 不进入采集。每批数据保存实际来源 `id` 和 `policy_version`，用于还原当时采用的来源规则。`runtime/probes/` 只保留本机复查输出，不承担跨阶段配置职责。
 
@@ -278,22 +282,15 @@ uv run --locked uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
 
 启动时会按序执行迁移；空库和重复启动都可安全执行，迁移失败会让启动失败并保留失败状态。可访问 [后端健康检查](http://127.0.0.1:8000/health) 查看 schema 版本、SQLite 运行库版本及连接参数。
 
-首次写入或手动刷新真实基金目录：
-
-```bash
-uv run --locked --offline python scripts/import_fund_catalog.py
-```
-
-导入会先核对 D0 来源注册表，再整批校验并用单个事务写入 SQLite。网页开发服务通过 `/api` 代理读取本地后端；基金库中的“本地真实基金目录”可以按代码或名称搜索，当前只展示已经接入的身份字段。
+东方财富基金目录刷新已经禁用。网页开发服务通过 `/api` 代理读取本地数据库；旧目录的 `fund_catalog.eastmoney` 标签保留用于真实来源审计，不能被改写成其他来源。后续需接入已核验的新目录适配器后才能恢复联网刷新。
 
 按基金代码采集真实净值或场内日行情：
 
 ```bash
 uv run --locked --offline python scripts/import_fund_timeseries.py --code 510050 --timeout 45
-uv run --locked --offline python scripts/import_fund_timeseries.py --code 005911 --timeout 45
 ```
 
-采集器根据真实目录身份选择净值或场内行情，并按 D0 注册表执行来源回退。详情页只展示已写入 SQLite 的序列；没有数据时明确显示尚未采集。
+采集器只对可识别的场内 ETF／LOF 使用新浪、腾讯和 BaoStock 回退。普通开放式基金净值的原东方财富入口已经退役，在新的已核验来源接入前会明确失败。详情页仍可展示 SQLite 中已有序列，但会统一标为“已退役历史来源（只读、不可用于交易）”；原始来源 ID 只在底层审计记录中保留。
 
 全目录采集使用固定任务名分批执行，任务进度和失败原因保存在 SQLite，重复运行会继续待处理项：
 

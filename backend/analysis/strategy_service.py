@@ -18,7 +18,7 @@ from backend.storage.strategy_runs import save_recommendation
 from backend.storage.timeseries import get_timeseries
 
 
-SERVICE_VERSION = "portfolio-strategy-service-v2"
+SERVICE_VERSION = "portfolio-strategy-service-v3"
 
 
 def _number(value: Decimal) -> str:
@@ -166,6 +166,12 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
     warnings: list[str] = []
     if not selected:
         blockers.append("eligible_universe_empty")
+    execution_readiness = universe.get("execution_readiness", {})
+    investment_readiness = universe.get("investment_readiness", {})
+    if execution_readiness.get("status") != "ready":
+        blockers.append("strategy_source_not_execution_grade")
+    if investment_readiness.get("status") != "ready":
+        blockers.append("strategy_not_investment_validated")
     if condition is None:
         blockers.append("portfolio_condition_missing")
     if total_assets <= 0:
@@ -286,13 +292,31 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
         reason = str(decision["reason"])
         proposed_amount: str | None = None
         proposed_units: str | None = None
+        risk_alert: dict[str, Any] | None = None
 
         if blockers:
+            if units > 0 and action in {"REDUCE", "EXIT"}:
+                risk_alert = {
+                    "status": "manual_price_and_evidence_review_required",
+                    "label": "风险降低信号待人工核价/复核",
+                    "original_action": action,
+                    "original_target_weight_pct": _number(raw_target * 100),
+                    "original_reason_code": reason_code,
+                    "original_reason": reason,
+                    "blockers": list(blockers),
+                    "direct_execution_allowed": False,
+                    "instruction": (
+                        "该信号来自当前策略计算，但正式建议的数据或组合条件未通过。"
+                        "请先人工核对最新价格、持仓和主证据；核验完成并重新生成建议前不可直接成交。"
+                    ),
+                }
             action = "WAIT"
             target_weight = current_weight
             reason_code = blockers[0].upper()
             reason = {
                 "eligible_universe_empty": "当前没有关系和真实序列均通过核验的基金，暂不交易。",
+                "strategy_source_not_execution_grade": "当前策略序列没有取得主证据用途资格，只能用于资料诊断，不能生成真实资金操作。",
+                "strategy_not_investment_validated": "历史时点、总收益、产品执行规则或样本外验证尚未全部通过，当前策略不能生成真实资金操作。",
                 "portfolio_condition_missing": "尚未确认风险等级、单只上限和投资期限，暂不交易。",
                 "confirmed_assets_not_positive": "账户没有可用于计算金额的已确认资产，暂不交易。",
                 "portfolio_valuation_incomplete": "存在无法以真实序列估值的持仓，组合权重不完整，暂不交易。",
@@ -360,6 +384,7 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
             "strategy_signal_target_weight_pct": _number(raw_target * 100),
             "strategy_reason_code": decision["reason_code"],
             "strategy_reason": decision["reason"],
+            "risk_alert": risk_alert,
             "risk_adjusted": target_scale < 1 and decision["action"] != "WAIT",
             "metrics": decision.get("metrics"),
             "data_quality": decision["data_quality"],
@@ -370,6 +395,9 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
                 "relation_source_id": source["relation_source_id"],
                 "relation_verified_at": source["relation_verified_at"],
                 "relation_evidence_url": source["relation_evidence_url"],
+                "data_eligibility": source.get("data_eligibility"),
+                "catalog_eligibility": source.get("catalog_eligibility"),
+                "relation_eligibility": source.get("relation_eligibility"),
             },
         })
 
@@ -501,6 +529,8 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
         "universe_selection": universe["selection"],
         "universe_items": universe_items,
         "universe_excluded": universe["excluded"],
+        "execution_readiness": execution_readiness,
+        "investment_readiness": investment_readiness,
         "series_identity": series_identity,
     }
     output = {
@@ -514,6 +544,7 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
         "execution_policy": {
             "signal_basis": "completed_daily_close_or_published_unit_nav",
             "earliest_execution_session": next_session,
+            "latest_execution_session": next_session,
             "sizing": "BUY、ADD、REDUCE按当前已确认资产达到目标权重的差额；EXIT卖出全部已确认份额。",
             "fee_basis": "建议金额未预扣未知的真实申购、赎回或交易费用；实际费用以确认单为准。",
             "ordering": "同一批建议如包含资金不足的增仓，先执行REDUCE或EXIT；卖出款结算并回填账本后重新计算，再决定BUY或ADD。",
@@ -538,6 +569,8 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
             "horizon_conversion_sessions_per_year": 244,
             "buy_or_add_allowed_by_horizon": horizon_allows_increase,
         },
+        "data_eligibility": execution_readiness,
+        "investment_eligibility": investment_readiness,
         "valuation": {
             "currency": snapshot["cash"]["currency"],
             "confirmed_cash": str(snapshot["cash"]["confirmed"]),
@@ -559,6 +592,8 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
             "建议金额按已结算可用现金、已确认份额和本地最近真实价格或净值计算；待确认、待核对及未结算款项不用于新增交易。",
             "场外基金净值用于估值；实际申购、赎回确认金额和费用必须由成交确认单回填账本。",
             "这是可复算的规则建议，不是收益保证，也不会自动向交易渠道下单。",
+            "只有来源注册表明确允许作为主证据的序列才能生成操作；候选事实和发现来源只用于诊断。",
+            "真实资金操作还必须通过历史时点、总收益、产品执行规则与滚动样本外验证门槛。",
         ],
     }
     return inputs, output, expected_as_of, actual_as_of

@@ -11,8 +11,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import AbstractContextManager
-from datetime import date, datetime
-from decimal import Decimal, InvalidOperation, getcontext
+from datetime import date
+from decimal import Decimal, InvalidOperation, localcontext
 from hashlib import sha256
 import json
 import math
@@ -20,16 +20,17 @@ from pathlib import Path
 import sqlite3
 import tempfile
 from typing import Any
+from unittest.mock import patch
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 from backend.analysis.strategy import StrategyPolicy, evaluate_strategy
 from backend.analysis.strategy_portfolio import eligible_fund_universe
 from backend.api.main import create_app
 from backend.core.config import Settings
-from backend.core.trading_calendar import CalendarUnavailable, SHANGHAI, get_calendar
+from backend.core.trading_calendar import CalendarUnavailable, get_calendar
 
 
-getcontext().prec = 40
+EMPTY_FILE_SHA256 = sha256(b"").hexdigest()
 BUSINESS_TABLES = (
     "portfolio_account",
     "portfolio_condition_revision",
@@ -180,6 +181,34 @@ def file_fingerprints(database: Path) -> dict[str, Any]:
             "sha256": hasher.hexdigest(),
         }
     return result
+
+
+def durable_content_fingerprints(files: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Normalize the database and WAL by durable content, ignoring reader-only file lifecycle.
+
+    Opening a WAL-mode database read-only can create an empty ``-wal`` file and
+    its transient ``-shm`` index.  An absent WAL and a verified empty WAL carry
+    the same durable database content; a non-empty WAL remains significant.
+    Modification times are intentionally excluded because readers can update
+    SQLite coordination metadata without changing database content.
+    """
+
+    database = files.get("database")
+    wal = files.get("-wal")
+
+    def signature(item: Any, *, empty_is_absent: bool) -> dict[str, Any]:
+        if item is None:
+            return {"state": "empty_or_absent" if empty_is_absent else "missing"}
+        size = int(item.get("size", -1))
+        digest = str(item.get("sha256") or "")
+        if empty_is_absent and size == 0 and digest == EMPTY_FILE_SHA256:
+            return {"state": "empty_or_absent"}
+        return {"state": "content", "size": size, "sha256": digest}
+
+    return {
+        "database": signature(database, empty_is_absent=False),
+        "-wal": signature(wal, empty_is_absent=True),
+    }
 
 
 def read_only_connection(database: Path) -> sqlite3.Connection:
@@ -507,6 +536,10 @@ def curve_integrity(backtest: dict[str, Any]) -> dict[str, Any]:
         "start_date": output["start_date"],
         "end_date": output["end_date"],
         "metrics": output["metrics"],
+        "risk_quality": output.get("risk_quality"),
+        "exposure_summary": output.get("exposure_summary"),
+        "economic_attribution": output.get("economic_attribution"),
+        "investment_eligibility": output.get("investment_eligibility"),
         "action_summary": output["action_summary"],
         "executed_action_summary": executed,
         "diagnostics": output["diagnostics"],
@@ -527,12 +560,98 @@ def run_workflow(copy_path: Path) -> dict[str, Any]:
         require("portfolio_ledger_v1" in health["capabilities"], "服务未启用正式持仓账本")
         require("strategy_execution_v1" in health["capabilities"], "服务未启用正式策略执行")
 
-        universe = eligible_fund_universe(settings)
-        require(universe["items"], "隔离副本没有可用的真实基金策略池")
+        production_universe = eligible_fund_universe(settings)
+        require(
+            not production_universe["items"],
+            "当前验收预期退役关系全部退出正式基金策略池，但仍发现可用项目",
+        )
+        retired_exclusions = [
+            item for item in production_universe.get("excluded", [])
+            if "已退役历史来源" in str(item.get("reason") or "")
+        ]
+        require(retired_exclusions, "正式策略池没有报告已退役关系的排除原因")
+
+        # Recover the same real stored rows only inside this disposable process
+        # so transaction mechanics and historical arithmetic remain testable.
+        # The live universe above remains empty, and the unmodified readiness
+        # rules still mark every archived source as ineligible for real money.
+        with patch("backend.storage.related_market.relation_problems", return_value=[]):
+            universe = eligible_fund_universe(settings)
+        require(universe["items"], "隔离副本没有可供机械验收的真实历史存量序列")
+        archived_universe_patchers = [
+            patch("backend.analysis.strategy_portfolio.eligible_fund_universe", return_value=universe),
+            patch("backend.analysis.strategy_service.eligible_fund_universe", return_value=universe),
+            patch("backend.api.strategy.eligible_fund_universe", return_value=universe),
+        ]
+        archived_universe_mocks = [patcher.start() for patcher in archived_universe_patchers]
         signal = derive_signal_dates(universe)
         code = signal["fund_code"]
         entry_price = decimal(signal["entry_price"], "entry_price")
         exit_price = decimal(signal["exit_price"], "exit_price")
+
+        # First verify the production gate without any override.  Legacy rows
+        # remain useful for exercising deterministic rules, but their source
+        # and investment-validation gaps must force the formal action to WAIT.
+        formal_account = create_account(
+            client, label="formal-gate", effective_date=signal["entry_date"], position=None,
+        )
+        formal_run, formal_item = recommend(
+            client, formal_account["account_id"], signal["entry_date"], fund_code=code,
+        )
+        require(formal_run["output"]["status"] == "blocked", "真实来源缺口未阻断正式建议")
+        require(formal_item["action"] == "WAIT", "正式建议在投资门槛未满足时仍生成了交易动作")
+        require(formal_item["strategy_signal_action"] == "BUY", "底层真实历史BUY信号未被保留供审计")
+        require(
+            {"strategy_source_not_execution_grade", "strategy_not_investment_validated"}
+            <= set(formal_run["output"]["blockers"]),
+            "正式建议没有同时报告来源与投资验证阻断",
+        )
+        formal_gate = {
+            "account_id": formal_account["account_id"],
+            "recommendation_id": formal_run["recommendation_id"],
+            "formal_action": formal_item["action"],
+            "underlying_signal_action": formal_item["strategy_signal_action"],
+            "blockers": formal_run["output"]["blockers"],
+            "investment_eligibility": formal_run["output"].get("investment_eligibility"),
+            "production_universe_item_count": len(production_universe["items"]),
+            "retired_relation_exclusion_count": len(retired_exclusions),
+            "passed": True,
+        }
+
+        # The remaining scenarios validate sizing, ledger and action mechanics
+        # only.  They run on this disposable copy with an explicit in-process
+        # readiness override; their results are never described as investment
+        # evidence and can never reach the source database.
+        execution_readiness_patch = patch(
+            "backend.analysis.strategy_portfolio.aggregate_execution_readiness",
+            return_value={
+                "status": "ready", "blockers": [], "blocked_fund_codes": [],
+                "policy": "isolated_mechanics_verification_override",
+            },
+        )
+        investment_readiness_patch = patch(
+            "backend.analysis.strategy_portfolio.investment_validation_readiness",
+            return_value={
+                "status": "ready", "investment_operations_enabled": True, "blockers": [],
+                "meaning": "仅用于隔离副本的交易机械验收；不代表投资资格。",
+            },
+        )
+        execution_readiness_patch.start()
+        investment_readiness_patch.start()
+
+        mechanics_universe = {
+            **universe,
+            "execution_readiness": {
+                "status": "ready", "blockers": [], "blocked_fund_codes": [],
+                "policy": "isolated_mechanics_verification_override",
+            },
+            "investment_readiness": {
+                "status": "ready", "investment_operations_enabled": True, "blockers": [],
+                "meaning": "仅用于隔离副本的交易机械验收；不代表投资资格。",
+            },
+        }
+        for universe_mock in archived_universe_mocks:
+            universe_mock.return_value = mechanics_universe
 
         buy_account = create_account(
             client, label="buy", effective_date=signal["entry_date"], position=None,
@@ -593,6 +712,19 @@ def run_workflow(copy_path: Path) -> dict[str, Any]:
         scenario_runs["EXIT"] = exit_run
         scenario_accounts["EXIT"] = exit_account
 
+        earliest_text = str(exit_run["output"]["execution_policy"]["earliest_execution_session"])
+        # Historical signals cannot truthfully be accepted "today" and then
+        # linked to a past business date.  Freeze only the disposable harness
+        # clock to the recommendation's one valid execution session.
+        harness_timestamp = f"{earliest_text}T01:00:00.000000Z"
+        strategy_clock_patch = patch(
+            "backend.storage.strategy_runs.utc_now", return_value=harness_timestamp,
+        )
+        portfolio_clock_patch = patch(
+            "backend.storage.portfolio.utc_now", return_value=harness_timestamp,
+        )
+        strategy_clock_patch.start()
+        portfolio_clock_patch.start()
         decision = api_ok(
             client.post(
                 "/api/v1/strategy/decisions",
@@ -613,14 +745,9 @@ def run_workflow(copy_path: Path) -> dict[str, Any]:
         )
         units = decimal(exit_item["current_units"], "exit.current_units")
         calendar = get_calendar()
-        earliest = date.fromisoformat(exit_run["output"]["execution_policy"]["earliest_execution_session"])
-        decision_day = datetime.fromisoformat(
-            decision["created_at"].replace("Z", "+00:00")
-        ).astimezone(SHANGHAI).date()
-        execution_day = max(earliest, decision_day)
-        if not calendar.is_session(execution_day):
-            execution_day = calendar.next_session(execution_day)
-        execution_date = execution_day.isoformat()
+        earliest = date.fromisoformat(earliest_text)
+        require(calendar.is_session(earliest), "建议给出的最早执行日不是已核验交易日")
+        execution_date = earliest.isoformat()
         execution = api_ok(
             client.post(
                 f"/api/v1/strategy/decisions/{decision['decision_id']}/executions",
@@ -654,6 +781,8 @@ def run_workflow(copy_path: Path) -> dict[str, Any]:
         )
         require(not after_exit["positions"], "卖出全部份额后仍残留持仓")
         require(not after_exit["pending_events"] and not after_exit["unknown_events"], "清仓后存在未确认账本事件")
+        portfolio_clock_patch.stop()
+        strategy_clock_patch.stop()
 
         reverse_account = create_account(
             client,
@@ -687,6 +816,11 @@ def run_workflow(copy_path: Path) -> dict[str, Any]:
         require(not after_reverse["positions"], "reverse更正后误录持仓仍存在")
         require(after_reverse["cash"]["confirmed"] == original_cash, "reverse更正错误地产生了买卖现金流")
 
+        investment_readiness_patch.stop()
+        execution_readiness_patch.stop()
+        for universe_mock in archived_universe_mocks:
+            universe_mock.return_value = universe
+
         backtest = api_ok(
             client.post(
                 "/api/v1/strategy/backtests",
@@ -695,6 +829,8 @@ def run_workflow(copy_path: Path) -> dict[str, Any]:
             "执行真实历史回测",
         )
         historical = curve_integrity(backtest)
+        for patcher in reversed(archived_universe_patchers):
+            patcher.stop()
 
         actions = {
             action: {
@@ -724,8 +860,10 @@ def run_workflow(copy_path: Path) -> dict[str, Any]:
             },
             "real_data": {
                 "universe_version": universe["version"],
-                "eligible_fund_count": len(universe["items"]),
-                "eligible_funds": [
+                "production_eligible_fund_count": len(production_universe["items"]),
+                "retired_relation_exclusions": retired_exclusions,
+                "archived_mechanics_fund_count": len(universe["items"]),
+                "archived_mechanics_funds": [
                     {
                         "code": item["code"],
                         "name": item["name"],
@@ -738,6 +876,13 @@ def run_workflow(copy_path: Path) -> dict[str, Any]:
                     for item in universe["items"]
                 ],
                 "derived_signal": signal,
+            },
+            "formal_fail_closed_gate": formal_gate,
+            "isolated_mechanics_harness": {
+                "readiness_override": True,
+                "source_database_written": False,
+                "investment_effectiveness_claimed": False,
+                "purpose": "仅验证六类动作、金额、账本、更正与成交关联的程序机械完整性",
             },
             "action_scenarios": actions,
             "ledger_lifecycle": {
@@ -776,8 +921,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+def _main(args: argparse.Namespace) -> int:
     source = args.database.expanduser().resolve()
     report: dict[str, Any]
     try:
@@ -796,11 +940,12 @@ def main(argv: list[str] | None = None) -> int:
         # when the database was opened mode=ro. Compare the durable database
         # and WAL contents plus all formal business-table counts; do not treat
         # reader coordination bytes as a business write.
-        durable_keys = ("database", "-wal")
-        durable_unchanged = all(
-            (before_files.get(key) or {}).get("sha256") == (after_files.get(key) or {}).get("sha256")
-            and (before_files.get(key) or {}).get("size") == (after_files.get(key) or {}).get("size")
-            for key in durable_keys
+        durable_before = durable_content_fingerprints(before_files)
+        durable_after = durable_content_fingerprints(after_files)
+        durable_unchanged = durable_before == durable_after
+        auxiliary_lifecycle_observed = any(
+            (before_files.get(key) is None) != (after_files.get(key) is None)
+            for key in ("-wal", "-shm")
         )
         source_business_unchanged = before_counts == after_counts and before_markers == after_markers
         require(source_business_unchanged, "验收期间源数据库业务表发生变化；请排除外部并发写入后重试")
@@ -815,8 +960,11 @@ def main(argv: list[str] | None = None) -> int:
                 "business_rows_unchanged_during_run": source_business_unchanged,
                 "verification_markers_before": before_markers,
                 "verification_markers_after": after_markers,
+                "durable_content_fingerprints_before": durable_before,
+                "durable_content_fingerprints_after": durable_after,
                 "durable_source_files_unchanged_during_run": durable_unchanged,
                 "external_or_background_database_activity_observed": not durable_unchanged,
+                "sqlite_auxiliary_file_lifecycle_observed": auxiliary_lifecycle_observed,
                 "shared_memory_coordination_changed": before_files.get("-shm") != after_files.get("-shm"),
             },
             "isolation": {
@@ -828,7 +976,9 @@ def main(argv: list[str] | None = None) -> int:
             "acceptance": {
                 "real_stored_series_only": True,
                 "production_business_rows_written": 0,
-                "actions_verified": ["BUY", "ADD", "HOLD", "REDUCE", "EXIT", "WAIT"],
+                "formal_investment_gate_fail_closed_verified": True,
+                "formal_actions_enabled": False,
+                "isolated_mechanics_actions_verified": ["BUY", "ADD", "HOLD", "REDUCE", "EXIT", "WAIT"],
                 "sell_to_zero_verified": True,
                 "reverse_is_not_sale_verified": True,
                 "decision_actual_execution_link_verified": True,
@@ -855,6 +1005,13 @@ def main(argv: list[str] | None = None) -> int:
         temporary.replace(output)
     print(serialized, end="")
     return exit_code
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    with localcontext() as context:
+        context.prec = 40
+        return _main(args)
 
 
 if __name__ == "__main__":

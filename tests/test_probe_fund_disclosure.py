@@ -149,6 +149,12 @@ class DisclosureNormalizationTests(unittest.TestCase):
             status = probe.main(["--dataset", "fund-profile", "--code", "000051", "--output-dir", target])
         self.assertEqual(status, 0)
 
+    def test_retired_eastmoney_disclosure_stops_before_subprocess(self):
+        with mock.patch.object(probe.subprocess, "run") as runner, self.assertRaises(probe.ProbeError) as caught:
+            probe.run_adapter({"dataset": "holdings", "code": "005911", "year": "2025"}, 1)
+        self.assertEqual(caught.exception.code, "source_retired")
+        runner.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

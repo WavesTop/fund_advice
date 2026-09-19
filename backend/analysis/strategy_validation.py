@@ -3,21 +3,31 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation, localcontext
+from decimal import Decimal, DecimalException, InvalidOperation, localcontext
 import re
 from typing import Any
 
-from backend.analysis.strategy import StrategyPolicy
+from backend.analysis.simulation import SimulationCosts, simulate_strategy
+from backend.analysis.strategy import (
+    ObservedSessionCalendar,
+    StrategyPolicy,
+    evaluate_strategy,
+    policy_document,
+)
 from backend.storage.research import digest
 
 
-VERSION = "strategy-validation-v2"
+VERSION = "strategy-validation-v5"
 TRADE_ACTIONS = ("BUY", "ADD", "REDUCE", "EXIT")
 DECISION_ACTIONS = ("BUY", "ADD", "HOLD", "REDUCE", "EXIT", "WAIT")
 TRADING_SESSIONS_PER_YEAR = Decimal("244")
 HIGH_TRADES_PER_FUND_YEAR = Decimal("30")
 HIGH_ANNUAL_NOTIONAL_TURNOVER_PCT = Decimal("200")
 DATE_INTERSECTION_AUDIT_VERSION = "observed-source-date-intersection-v1"
+LOW_AVERAGE_EXPOSURE = Decimal("0.20")
+SHORT_HOLDING_OBSERVATIONS = Decimal("20")
+COST_SENSITIVITY_RETURN_GAP_PCT = Decimal("5")
+RISK_QUALITY_VERSION = "strategy-risk-quality-v1"
 
 
 def _number(value: Decimal) -> str:
@@ -276,6 +286,162 @@ def _validate_date_intersection_audit(
     }
 
 
+def _validate_observed_date_audit(
+    raw: object,
+    *,
+    report_version: object,
+    strategy_dates: list[str],
+    universe_items: list,
+    errors: list[dict[str, Any]],
+    reviews: list[dict[str, str]],
+) -> dict[str, Any] | None:
+    """Ensure period-end weekend disclosures never become execution sessions."""
+
+    for index, value in enumerate(strategy_dates):
+        if date.fromisoformat(value).weekday() >= 5:
+            _error(errors, "non_session_date_in_curve", f"curves.strategy.points[{index}].date",
+                   "周末披露日不能成为策略成交观察日")
+    if raw is None:
+        if report_version in {"integrated-fund-strategy-v3", "integrated-fund-strategy-v4",
+                              "integrated-fund-strategy-v5"}:
+            _error(errors, "observed_date_audit_missing", "observed_date_audit",
+                   "v3历史报告必须说明被排除的非交易披露日")
+        return None
+    if not isinstance(raw, dict):
+        _error(errors, "observed_date_audit_invalid", "observed_date_audit", "观察日期审计必须是对象")
+        return None
+    path = "observed_date_audit"
+    excluded = _date_list(raw.get("excluded_non_session_dates"),
+                          f"{path}.excluded_non_session_dates", errors)
+    count = _count(raw.get("excluded_non_session_observations"),
+                   f"{path}.excluded_non_session_observations", errors)
+    if count is not None and count != len(excluded):
+        _error(errors, "observed_date_audit_count_mismatch",
+               f"{path}.excluded_non_session_observations", "非交易披露日数量与明细不一致")
+    if any(date.fromisoformat(value).weekday() < 5 for value in excluded):
+        _error(errors, "observed_date_exclusion_invalid", f"{path}.excluded_non_session_dates",
+               "周末过滤审计不能把工作日直接归类为非交易日")
+    if set(excluded).intersection(strategy_dates):
+        _error(errors, "excluded_non_session_still_in_curve", f"{path}.excluded_non_session_dates",
+               "已排除的非交易披露日仍出现在策略曲线中")
+    expected = sorted({
+        str(value)
+        for item in universe_items if isinstance(item, dict)
+        for value in item.get("excluded_non_session_dates", [])
+    })
+    if expected != excluded:
+        _error(errors, "observed_date_audit_not_reproducible", f"{path}.excluded_non_session_dates",
+               "非交易披露日不能由基金池来源明细复算")
+    if excluded:
+        _review(reviews, "non_session_disclosures_excluded",
+                f"已排除{len(excluded)}个周末期末披露点；仍需完整官方历史交易日历复核节假日")
+    return {
+        "policy": raw.get("policy"),
+        "excluded_non_session_observations": count,
+        "excluded_non_session_dates": excluded,
+    }
+
+
+def _validate_investment_eligibility(
+    raw: object,
+    *,
+    report_version: object,
+    universe: dict[str, Any],
+    universe_items: list,
+    protocol: dict[str, Any],
+    errors: list[dict[str, Any]],
+    reviews: list[dict[str, str]],
+) -> dict[str, Any] | None:
+    """Reproduce the hard gates separating a mechanics replay from investability."""
+
+    if raw is None:
+        if report_version in {"integrated-fund-strategy-v3", "integrated-fund-strategy-v4",
+                              "integrated-fund-strategy-v5"}:
+            _error(errors, "investment_eligibility_missing", "investment_eligibility",
+                   "v3历史报告必须给出真实资金资格门槛")
+        return None
+    if not isinstance(raw, dict):
+        _error(errors, "investment_eligibility_invalid", "investment_eligibility",
+               "真实资金资格必须是对象")
+        return None
+    status = raw.get("status")
+    enabled = raw.get("investment_operations_enabled")
+    blockers = raw.get("blockers")
+    if status not in {"ready", "blocked"}:
+        _error(errors, "investment_eligibility_status_invalid", "investment_eligibility.status",
+               "真实资金资格状态必须为ready或blocked")
+    if type(enabled) is not bool:
+        _error(errors, "investment_operations_flag_invalid",
+               "investment_eligibility.investment_operations_enabled", "真实资金操作开关必须是布尔值")
+    if (status == "ready") != (enabled is True):
+        _error(errors, "investment_eligibility_state_mismatch", "investment_eligibility",
+               "资格状态与真实资金操作开关不一致")
+    if (not isinstance(blockers, list) or any(not isinstance(value, str) or not value for value in blockers)
+            or blockers != sorted(set(blockers))):
+        _error(errors, "investment_eligibility_blockers_invalid", "investment_eligibility.blockers",
+               "资格阻断项必须是有序且唯一的非空字符串数组")
+        blockers = []
+
+    expected: set[str] = set()
+    for index, item in enumerate(universe_items):
+        if not isinstance(item, dict):
+            continue
+        fields = (("catalog_eligibility", "data_eligibility", "relation_eligibility")
+                  if report_version in {"integrated-fund-strategy-v4", "integrated-fund-strategy-v5"}
+                  else ("data_eligibility", "relation_eligibility"))
+        for field in fields:
+            eligibility = item.get(field)
+            if not isinstance(eligibility, dict):
+                if report_version in {"integrated-fund-strategy-v3", "integrated-fund-strategy-v4",
+                                      "integrated-fund-strategy-v5"}:
+                    _error(errors, "source_eligibility_missing",
+                           f"universe.items[{index}].{field}",
+                           "v3历史报告必须逐只提供目录、序列与跟踪关系的数据用途资格")
+                continue
+            reasons = eligibility.get("performance_blockers")
+            if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
+                _error(errors, "source_eligibility_invalid",
+                       f"universe.items[{index}].{field}.performance_blockers",
+                       "数据用途资格的业绩阻断项必须是字符串数组")
+                continue
+            expected.update(str(reason) for reason in reasons)
+    if report_version == "integrated-fund-strategy-v5":
+        # v5 is the first report schema emitted after the global investment
+        # gate became fail-closed.  These capabilities do not yet have
+        # immutable evidence objects in the report, so a current v5 producer
+        # must carry the same explicit blockers as strategy_readiness.
+        expected.update({
+            "immutable_source_evidence_chain_missing",
+            "point_in_time_universe_missing",
+            "point_in_time_observation_revisions_missing",
+            "verified_historical_trading_calendar_missing",
+            "stable_investable_universe_policy_missing",
+            "sector_research_signal_not_integrated",
+            "risk_free_cash_return_series_missing",
+            "shared_live_portfolio_engine_not_used",
+            "atomic_pretrade_revalidation_missing",
+            "product_specific_execution_terms_missing",
+            "walk_forward_holdout_not_completed",
+        })
+    if universe.get("selection_temporality") != "point_in_time":
+        expected.add("point_in_time_universe_missing")
+    if protocol.get("point_in_time_observations") is not True:
+        expected.add("point_in_time_observation_revisions_missing")
+    if protocol.get("portfolio_engine") != "shared_live_portfolio_engine":
+        expected.add("shared_live_portfolio_engine_not_used")
+    if protocol.get("execution_terms") != "product_specific_versioned_terms":
+        expected.add("product_specific_execution_terms_missing")
+    if protocol.get("validation_mode") != "walk_forward_holdout":
+        expected.add("walk_forward_holdout_not_completed")
+    if set(blockers) != expected:
+        _error(errors, "investment_eligibility_not_reproducible", "investment_eligibility.blockers",
+               "真实资金资格阻断项不能由来源、基金池和回放协议复算")
+    if blockers:
+        _review(reviews, "investment_validation_not_eligible",
+                "当前回放只完成规则行为核验，数据时点、总收益、真实执行或样本外门槛尚未满足")
+    return {"status": status, "investment_operations_enabled": enabled, "blockers": blockers}
+
+
 def _timestamp_date(value: object, path: str, errors: list[dict[str, Any]]) -> date | None:
     if not isinstance(value, str):
         _error(errors, "timestamp_required", path, "生成时间必须是含时区的字符串")
@@ -291,15 +457,19 @@ def _timestamp_date(value: object, path: str, errors: list[dict[str, Any]]) -> d
     return parsed.astimezone(timezone.utc).date()
 
 
-def _period_stats(points: list[dict[str, Any]]) -> dict[str, str | int]:
-    start, end = points[0]["equity"], points[-1]["equity"]
-    peak, drawdown = points[0]["equity"], Decimal(0)
+def _period_stats(
+    points: list[dict[str, Any]], *, baseline: dict[str, Any] | None = None,
+) -> dict[str, str | int]:
+    baseline = baseline or points[0]
+    start, end = baseline["equity"], points[-1]["equity"]
+    peak, drawdown = baseline["equity"], Decimal(0)
     for point in points:
         peak = max(peak, point["equity"])
         drawdown = min(drawdown, point["equity"] / peak - 1)
     return {
         "start_date": points[0]["date"],
         "end_date": points[-1]["date"],
+        "return_base_date": baseline["date"],
         "observations": len(points),
         "return_pct": _number((end / start - 1) * 100),
         "max_drawdown_pct": _number(drawdown * 100),
@@ -394,6 +564,874 @@ def _compare_metric(report: dict, field: str, expected: Decimal | None,
         _error(errors, "metric_not_reproducible", f"metrics.{field}", "汇总指标不能由曲线或交易精确复算")
 
 
+def _independent_risk_quality(
+    points: list[dict[str, Any]], errors: list[dict[str, Any]],
+) -> dict[str, str | int | None] | None:
+    """Recompute risk metrics solely from consecutive observed equity points."""
+    if len(points) < 2:
+        _error(errors, "risk_quality_observations_insufficient", "risk_quality",
+               "风险质量至少需要两个资产观察点")
+        return None
+    returns = [
+        points[index]["equity"] / points[index - 1]["equity"] - Decimal(1)
+        for index in range(1, len(points))
+    ]
+    if any(not value.is_finite() or value <= Decimal(-1) for value in returns):
+        _error(errors, "risk_quality_return_invalid", "curves.strategy",
+               "相邻观察点收益率必须有限且大于-100%")
+        return None
+    count = Decimal(len(returns))
+    mean = sum(returns, Decimal(0)) / count
+    variance = sum(((value - mean) ** 2 for value in returns), Decimal(0)) / count
+    volatility = variance.sqrt()
+    annual_root = TRADING_SESSIONS_PER_YEAR.sqrt()
+    annualized_volatility = volatility * annual_root
+    downside_variance = sum(
+        ((min(value, Decimal(0))) ** 2 for value in returns), Decimal(0),
+    ) / count
+    downside_deviation = downside_variance.sqrt()
+    annualized_return = (
+        (points[-1]["equity"] / points[0]["equity"])
+        ** (TRADING_SESSIONS_PER_YEAR / count)
+        - Decimal(1)
+    )
+    if not annualized_return.is_finite() or not annualized_volatility.is_finite():
+        _error(errors, "risk_quality_non_finite", "risk_quality",
+               "风险质量年化计算必须为有限数")
+        return None
+
+    peak = points[0]["equity"]
+    max_drawdown = Decimal(0)
+    current_duration = 0
+    max_duration = 0
+    for point in points:
+        equity = point["equity"]
+        if equity >= peak:
+            peak = equity
+            current_duration = 0
+        else:
+            current_duration += 1
+            max_duration = max(max_duration, current_duration)
+            max_drawdown = min(max_drawdown, equity / peak - Decimal(1))
+
+    sharpe = mean / volatility * annual_root if volatility > 0 else None
+    sortino = mean / downside_deviation * annual_root if downside_deviation > 0 else None
+    calmar = annualized_return / abs(max_drawdown) if max_drawdown < 0 else None
+    values = (sharpe, sortino, calmar)
+    if any(value is not None and not value.is_finite() for value in values):
+        _error(errors, "risk_quality_non_finite", "risk_quality",
+               "风险质量比率必须为有限数")
+        return None
+    positive = Decimal(sum(value > 0 for value in returns)) / count
+    return {
+        "version": RISK_QUALITY_VERSION,
+        "return_observations": len(returns),
+        "observations_per_year": _number(TRADING_SESSIONS_PER_YEAR),
+        "risk_free_return_assumption_pct": "0",
+        "minimum_acceptable_return_assumption_pct": "0",
+        "annualized_return_pct": _number(annualized_return * 100),
+        "annualized_volatility_pct": _number(annualized_volatility * 100),
+        "sharpe_ratio": _number(sharpe) if sharpe is not None else None,
+        "sortino_ratio": _number(sortino) if sortino is not None else None,
+        "calmar_ratio": _number(calmar) if calmar is not None else None,
+        "max_drawdown_pct": _number(max_drawdown * 100),
+        "max_drawdown_duration_observations": max_duration,
+        "positive_return_observation_pct": _number(positive * 100),
+        "worst_observation_return_pct": _number(min(returns) * 100),
+    }
+
+
+def _validate_risk_quality(
+    raw: object, expected: dict[str, str | int | None] | None,
+    errors: list[dict[str, Any]],
+) -> dict[str, str | int | None] | None:
+    if expected is None:
+        return None
+    if not isinstance(raw, dict):
+        _error(errors, "risk_quality_missing", "risk_quality",
+               "v5报告必须提供可独立复算的风险质量指标")
+        return expected
+    if raw.get("version") != expected["version"]:
+        _error(errors, "risk_quality_not_reproducible", "risk_quality.version",
+               "风险质量版本与独立验收器不一致")
+    for field in ("return_observations", "max_drawdown_duration_observations"):
+        actual_count = _count(raw.get(field), f"risk_quality.{field}", errors)
+        if actual_count is not None and actual_count != expected[field]:
+            _error(errors, "risk_quality_not_reproducible", f"risk_quality.{field}",
+                   "风险质量指标不能由策略资产曲线独立复算")
+    for field in (
+        "observations_per_year", "risk_free_return_assumption_pct",
+        "minimum_acceptable_return_assumption_pct", "annualized_return_pct",
+        "annualized_volatility_pct", "max_drawdown_pct",
+        "positive_return_observation_pct", "worst_observation_return_pct",
+    ):
+        actual = _decimal(raw.get(field), f"risk_quality.{field}", errors)
+        if actual is not None and actual != Decimal(str(expected[field])):
+            _error(errors, "risk_quality_not_reproducible", f"risk_quality.{field}",
+                   "风险质量指标不能由策略资产曲线独立复算")
+    for field in ("sharpe_ratio", "sortino_ratio", "calmar_ratio"):
+        expected_value = expected[field]
+        if expected_value is None:
+            if raw.get(field) is not None:
+                _error(errors, "risk_quality_not_reproducible", f"risk_quality.{field}",
+                       "分母为零时风险调整比率必须为空")
+            continue
+        actual = _decimal(raw.get(field), f"risk_quality.{field}", errors)
+        if actual is not None and actual != Decimal(str(expected_value)):
+            _error(errors, "risk_quality_not_reproducible", f"risk_quality.{field}",
+                   "风险质量比率不能由策略资产曲线独立复算")
+    return expected
+
+
+def _v3_report(report: dict[str, Any]) -> bool:
+    return report.get("version") in {
+        "integrated-fund-strategy-v3", "integrated-fund-strategy-v4",
+        "integrated-fund-strategy-v5",
+    }
+
+
+def _v4_report(report: dict[str, Any]) -> bool:
+    return report.get("version") in {"integrated-fund-strategy-v4", "integrated-fund-strategy-v5"}
+
+
+def _v5_report(report: dict[str, Any]) -> bool:
+    return report.get("version") == "integrated-fund-strategy-v5"
+
+
+def _strategy_policy_for_replay(
+    report: dict[str, Any], protocol: dict[str, Any], errors: list[dict[str, Any]],
+) -> StrategyPolicy | None:
+    """Accept only the exact versioned policy implemented by this validator."""
+    if not _v4_report(report):
+        return None
+    policy = StrategyPolicy()
+    raw = protocol.get("strategy_policy")
+    if raw != policy_document(policy):
+        _error(
+            errors,
+            "strategy_policy_not_reproducible",
+            "protocol.strategy_policy",
+            "v4报告必须保存与验收器一致的完整策略参数，不能只声明版本号",
+        )
+        return None
+    if report.get("strategy_version") != policy.version:
+        _error(
+            errors,
+            "strategy_version_mismatch",
+            "strategy_version",
+            "报告策略版本必须与完整策略参数一致",
+        )
+        return None
+    return policy
+
+
+def _replay_strategy_decisions(
+    *,
+    policy: StrategyPolicy,
+    strategy_dates: list[str],
+    parsed_curves: dict[str, list[dict[str, Any]]],
+    trade_records: dict[tuple[str, str], dict[str, Any]],
+    universe_items: list,
+    errors: list[dict[str, Any]],
+) -> Counter[str]:
+    """Recompute every signal from serialized prices and post-trade balances.
+
+    This deliberately calls the strategy evaluator again instead of trusting
+    decision totals or the signal metadata attached to trades.  It therefore
+    catches changed thresholds, targets, cooldown state and missing trades
+    even when the resulting account ledger is otherwise self-consistent.
+    """
+    counts: Counter[str] = Counter()
+    if not strategy_dates:
+        return counts
+    calendar = ObservedSessionCalendar(strategy_dates, source="independent_validation_replay")
+    signal_records: dict[tuple[str, str], dict[str, Any]] = {}
+    for record in trade_records.values():
+        code = str(record["code"])
+        signal_date = record.get("signal_date")
+        if not isinstance(signal_date, str):
+            continue
+        key = (code, signal_date)
+        if key in signal_records:
+            _error(errors, "duplicate_trade_signal", record["path"],
+                   "同一基金同一信号日只能产生一笔下一观察日成交")
+            continue
+        signal_records[key] = record
+
+    expected_codes = {
+        str(item.get("code")) for item in universe_items
+        if isinstance(item, dict) and isinstance(item.get("code"), str) and item.get("code")
+    }
+    curve_codes = {key.removeprefix("fund:") for key in parsed_curves if key.startswith("fund:")}
+    if curve_codes != expected_codes:
+        _error(errors, "fund_curve_universe_mismatch", "curves",
+               "v4报告必须为基金池中的每只基金提供且只提供一条分账户曲线")
+
+    for code in sorted(curve_codes):
+        points = parsed_curves.get(f"fund:{code}", [])
+        if len(points) != len(strategy_dates) or any(
+                point.get("price") is None or point.get("units") is None for point in points):
+            continue
+        last_trade_date: str | None = None
+        rows = [{"date": point["date"], "close": _number(point["price"])} for point in points]
+        for index, point in enumerate(points):
+            value_date = str(point["date"])
+            executed = trade_records.get((code, value_date))
+            if executed is not None:
+                last_trade_date = value_date
+            current_weight = point["market_value"] / point["equity"]
+            visible_start = max(0, index - policy.long_window)
+            decision = evaluate_strategy(
+                rows[visible_start:index + 1],
+                as_of=value_date,
+                current_weight=current_weight,
+                calendar=calendar,
+                last_trade_date=last_trade_date,
+                policy=policy,
+            )
+            action = str(decision["action"])
+            counts[action] += 1
+            reported = signal_records.get((code, value_date))
+            should_execute = action in TRADE_ACTIONS and index + 1 < len(points)
+            if should_execute and reported is None:
+                _error(errors, "strategy_trade_missing", f"curves.fund:{code}.points[{index}]",
+                       "独立重放产生交易信号，但报告缺少下一观察日成交")
+                continue
+            if not should_execute and reported is not None:
+                _error(errors, "unexpected_strategy_trade", reported["path"],
+                       "报告成交不能由独立重放的策略信号产生")
+                continue
+            if reported is None:
+                continue
+            if reported.get("execution_date") != points[index + 1]["date"]:
+                _error(errors, "strategy_execution_date_mismatch", reported["path"],
+                       "独立重放要求成交发生在信号后的下一观察日")
+            if reported.get("signal_action") != action:
+                _error(errors, "strategy_signal_action_mismatch", reported["path"],
+                       "成交记录的信号动作与独立策略重放不一致")
+            if reported["values"].get("target_weight") != Decimal(str(decision["target_weight"])):
+                _error(errors, "strategy_target_weight_mismatch", reported["path"],
+                       "成交目标仓位与独立策略重放不一致")
+    return counts
+
+
+def _independent_exposure_evidence(
+    strategy: list[dict[str, Any]], benchmark: list[dict[str, Any]],
+) -> tuple[list[dict[str, Decimal | str]], dict[str, int | str]] | None:
+    """Rebuild exposure evidence without trusting the report's derived fields."""
+    if not strategy or len(strategy) != len(benchmark):
+        return None
+    if [point["date"] for point in strategy] != [point["date"] for point in benchmark]:
+        return None
+    exposures: list[Decimal] = []
+    for point in strategy:
+        if point["equity"] <= 0:
+            return None
+        exposure = point["market_value"] / point["equity"]
+        if not Decimal(0) <= exposure <= Decimal(1):
+            return None
+        exposures.append(exposure)
+
+    initial = strategy[0]["equity"]
+    equity, peak = initial, initial
+    curve: list[dict[str, Decimal | str]] = []
+    for index, (strategy_point, benchmark_point) in enumerate(zip(strategy, benchmark)):
+        benchmark_daily_return = Decimal(0)
+        if index:
+            previous_benchmark = benchmark[index - 1]["equity"]
+            if previous_benchmark <= 0:
+                return None
+            benchmark_daily_return = benchmark_point["equity"] / previous_benchmark - 1
+            equity *= Decimal(1) + exposures[index - 1] * benchmark_daily_return
+        market = equity * exposures[index]
+        cash = equity - market
+        # The producer serializes the ledger identity as canonical equity.
+        # Reapply that same reported-account invariant after Decimal rounding;
+        # otherwise a one-unit tail can compound into false tamper findings on
+        # long histories even though cash + market remains exact.
+        equity = cash + market
+        peak = max(peak, equity)
+        curve.append({
+            "date": strategy_point["date"],
+            "equity": equity,
+            "cash": cash,
+            "market_value": market,
+            "strategy_exposure": exposures[index],
+            "strategy_exposure_pct": exposures[index] * 100,
+            "benchmark_daily_return_pct": benchmark_daily_return * 100,
+            "return_pct": (equity / initial - 1) * 100,
+            "drawdown_pct": (equity / peak - 1) * 100,
+        })
+
+    ordered = sorted(exposures)
+    middle = len(ordered) // 2
+    median = (ordered[middle] if len(ordered) % 2
+              else (ordered[middle - 1] + ordered[middle]) / 2)
+    average = sum(ordered, Decimal(0)) / Decimal(len(ordered))
+    active_returns = [
+        strategy[index]["equity"] / strategy[index - 1]["equity"] - 1
+        for index in range(1, len(strategy))
+        if exposures[index - 1] > 0
+    ]
+    positive_active = sum(value > 0 for value in active_returns)
+    return curve, {
+        "observation_count": len(ordered),
+        "average_exposure": _number(average),
+        "average_exposure_pct": _number(average * 100),
+        "median_exposure": _number(median),
+        "median_exposure_pct": _number(median * 100),
+        "full_cash_observation_days": sum(value == 0 for value in ordered),
+        "below_10_percent_exposure_days": sum(value < Decimal("0.10") for value in ordered),
+        "invested_observation_days": sum(value > 0 for value in ordered),
+        "active_exposure_return_observations": len(active_returns),
+        "positive_active_exposure_return_observations": positive_active,
+        "positive_active_exposure_return_pct": (
+            _number(Decimal(positive_active) / Decimal(len(active_returns)) * 100)
+            if active_returns else None
+        ),
+    }
+
+
+def _independent_sleeve_exposure_evidence(
+    strategy: list[dict[str, Any]],
+    parsed_curves: dict[str, list[dict[str, Any]]],
+    universe_items: list,
+    errors: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, int | str]] | None:
+    """Rebuild v5 exposure attribution from fund-level lagged holdings.
+
+    This implementation intentionally does not call the report producer's
+    economic helper.  Fund returns come from each serialized sleeve's price;
+    weights come from that sleeve's previous-observation market value divided
+    by aggregate strategy equity.  The residual cash return is fixed at zero.
+    """
+
+    if not strategy:
+        return None
+    codes = sorted({
+        str(item.get("code")) for item in universe_items
+        if isinstance(item, dict) and isinstance(item.get("code"), str) and item.get("code")
+    })
+    curve_codes = sorted(
+        curve_id.removeprefix("fund:")
+        for curve_id in parsed_curves if curve_id.startswith("fund:")
+    )
+    if not codes or curve_codes != codes:
+        _error(errors, "exposure_sleeve_universe_mismatch", "curves",
+               "逐基金同敞口对照必须使用基金池中全部且仅这些分账户")
+        return None
+    sleeves = {code: parsed_curves.get(f"fund:{code}", []) for code in codes}
+    strategy_dates = [point["date"] for point in strategy]
+    for code, points in sleeves.items():
+        if (len(points) != len(strategy)
+                or [point["date"] for point in points] != strategy_dates
+                or any(point.get("price") is None or point["price"] <= 0 for point in points)):
+            _error(errors, "exposure_sleeve_evidence_invalid", f"curves.fund:{code}",
+                   "逐基金同敞口对照要求日期对齐且逐日提供正的基金价格")
+            return None
+
+    exposures: list[Decimal] = []
+    for index, aggregate in enumerate(strategy):
+        sleeve_cash = sum((sleeves[code][index]["cash"] for code in codes), Decimal(0))
+        sleeve_market = sum(
+            (sleeves[code][index]["market_value"] for code in codes), Decimal(0),
+        )
+        if aggregate["cash"] != sleeve_cash or aggregate["market_value"] != sleeve_market:
+            _error(errors, "strategy_sleeve_aggregate_mismatch",
+                   f"curves.strategy.points[{index}]",
+                   "综合策略的现金和市值不能由全部基金分账户精确汇总")
+            return None
+        if aggregate["equity"] <= 0:
+            return None
+        exposure = aggregate["market_value"] / aggregate["equity"]
+        if not Decimal(0) <= exposure <= Decimal(1):
+            return None
+        exposures.append(exposure)
+
+    initial = strategy[0]["equity"]
+    equity, peak = initial, initial
+    curve: list[dict[str, Any]] = []
+    for index, aggregate in enumerate(strategy):
+        matched_daily_return = Decimal(0)
+        contributions: list[dict[str, Decimal | str]] = []
+        if index:
+            previous_strategy_equity = strategy[index - 1]["equity"]
+            for code in codes:
+                previous = sleeves[code][index - 1]
+                current = sleeves[code][index]
+                asset_daily_return = current["price"] / previous["price"] - 1
+                prior_strategy_weight = previous["market_value"] / previous_strategy_equity
+                contribution = prior_strategy_weight * asset_daily_return
+                matched_daily_return += contribution
+                contributions.append({
+                    "code": code,
+                    "prior_strategy_weight": prior_strategy_weight,
+                    "asset_daily_return_pct": asset_daily_return * 100,
+                    "contribution_pct": contribution * 100,
+                })
+            equity *= 1 + matched_daily_return
+            if equity <= 0:
+                _error(errors, "exposure_matched_nonpositive", "curves.exposure_matched",
+                       "逐基金同敞口对照产生非正资产")
+                return None
+        else:
+            contributions = [{
+                "code": code,
+                "prior_strategy_weight": Decimal(0),
+                "asset_daily_return_pct": Decimal(0),
+                "contribution_pct": Decimal(0),
+            } for code in codes]
+
+        exposure = exposures[index]
+        market = equity * exposure
+        cash = equity - market
+        equity = cash + market
+        peak = max(peak, equity)
+        curve.append({
+            "date": aggregate["date"],
+            "equity": equity,
+            "cash": cash,
+            "market_value": market,
+            "strategy_exposure": exposure,
+            "strategy_exposure_pct": exposure * 100,
+            "matched_daily_return_pct": matched_daily_return * 100,
+            "cash_daily_return_pct": Decimal(0),
+            "return_pct": (equity / initial - 1) * 100,
+            "drawdown_pct": (equity / peak - 1) * 100,
+            "sleeve_contributions": contributions,
+        })
+
+    ordered = sorted(exposures)
+    middle = len(ordered) // 2
+    median = (ordered[middle] if len(ordered) % 2
+              else (ordered[middle - 1] + ordered[middle]) / 2)
+    average = sum(ordered, Decimal(0)) / Decimal(len(ordered))
+    active_returns = [
+        strategy[index]["equity"] / strategy[index - 1]["equity"] - 1
+        for index in range(1, len(strategy))
+        if exposures[index - 1] > 0
+    ]
+    positive_active = sum(value > 0 for value in active_returns)
+    return curve, {
+        "observation_count": len(ordered),
+        "average_exposure": _number(average),
+        "average_exposure_pct": _number(average * 100),
+        "median_exposure": _number(median),
+        "median_exposure_pct": _number(median * 100),
+        "full_cash_observation_days": sum(value == 0 for value in ordered),
+        "below_10_percent_exposure_days": sum(value < Decimal("0.10") for value in ordered),
+        "invested_observation_days": sum(value > 0 for value in ordered),
+        "active_exposure_return_observations": len(active_returns),
+        "positive_active_exposure_return_observations": positive_active,
+        "positive_active_exposure_return_pct": (
+            _number(Decimal(positive_active) / Decimal(len(active_returns)) * 100)
+            if active_returns else None
+        ),
+    }
+
+
+def _independent_holding_cycles(
+    trades: list[object], observation_dates: list[str],
+) -> dict[str, Any] | None:
+    date_indexes = {value: index for index, value in enumerate(observation_dates)}
+    opened: dict[str, tuple[str, int]] = {}
+    completed: list[dict[str, Any]] = []
+    previous_execution_index = -1
+    for raw in trades:
+        if not isinstance(raw, dict):
+            return None
+        code, action, execution = raw.get("code"), raw.get("action"), raw.get("execution_date")
+        if (not isinstance(code, str) or not code or action not in TRADE_ACTIONS
+                or not isinstance(execution, str) or execution not in date_indexes):
+            return None
+        execution_index = date_indexes[execution]
+        if execution_index < previous_execution_index:
+            return None
+        previous_execution_index = execution_index
+        if action == "BUY":
+            if code in opened:
+                return None
+            opened[code] = (execution, execution_index)
+        elif action in {"ADD", "REDUCE"}:
+            if code not in opened:
+                return None
+        else:
+            if code not in opened:
+                return None
+            entry_date, entry_index = opened.pop(code)
+            completed.append({
+                "code": code,
+                "entry_date": entry_date,
+                "exit_date": execution,
+                "holding_observations": execution_index - entry_index,
+            })
+    durations = sorted(Decimal(item["holding_observations"]) for item in completed)
+    median: str | None = None
+    if durations:
+        middle = len(durations) // 2
+        median_value = (durations[middle] if len(durations) % 2
+                        else (durations[middle - 1] + durations[middle]) / 2)
+        median = _number(median_value)
+    return {
+        "trade_count": len(trades),
+        "completed_cycle_count": len(completed),
+        "open_cycle_count": len(opened),
+        "median_holding_observation_days": median,
+        "cycles_lte_10_observation_days": sum(value <= 10 for value in durations),
+        "cycles_lte_20_observation_days": sum(value <= 20 for value in durations),
+        "completed_cycles": completed,
+        "open_cycles": [
+            {"code": code, "entry_date": opened[code][0]} for code in sorted(opened)
+        ],
+    }
+
+
+def _compare_summary(
+    raw: object, expected: dict[str, Any], *, path: str, code: str,
+    errors: list[dict[str, Any]],
+) -> None:
+    if not isinstance(raw, dict):
+        _error(errors, code, path, "经济性摘要必须是可独立复算的对象")
+        return
+    for field, expected_value in expected.items():
+        field_path = f"{path}.{field}"
+        actual = raw.get(field)
+        if isinstance(expected_value, str) and field not in {"entry_date", "exit_date", "code"}:
+            parsed = _decimal(actual, field_path, errors)
+            if parsed is not None and parsed != Decimal(expected_value):
+                _error(errors, code, field_path, "经济性摘要不能由原始曲线或成交记录复算")
+        elif actual != expected_value:
+            _error(errors, code, field_path, "经济性摘要不能由原始曲线或成交记录复算")
+
+
+def _validate_economic_evidence(
+    report: dict[str, Any], *, parsed_curves: dict[str, list[dict[str, Any]]],
+    raw_curves_by_id: dict[object, object], strategy_dates: list[str], trades: list[object],
+    protocol: dict[str, Any], metrics: dict[str, Any], errors: list[dict[str, Any]],
+    reviews: list[dict[str, str]], strategy_policy: StrategyPolicy | None,
+) -> dict[str, Any] | None:
+    """Validate v3 economic claims and return independently derived evidence."""
+    if not _v3_report(report):
+        return None
+    strategy = parsed_curves.get("strategy", [])
+    benchmark = parsed_curves.get("benchmark", [])
+    universe = report.get("universe") if isinstance(report.get("universe"), dict) else {}
+    universe_items = universe.get("items") if isinstance(universe.get("items"), list) else []
+    if _v5_report(report):
+        benchmark_methods = protocol.get("benchmarks")
+        expected_method = "same_prior_observation_fund_sleeve_exposure_no_cost"
+        if (not isinstance(benchmark_methods, list)
+                or expected_method not in benchmark_methods
+                or "same_daily_exposure_equal_weight_no_cost" in benchmark_methods):
+            _error(errors, "exposure_benchmark_protocol_mismatch", "protocol.benchmarks",
+                   "v5报告必须声明逐基金上一观察日敞口的无成本对照方法")
+        exposure_evidence = _independent_sleeve_exposure_evidence(
+            strategy, parsed_curves, universe_items, errors,
+        )
+    else:
+        exposure_evidence = _independent_exposure_evidence(strategy, benchmark)
+    if exposure_evidence is None:
+        return None
+    expected_curve, expected_exposure = exposure_evidence
+
+    reported_curve = raw_curves_by_id.get("exposure_matched")
+    reported_points = (reported_curve.get("points") if isinstance(reported_curve, dict) else None)
+    if isinstance(reported_points, list) and len(reported_points) == len(expected_curve):
+        numeric_fields = (
+            ("equity", "cash", "market_value", "strategy_exposure",
+             "strategy_exposure_pct", "matched_daily_return_pct", "cash_daily_return_pct",
+             "return_pct", "drawdown_pct")
+            if _v5_report(report)
+            else ("equity", "cash", "market_value", "strategy_exposure",
+                  "strategy_exposure_pct", "benchmark_daily_return_pct",
+                  "return_pct", "drawdown_pct")
+        )
+        for index, (actual, expected) in enumerate(zip(reported_points, expected_curve)):
+            path = f"curves.exposure_matched.points[{index}]"
+            if not isinstance(actual, dict) or actual.get("date") != expected["date"]:
+                _error(errors, "exposure_matched_not_reproducible", path,
+                       "同敞口曲线日期不能由策略与基准曲线复算")
+                continue
+            for field in numeric_fields:
+                value = _decimal(actual.get(field), f"{path}.{field}", errors)
+                if value is not None and value != expected[field]:
+                    _error(errors, "exposure_matched_not_reproducible", f"{path}.{field}",
+                           "同敞口曲线不能由前一日策略敞口与当日基准收益复算")
+            if _v5_report(report):
+                actual_contributions = actual.get("sleeve_contributions")
+                expected_contributions = expected["sleeve_contributions"]
+                if (not isinstance(actual_contributions, list)
+                        or len(actual_contributions) != len(expected_contributions)):
+                    _error(errors, "exposure_sleeve_contributions_not_reproducible",
+                           f"{path}.sleeve_contributions",
+                           "逐基金收益贡献必须覆盖基金池中的全部分账户")
+                    continue
+                for sleeve_index, (actual_sleeve, expected_sleeve) in enumerate(
+                        zip(actual_contributions, expected_contributions)):
+                    sleeve_path = f"{path}.sleeve_contributions[{sleeve_index}]"
+                    if (not isinstance(actual_sleeve, dict)
+                            or actual_sleeve.get("code") != expected_sleeve["code"]):
+                        _error(errors, "exposure_sleeve_contributions_not_reproducible",
+                               sleeve_path, "逐基金收益贡献的基金身份或顺序不能独立复算")
+                        continue
+                    for field in ("prior_strategy_weight", "asset_daily_return_pct",
+                                  "contribution_pct"):
+                        value = _decimal(actual_sleeve.get(field), f"{sleeve_path}.{field}", errors)
+                        if value is not None and value != expected_sleeve[field]:
+                            _error(errors, "exposure_sleeve_contributions_not_reproducible",
+                                   f"{sleeve_path}.{field}",
+                                   "逐基金收益贡献不能由上一观察日市值和下一期基金收益复算")
+    else:
+        _error(errors, "exposure_matched_not_reproducible", "curves.exposure_matched",
+               "同敞口曲线长度必须与策略曲线一致")
+
+    cash_points = parsed_curves.get("cash", [])
+    protocol_initial = _decimal(protocol.get("initial_cash"), "protocol.initial_cash", errors)
+    if len(cash_points) == len(strategy_dates) and protocol_initial is not None:
+        for index, point in enumerate(cash_points):
+            if (point["date"] != strategy_dates[index] or point["cash"] != protocol_initial
+                    or point["market_value"] != 0 or point["equity"] != protocol_initial
+                    or point["return_pct"] != 0 or point["drawdown_pct"] != 0):
+                _error(errors, "cash_curve_not_constant", f"curves.cash.points[{index}]",
+                       "现金对照必须逐日保持初始资产、零持仓、零收益和零回撤")
+    else:
+        _error(errors, "cash_curve_not_constant", "curves.cash",
+               "现金对照曲线长度必须与策略曲线一致")
+
+    _compare_summary(report.get("exposure_summary"), expected_exposure,
+                     path="exposure_summary", code="exposure_summary_not_reproducible", errors=errors)
+    holding = _independent_holding_cycles(trades, strategy_dates)
+    if holding is not None:
+        _compare_summary(report.get("holding_cycles"), holding, path="holding_cycles",
+                         code="holding_cycles_not_reproducible", errors=errors)
+
+    exposure_return = expected_curve[-1]["return_pct"]
+    strategy_return = ((strategy[-1]["equity"] / strategy[0]["equity"] - 1) * 100
+                       if strategy else None)
+    actual_exposure_return = _decimal(metrics.get("exposure_matched_return_pct"),
+                                      "metrics.exposure_matched_return_pct", errors)
+    if actual_exposure_return is not None and actual_exposure_return != exposure_return:
+        _error(errors, "metric_not_reproducible", "metrics.exposure_matched_return_pct",
+               "同敞口收益不能由同敞口曲线复算")
+    timing_excess = strategy_return - exposure_return if strategy_return is not None else None
+    actual_timing_excess = _decimal(metrics.get("exposure_timing_excess_pct"),
+                                    "metrics.exposure_timing_excess_pct", errors)
+    if actual_timing_excess is not None and timing_excess is not None and actual_timing_excess != timing_excess:
+        _error(errors, "metric_not_reproducible", "metrics.exposure_timing_excess_pct",
+               "敞口择时差额不能由策略收益与同敞口收益复算")
+
+    if Decimal(str(expected_exposure["average_exposure"])) < LOW_AVERAGE_EXPOSURE:
+        _review(reviews, "low_market_exposure", "策略平均市场敞口低于20%，与满仓基准的差额主要受现金仓位影响")
+    if strategy_return is not None and strategy_return < exposure_return:
+        _review(reviews, "underperformed_exposure_matched",
+                "策略收益低于同敞口无成本对照，交易成本或选时执行没有增加净收益")
+    if holding is not None and holding["completed_cycle_count"]:
+        median = holding["median_holding_observation_days"]
+        if median is not None and Decimal(str(median)) <= SHORT_HOLDING_OBSERVATIONS:
+            _review(reviews, "short_holding_period", "已完成持仓周期的中位数不超过20个观察日，需复核短持有成本")
+
+    cost_stress = _validate_cost_stress(
+        report.get("cost_stress"), protocol=protocol, metrics=metrics, errors=errors,
+        reviews=reviews, strategy_dates=strategy_dates, parsed_curves=parsed_curves,
+        universe_items=universe_items,
+        strategy_policy=strategy_policy if _v5_report(report) else None,
+    )
+    attribution = _validate_economic_attribution(
+        report.get("economic_attribution"), exposure_return=exposure_return,
+        strategy_return=strategy_return, cost_stress=cost_stress,
+        errors=errors, reviews=reviews,
+    )
+    return {
+        "exposure_summary": expected_exposure,
+        "holding_cycles": holding,
+        "exposure_matched_return_pct": _number(Decimal(str(exposure_return))),
+        "exposure_timing_excess_pct": (_number(timing_excess) if timing_excess is not None else None),
+        "cost_stress": cost_stress,
+        "economic_attribution": attribution,
+    }
+
+
+def _validate_cost_stress(
+    raw: object, *, protocol: dict[str, Any], metrics: dict[str, Any],
+    errors: list[dict[str, Any]], reviews: list[dict[str, str]],
+    strategy_dates: list[str], parsed_curves: dict[str, list[dict[str, Any]]],
+    universe_items: list, strategy_policy: StrategyPolicy | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw, list) or not raw:
+        _error(errors, "cost_stress_missing", "cost_stress", "v3报告必须提供成本压力场景")
+        return []
+    requested_buy = _decimal(protocol.get("buy_fee_bps"), "protocol.buy_fee_bps", errors)
+    requested_sell = _decimal(protocol.get("sell_fee_bps"), "protocol.sell_fee_bps", errors)
+    initial = _decimal(protocol.get("initial_cash"), "protocol.initial_cash", errors)
+    main_final = _decimal(metrics.get("final_equity"), "metrics.final_equity", errors)
+    main_return = _decimal(metrics.get("total_return_pct"), "metrics.total_return_pct", errors)
+    main_fees = _decimal(metrics.get("total_fees"), "metrics.total_fees", errors)
+    main_trades = metrics.get("trade_count")
+    scenarios: list[dict[str, Any]] = []
+    pairs: set[tuple[Decimal, Decimal]] = set()
+    requested_count = 0
+    replay_inputs: dict[str, tuple[list[dict[str, str]], Decimal]] = {}
+    if strategy_policy is not None and strategy_dates:
+        expected_codes = sorted(
+            str(item.get("code")) for item in universe_items
+            if isinstance(item, dict) and isinstance(item.get("code"), str) and item.get("code")
+        )
+        for code in expected_codes:
+            points = parsed_curves.get(f"fund:{code}", [])
+            if (len(points) != len(strategy_dates)
+                    or any(point.get("price") is None or point.get("units") is None for point in points)
+                    or not points or points[0]["units"] != 0 or points[0]["market_value"] != 0):
+                _error(errors, "cost_stress_replay_input_invalid", f"curves.fund:{code}",
+                       "成本压力独立重放要求完整价格、零初始持仓和全部共同观察日")
+                replay_inputs = {}
+                break
+            replay_inputs[code] = (
+                [{"date": str(point["date"]), "close": _number(point["price"])}
+                 for point in points],
+                points[0]["equity"],
+            )
+        if expected_codes and set(replay_inputs) != set(expected_codes):
+            replay_inputs = {}
+
+    replay_calendar = (
+        ObservedSessionCalendar(strategy_dates, source="independent_cost_stress_replay")
+        if replay_inputs else None
+    )
+    for index, item in enumerate(raw):
+        path = f"cost_stress[{index}]"
+        if not isinstance(item, dict):
+            _error(errors, "cost_stress_scenario_invalid", path, "成本压力场景必须是对象")
+            continue
+        buy = _decimal(item.get("buy_fee_bps"), f"{path}.buy_fee_bps", errors)
+        sell = _decimal(item.get("sell_fee_bps"), f"{path}.sell_fee_bps", errors)
+        final = _decimal(item.get("final_equity"), f"{path}.final_equity", errors)
+        return_pct = _decimal(item.get("total_return_pct"), f"{path}.total_return_pct", errors)
+        fees = _decimal(item.get("total_fees"), f"{path}.total_fees", errors)
+        trade_count = _count(item.get("trade_count"), f"{path}.trade_count", errors)
+        requested = item.get("is_requested_scenario")
+        if not isinstance(requested, bool):
+            _error(errors, "cost_stress_requested_flag_invalid", f"{path}.is_requested_scenario",
+                   "成本压力场景必须明确是否为请求费率")
+            requested = False
+        if None in (buy, sell, final, return_pct, fees, trade_count):
+            continue
+        assert buy is not None and sell is not None and final is not None and return_pct is not None
+        assert fees is not None and trade_count is not None
+        if buy < 0 or sell < 0 or fees < 0 or final <= 0:
+            _error(errors, "cost_stress_value_invalid", path, "成本、费用必须非负且期末资产必须为正")
+        pair = (buy, sell)
+        if pair in pairs:
+            _error(errors, "cost_stress_duplicate_scenario", path, "成本压力场景费率不能重复")
+        pairs.add(pair)
+        if initial is not None and return_pct != (final / initial - 1) * 100:
+            _error(errors, "cost_stress_return_not_reproducible", f"{path}.total_return_pct",
+                   "成本压力收益不能由初始与期末资产复算")
+        matches_requested = buy == requested_buy and sell == requested_sell
+        if requested != matches_requested:
+            _error(errors, "cost_stress_requested_scenario_mismatch", f"{path}.is_requested_scenario",
+                   "请求费率标记与回放协议不一致")
+        if requested:
+            requested_count += 1
+            if ((main_final is not None and final != main_final)
+                    or (main_return is not None and return_pct != main_return)
+                    or (main_fees is not None and fees != main_fees)
+                    or (isinstance(main_trades, int) and trade_count != main_trades)):
+                _error(errors, "cost_stress_requested_result_mismatch", path,
+                       "请求费率压力场景必须与主报告结果完全一致")
+        if replay_calendar is not None and strategy_policy is not None:
+            replayed = []
+            for code in sorted(replay_inputs):
+                rows, allocation = replay_inputs[code]
+                simulation = simulate_strategy(
+                    rows, calendar=replay_calendar, initial_cash=allocation,
+                    costs=SimulationCosts(buy_fee_bps=buy, sell_fee_bps=sell),
+                    policy=strategy_policy,
+                )
+                replayed.append((code, simulation))
+            replay_final = sum(
+                (Decimal(str(simulation["final_equity"])) for _, simulation in replayed),
+                Decimal(0),
+            )
+            replay_trades = sorted(
+                [(code, trade) for code, simulation in replayed
+                 for trade in simulation["trades"]],
+                key=lambda value: (str(value[1]["execution_date"]), value[0]),
+            )
+            replay_fees = sum(
+                (Decimal(str(trade["fee"])) for _, trade in replay_trades), Decimal(0),
+            )
+            if final != replay_final or fees != replay_fees or trade_count != len(replay_trades):
+                _error(errors, "cost_stress_not_independently_reproducible", path,
+                       "成本压力场景不能由基金价格、策略参数和费率独立重放")
+        scenarios.append({
+            "buy_fee_bps": _number(buy), "sell_fee_bps": _number(sell),
+            "is_requested_scenario": requested, "final_equity": _number(final),
+            "total_return_pct": _number(return_pct), "total_fees": _number(fees),
+            "trade_count": trade_count,
+        })
+    if requested_count != 1:
+        _error(errors, "cost_stress_requested_scenario_count", "cost_stress",
+               "成本压力场景必须且只能有一个请求费率场景")
+    required_pairs = {(Decimal(0), Decimal(0)), (Decimal(50), Decimal(50)), (Decimal(100), Decimal(100))}
+    if not required_pairs.issubset(pairs):
+        _error(errors, "cost_stress_standard_scenarios_missing", "cost_stress",
+               "成本压力必须覆盖双边0、50和100基点")
+    symmetric = {Decimal(item["buy_fee_bps"]): Decimal(item["total_return_pct"])
+                 for item in scenarios if item["buy_fee_bps"] == item["sell_fee_bps"]}
+    for lower, higher in ((Decimal(0), Decimal(50)), (Decimal(50), Decimal(100))):
+        if lower in symmetric and higher in symmetric and symmetric[higher] > symmetric[lower]:
+            _error(errors, "cost_stress_monotonicity_broken", "cost_stress",
+                   "相同成交路径下提高双边费率不应改善净收益")
+    if Decimal(0) in symmetric and Decimal(100) in symmetric:
+        gap = symmetric[Decimal(0)] - symmetric[Decimal(100)]
+        if gap >= COST_SENSITIVITY_RETURN_GAP_PCT:
+            _review(reviews, "cost_sensitive", "双边100基点相对零费率拖累至少5个百分点，策略对真实成本敏感")
+    return scenarios
+
+
+def _validate_economic_attribution(
+    raw: object, *, exposure_return: Decimal, strategy_return: Decimal | None,
+    cost_stress: list[dict[str, Any]], errors: list[dict[str, Any]],
+    reviews: list[dict[str, str]],
+) -> dict[str, str] | None:
+    """Reproduce the additive return attribution from independent evidence."""
+    if not isinstance(raw, dict) or strategy_return is None:
+        _error(errors, "economic_attribution_missing", "economic_attribution",
+               "v3报告必须提供可复算的收益归因")
+        return None
+    zero_cost = next(
+        (item for item in cost_stress
+         if Decimal(item["buy_fee_bps"]) == 0 and Decimal(item["sell_fee_bps"]) == 0),
+        None,
+    )
+    if zero_cost is None:
+        return None
+    zero_cost_return = Decimal(zero_cost["total_return_pct"])
+    expected = {
+        "cash_return_pct": Decimal(0),
+        "market_exposure_return_pct": exposure_return,
+        "signal_and_execution_before_cost_pct": zero_cost_return - exposure_return,
+        "modeled_transaction_cost_drag_pct": strategy_return - zero_cost_return,
+        "strategy_total_return_pct": strategy_return,
+    }
+    for field, expected_value in expected.items():
+        value = _decimal(raw.get(field), f"economic_attribution.{field}", errors)
+        if value is not None and value != expected_value:
+            _error(errors, "economic_attribution_not_reproducible",
+                   f"economic_attribution.{field}",
+                   "收益归因不能由同敞口曲线、零费率场景和主策略收益复算")
+    if (expected["market_exposure_return_pct"]
+            + expected["signal_and_execution_before_cost_pct"]
+            + expected["modeled_transaction_cost_drag_pct"]
+            != expected["strategy_total_return_pct"]):
+        _error(errors, "economic_attribution_identity_failed", "economic_attribution",
+               "收益归因加总不等于策略总收益")
+    if expected["signal_and_execution_before_cost_pct"] < 0:
+        _review(reviews, "signal_execution_negative_before_cost",
+                "即使不计交易费用，策略信号与执行仍跑输同敞口对照")
+    return {field: _number(value) for field, value in expected.items()}
+
+
 def _validate_strategy_report(report: object) -> dict[str, Any]:
     """Validate a historical_strategy_report result without writing any state."""
     errors: list[dict[str, Any]] = []
@@ -418,6 +1456,7 @@ def _validate_strategy_report(report: object) -> dict[str, Any]:
         protocol_fees[field] = value
         if value is not None and not Decimal(0) <= value < Decimal("10000"):
             _error(errors, "fee_basis_points_invalid", f"protocol.{field}", "交易费率基点必须在0到10000之间")
+    strategy_policy = _strategy_policy_for_replay(report, protocol, errors)
     if initial is not None and initial <= 0:
         _error(errors, "initial_equity_invalid", "metrics.initial_equity", "初始资产必须大于零")
     if initial is not None and protocol_initial is not None and initial != protocol_initial:
@@ -431,7 +1470,10 @@ def _validate_strategy_report(report: object) -> dict[str, Any]:
     if len(ids) != len(set(ids)):
         _error(errors, "duplicate_curve_ids", "curves", "曲线身份必须唯一")
     by_id = {curve.get("id"): curve for curve in raw_curves if isinstance(curve, dict)}
-    for required in ("strategy", "benchmark"):
+    required_curves = ["strategy", "benchmark"]
+    if _v3_report(report):
+        required_curves.extend(("exposure_matched", "cash"))
+    for required in required_curves:
         if required not in by_id:
             _error(errors, "required_curve_missing", "curves", f"缺少{required}曲线")
 
@@ -523,9 +1565,38 @@ def _validate_strategy_report(report: object) -> dict[str, Any]:
         errors=errors,
         reviews=reviews,
     )
+    observed_date_audit = _validate_observed_date_audit(
+        report.get("observed_date_audit"),
+        report_version=report.get("version"),
+        strategy_dates=strategy_dates,
+        universe_items=universe_items,
+        errors=errors,
+        reviews=reviews,
+    )
+    investment_eligibility = _validate_investment_eligibility(
+        report.get("investment_eligibility"),
+        report_version=report.get("version"),
+        universe=universe,
+        universe_items=universe_items,
+        protocol=protocol,
+        errors=errors,
+        reviews=reviews,
+    )
 
     strategy_points = parsed_curves.get("strategy", [])
     benchmark_points = parsed_curves.get("benchmark", [])
+    if _v5_report(report):
+        try:
+            expected_risk_quality = _independent_risk_quality(strategy_points, errors)
+        except DecimalException:
+            _error(errors, "risk_quality_non_finite", "risk_quality",
+                   "风险质量年化计算超出有限Decimal范围")
+            expected_risk_quality = None
+        risk_quality = _validate_risk_quality(
+            report.get("risk_quality"), expected_risk_quality, errors,
+        )
+    else:
+        risk_quality = None
     strategy_summary = curve_summaries.get("strategy")
     benchmark_summary = curve_summaries.get("benchmark")
     if strategy_summary and initial is not None:
@@ -568,10 +1639,14 @@ def _validate_strategy_report(report: object) -> dict[str, Any]:
             _error(errors, "trade_invalid", path, "成交必须是对象")
             continue
         action = trade.get("action")
+        signal_action = trade.get("signal_action")
         if action not in TRADE_ACTIONS:
             _error(errors, "trade_action_invalid", f"{path}.action", "成交动作不受支持")
         else:
             actual_actions[str(action)] += 1
+        if _v4_report(report) and signal_action not in TRADE_ACTIONS:
+            _error(errors, "trade_signal_action_invalid", f"{path}.signal_action",
+                   "v4成交必须保存产生该成交的策略信号动作")
         signal = _day(trade.get("signal_date"), f"{path}.signal_date", errors)
         execution = _day(trade.get("execution_date"), f"{path}.execution_date", errors)
         if signal is not None and execution is not None:
@@ -624,12 +1699,19 @@ def _validate_strategy_report(report: object) -> dict[str, Any]:
                            "成交费用必须由成交额和协议费率精确复算")
             if values["equity_after"] != values["cash_after"] + values["units_after"] * values["price"]:
                 _error(errors, "trade_equity_identity_mismatch", path, "成交后资产恒等式不成立")
+            if values["equity_after"] > 0:
+                post_weight = values["units_after"] * values["price"] / values["equity_after"]
+                if abs(post_weight - values["target_weight"]) > Decimal("1e-36"):
+                    _error(errors, "trade_target_weight_not_reached", f"{path}.target_weight",
+                           "成交后的持仓市值占资产比例必须与目标仓位一致")
             if action == "EXIT" and values["units_after"] != 0:
                 _error(errors, "exit_units_not_zero", f"{path}.units_after", "清仓成交后的份额必须精确为零")
             if trade_key is not None and not duplicate_trade:
                 trade_records[trade_key] = {
                     "path": path,
+                    "code": code,
                     "action": action,
+                    "signal_action": signal_action,
                     "signal_date": signal,
                     "execution_date": execution,
                     "values": values,
@@ -740,6 +1822,25 @@ def _validate_strategy_report(report: object) -> dict[str, Any]:
             action_total += count
         if action in {"HOLD", "WAIT"} and count == 0:
             _review(reviews, f"missing_{action.lower()}_decision", f"长周期没有{action}决策，需核对状态机是否过度交易")
+    if strategy_policy is not None:
+        try:
+            replayed_actions = _replay_strategy_decisions(
+                policy=strategy_policy,
+                strategy_dates=strategy_dates,
+                parsed_curves=parsed_curves,
+                trade_records=trade_records,
+                universe_items=universe_items,
+                errors=errors,
+            )
+        except (ArithmeticError, KeyError, TypeError, ValueError) as exc:
+            _error(errors, "strategy_replay_failed", "curves", f"独立策略重放失败：{exc}")
+            replayed_actions = Counter()
+        for action in DECISION_ACTIONS:
+            reported = action_summary.get(action)
+            if isinstance(reported, int) and not isinstance(reported, bool) and reported >= 0:
+                if reported != replayed_actions[action]:
+                    _error(errors, "decision_action_not_reproducible", f"action_summary.{action}",
+                           "决策动作数量不能由分账户价格和策略参数独立重放")
     if universe.get("selection_temporality") == "retrospective_current_snapshot":
         _review(
             reviews,
@@ -762,13 +1863,32 @@ def _validate_strategy_report(report: object) -> dict[str, Any]:
     if annualized_turnover_pct is not None and annualized_turnover_pct > HIGH_ANNUAL_NOTIONAL_TURNOVER_PCT:
         _review(reviews, "high_notional_turnover", "年化成交额超过平均资产的200%，需复盘换手成本")
 
+    economic = _validate_economic_evidence(
+        report,
+        parsed_curves=parsed_curves,
+        raw_curves_by_id=by_id,
+        strategy_dates=strategy_dates,
+        trades=trades_raw,
+        protocol=protocol,
+        metrics=metrics,
+        errors=errors,
+        reviews=reviews,
+        strategy_policy=strategy_policy,
+    )
+
     annual: list[dict[str, Any]] = []
     segments: list[dict[str, Any]] = []
     if strategy_points and len(strategy_points) == len(benchmark_points):
         for year in sorted({point["date"][:4] for point in strategy_points}):
-            strategy_year = [point for point in strategy_points if point["date"].startswith(year)]
-            benchmark_year = [point for point in benchmark_points if point["date"].startswith(year)]
-            left, right = _period_stats(strategy_year), _period_stats(benchmark_year)
+            indexes = [index for index, point in enumerate(strategy_points)
+                       if point["date"].startswith(year)]
+            strategy_year = [strategy_points[index] for index in indexes]
+            benchmark_year = [benchmark_points[index] for index in indexes]
+            first_index = indexes[0]
+            strategy_baseline = strategy_points[first_index - 1] if first_index else strategy_year[0]
+            benchmark_baseline = benchmark_points[first_index - 1] if first_index else benchmark_year[0]
+            left = _period_stats(strategy_year, baseline=strategy_baseline)
+            right = _period_stats(benchmark_year, baseline=benchmark_baseline)
             annual.append({"year": year, "strategy": left, "benchmark": right,
                            "excess_return_pct": _number(Decimal(str(left["return_pct"]))
                                                         - Decimal(str(right["return_pct"])))})
@@ -793,6 +1913,8 @@ def _validate_strategy_report(report: object) -> dict[str, Any]:
         "fund_count": len(universe_items),
         "curve_count": len(raw_curves),
         "date_intersection_audit": date_intersection_audit,
+        "observed_date_audit": observed_date_audit,
+        "investment_eligibility": investment_eligibility,
     }
     action_validation = {
         "decision_counts": {action: action_summary.get(action) for action in DECISION_ACTIONS},
@@ -814,7 +1936,8 @@ def _validate_strategy_report(report: object) -> dict[str, Any]:
                                     if strategy_drawdown is not None and benchmark_drawdown is not None else None),
     }
     return _result(report, errors, reviews, coverage, action_validation, annual, segments,
-                   curve_summaries=curve_summaries, comparison=comparison)
+                   curve_summaries=curve_summaries, comparison=comparison, economic=economic,
+                   risk_quality=risk_quality)
 
 
 def _result(
@@ -828,6 +1951,8 @@ def _result(
     *,
     curve_summaries: dict[str, Any] | None = None,
     comparison: dict[str, Any] | None = None,
+    economic: dict[str, Any] | None = None,
+    risk_quality: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     status = "blocked" if errors else "review_required" if reviews else "passed"
     result = {
@@ -854,7 +1979,17 @@ def _result(
             "performance": "review_required" if any(
                 item["code"] in {"negative_strategy_return", "strategy_underperformed_benchmark",
                                  "strategy_drawdown_worse_than_benchmark", "high_trade_frequency",
-                                 "high_notional_turnover", "universe_not_point_in_time"} for item in reviews
+                                 "high_notional_turnover", "universe_not_point_in_time",
+                                 "low_market_exposure", "underperformed_exposure_matched",
+                                 "short_holding_period", "cost_sensitive",
+                                 "signal_execution_negative_before_cost"} for item in reviews
+            ) else "passed",
+            "investment_readiness": "blocked" if (
+                errors
+                or isinstance(coverage.get("investment_eligibility"), dict)
+                and coverage["investment_eligibility"].get("status") == "blocked"
+            ) else "review_required" if any(
+                item["code"] == "investment_validation_not_eligible" for item in reviews
             ) else "passed",
         },
         "blocking_errors": [{key: value for key, value in item.items() if key != "_group"} for item in errors],
@@ -863,10 +1998,15 @@ def _result(
         "actions": actions,
         "performance": {"comparison": comparison or {}, "calendar_years": annual,
                         "time_segments": segments},
+        "economic": economic,
+        "risk_quality": risk_quality,
         "limitations": [
             "来源日期交集审计只能识别至少一个来源记录过的日期；所有来源同日缺失仍无法识别。",
             "负收益、落后基准和高换手属于策略表现复盘，不会被伪装成数据结构错误。",
             "历史回放通过不代表未来收益，也不替代真实费用、限购、停牌及确认时差验证。",
+            "真实资金资格必须同时满足来源用途、总收益、历史时点、产品执行规则和样本外验证门槛。",
+            "逐基金同敞口归因保留基金选择并固定实际敞口路径；剩余项仍有路径交互，不能解释为因果alpha。",
+            "风险调整指标按244观察日年化，Sharpe的现金收益与Sortino的最低可接受收益均按0计算。",
         ],
     }
     result["validation_hash"] = digest({key: value for key, value in result.items() if key != "validation_hash"})

@@ -8,6 +8,7 @@ from typing import Any
 
 from backend.core.config import Settings
 from backend.core.errors import AppError
+from backend.core.source_admission import SourceAdmissionError, writable_source_id
 from backend.storage.database import connection_scope, migrate
 
 
@@ -90,8 +91,13 @@ def import_timeseries(settings: Settings, code: str, kind: str, rows: Iterable[M
                       source_id: str, policy_version: str) -> dict[str, Any]:
     """Validate a complete import before atomically replacing a single series."""
     try:
+        source_id = writable_source_id(source_id)
+    except SourceAdmissionError as exc:
+        raise AppError("timeseries_source_not_allowed", "基金时序来源不允许写入", 422,
+                       {"reason": str(exc)}) from exc
+    try:
         code = _code(code)
-        if not isinstance(source_id, str) or not source_id.strip() or not isinstance(policy_version, str) or not policy_version.strip():
+        if not isinstance(policy_version, str) or not policy_version.strip():
             raise ValueError("来源和策略版本不能为空")
         normalized = _clean_rows(kind, rows)
     except (TypeError, ValueError) as exc:

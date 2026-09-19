@@ -14,6 +14,17 @@ import './advice.css';
 
 type Account = { account_id: string; name: string; base_currency: string };
 type Action = 'BUY' | 'ADD' | 'HOLD' | 'REDUCE' | 'EXIT' | 'WAIT';
+type RiskAlert = {
+  status: 'manual_price_and_evidence_review_required';
+  label: string;
+  original_action: 'REDUCE' | 'EXIT';
+  original_target_weight_pct: string;
+  original_reason_code: string;
+  original_reason: string;
+  blockers: string[];
+  direct_execution_allowed: false;
+  instruction: string;
+};
 type RecommendationItem = {
   fund_code: string | null;
   fund_name: string | null;
@@ -26,6 +37,7 @@ type RecommendationItem = {
   deferred_target_weight_pct?: string | null;
   reason_code: string;
   reason: string;
+  risk_alert?: RiskAlert | null;
   metrics?: Record<string, string | number | null>;
   data_quality?: string | Record<string, unknown>;
 };
@@ -132,6 +144,20 @@ const choiceNames = {
   deferred: '暂缓',
 } as const;
 const statusNames = { actionable: '可执行', partial: '部分可执行', blocked: '暂不可执行' } as const;
+const blockerNames: Record<string, string> = {
+  eligible_universe_empty: '当前没有可纳入策略的基金',
+  strategy_source_not_execution_grade: '基金身份、行情或跟踪关系尚未取得第一手证据资格',
+  strategy_not_investment_validated: '历史时点、总收益、真实执行规则或样本外验证尚未全部通过',
+  portfolio_condition_missing: '尚未确认账户投资条件',
+  confirmed_assets_not_positive: '账户没有可核算的已确认资产',
+  portfolio_valuation_incomplete: '当前持仓估值不完整',
+  portfolio_valuation_stale: '当前持仓估值已过期',
+  pending_ledger_events_present: '账户仍有待确认记录',
+  unknown_ledger_events_present: '账户仍有待核对记录',
+  ledger_balance_coverage_incomplete: '现金或份额账本不完整',
+  settlement_history_incomplete: '结算记录不完整',
+  empty_holdings_not_confirmed: '尚未确认账户确实没有其他持仓',
+};
 const executionNames = {
   not_required: '无需成交',
   awaiting_execution: '等待实际成交',
@@ -144,6 +170,10 @@ const executionNames = {
 
 function messageOf(cause: unknown) {
   return cause instanceof Error ? cause.message : '请求失败，请稍后重试。';
+}
+
+function blockerText(value: string) {
+  return blockerNames[value] ?? value;
 }
 
 function dataQualityText(value: RecommendationItem['data_quality']) {
@@ -301,6 +331,10 @@ export function StrategyAdvicePage() {
     for (const item of recommendation?.output.items ?? []) result[item.action] += 1;
     return result;
   }, [recommendation]);
+  const riskAlerts = useMemo(
+    () => (recommendation?.output.items ?? []).filter((item) => item.risk_alert),
+    [recommendation],
+  );
   const recommendationIsCurrent = freshness?.state === 'current';
 
   return (
@@ -352,13 +386,25 @@ export function StrategyAdvicePage() {
                     <Notice tone="warning" title="暂时无法核验建议时效">{freshness.reason} 核验完成前不能记录决定或进入成交。</Notice>
                   )}
                   {recommendation.output.expected_market_session && recommendation.output.latest_available_data_date && recommendation.output.latest_available_data_date < recommendation.output.expected_market_session && <Notice tone="warning" title="行情资料落后于应有交易日">建议已按当前可用资料生成，请补齐行情或净值后重新计算，不要沿用旧金额。</Notice>}
-                  {!!recommendation.output.blockers?.length && <Notice tone="warning" title="本次操作被阻止">{recommendation.output.blockers.join('；')}</Notice>}
+                  {!!recommendation.output.blockers?.length && <Notice tone="warning" title="本次操作被阻止">{recommendation.output.blockers.map(blockerText).join('；')}</Notice>}
+                  {!!riskAlerts.length && (
+                    <Notice tone="error" title="风险降低信号待人工核价/复核">
+                      <p><strong>不可直接执行。</strong>正式动作仍为“等待”，系统没有生成成交金额或份额。请先核对最新价格、真实持仓和主证据，再重新生成建议。</p>
+                      <ul>
+                        {riskAlerts.map((item) => {
+                          const alert = item.risk_alert as RiskAlert;
+                          return <li key={item.fund_code || alert.original_reason_code}><strong>{item.fund_name || item.fund_code || '当前持仓'}：</strong>底层信号为“{actionMeta[alert.original_action].label}”（{alert.original_reason}）；阻断原因：{alert.blockers.map(blockerText).join('、')}。</li>;
+                        })}
+                      </ul>
+                    </Notice>
+                  )}
                   {!!recommendation.output.warnings?.length && <Notice tone="warning" title="需要留意">{recommendation.output.warnings.join('；')}</Notice>}
                   {recommendation.output.valuation && <Panel title="本次组合估值" subtitle={!recommendation.output.valuation.complete ? `未估值基金：${recommendation.output.valuation.unvalued_fund_codes.join('、') || '未提供代码'}` : recommendation.output.valuation.stale_fund_codes?.length ? `估值过期基金：${recommendation.output.valuation.stale_fund_codes.join('、')}` : '已确认持仓均取得应有交易日的真实价格或净值。'}><div className="strategy-valuation"><div><span>可用现金</span><b>{formatMoney(recommendation.output.valuation.available_cash)}</b><small>已确认 {formatMoney(recommendation.output.valuation.confirmed_cash)} · 待结算 {formatMoney(recommendation.output.valuation.pending_settlement_cash)}</small></div><div><span>已知持仓市值</span><b>{formatMoney(recommendation.output.valuation.known_market_value)}</b></div><div><span>可用于策略核算的资产</span><b>{formatMoney(recommendation.output.valuation.known_total_assets)}</b></div><div><span>最早参考执行日</span><b>{recommendation.output.execution_policy?.earliest_execution_session || '尚未确定'}</b></div></div>{recommendation.output.execution_policy?.fee_basis && <p className="muted">{recommendation.output.execution_policy.fee_basis}</p>}{recommendation.output.execution_policy?.ordering && <p className="muted">执行顺序：{recommendation.output.execution_policy.ordering}</p>}</Panel>}
                   <div className="strategy-recommendation-grid">
                     {recommendation.output.items.map((item, index) => (
                       <Panel key={`${item.fund_code || 'cash'}-${index}`} className={`strategy-action-card action-${item.action.toLowerCase()}`} title={<><span>{item.fund_name || item.fund_code || '账户级建议'}</span> <Badge tone={actionMeta[item.action].tone}>{actionMeta[item.action].label}</Badge></>} subtitle={item.fund_code || '账户整体'} action={<button className="button secondary small" disabled={!recommendationIsCurrent} onClick={() => openDecision(item)}>{recommendationIsCurrent ? '记录我的决定' : '重算后再决定'}</button>}>
                         <p className="strategy-reason">{item.reason}</p>
+                        {item.risk_alert && <p><Badge tone="red">不可直接执行</Badge> 底层{actionMeta[item.risk_alert.original_action].label}信号仅供人工核价和证据复核。</p>}
                         <dl className="strategy-weight-grid">
                           <div><dt>当前权重</dt><dd>{formatPlainPercent(item.current_weight_pct)}</dd></div>
                           <div><dt>目标权重</dt><dd>{formatPlainPercent(item.target_weight_pct)}</dd></div>

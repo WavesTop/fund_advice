@@ -168,15 +168,17 @@ class IsolationAndCliTests(unittest.TestCase):
         for argv in invalid:
             with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 probe.parse_args(argv)
-        args = probe.parse_args(["--dataset", "unit-nav", "--code", "000001", "--start-date", "20260101", "--end-date", "20260102"])
-        self.assertEqual(args.code, "000001")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            probe.parse_args(["--dataset", "unit-nav", "--code", "000001", "--start-date", "20260101", "--end-date", "20260102"])
 
     def test_exact_adapter_parameters(self):
         base = {"code": "510050", "start_date": "20260101", "end_date": "20260102"}
         self.assertEqual(probe.adapter_params({"dataset": "exchange-nav", **base}),
                          {"fund": "510050", "start_date": "20260101", "end_date": "20260102"})
         self.assertEqual(probe.adapter_params({"dataset": "etf-daily", **base})["adjust"], "")
-        self.assertIn('period="成立来"', probe._child_code())
+        child = probe._child_code()
+        self.assertNotIn("fund_open_fund_info_em", child)
+        self.assertNotIn("fund_etf_hist_em", child)
 
     @mock.patch.object(probe, "run_adapter")
     def test_empty_has_distinct_exit_and_report(self, run_adapter):
@@ -188,14 +190,11 @@ class IsolationAndCliTests(unittest.TestCase):
             self.assertEqual(json.loads(reports[0].read_text())["status"], "empty")
 
     @mock.patch.object(probe, "run_adapter")
-    def test_normalization_error_report_preserves_adapter(self, run_adapter):
-        run_adapter.return_value = (payload(["净值日期", "单位净值"], [["bad", 1.0]]), 0.01)
-        with tempfile.TemporaryDirectory() as directory:
-            exit_code = probe.main(["--dataset", "unit-nav", "--code", "000001", "--start-date", "20260101",
-                                    "--end-date", "20260102", "--output-dir", directory])
-            report = json.loads(next(Path(directory).glob("*/report.json")).read_text())
-            self.assertEqual(exit_code, 2)
-            self.assertEqual(report["adapter"]["rows"], [["bad", 1.0]])
+    def test_retired_nav_probe_fails_before_adapter(self, run_adapter):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            probe.main(["--dataset", "unit-nav", "--code", "000001", "--start-date", "20260101",
+                        "--end-date", "20260102"])
+        run_adapter.assert_not_called()
 
 
 if __name__ == "__main__":

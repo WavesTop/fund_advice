@@ -42,7 +42,13 @@ def collect(settings: Settings, target: str, *, progress=None) -> dict:
     if (not isinstance(requested, int) or isinstance(requested, bool) or requested < len(items)
             or not isinstance(catalog_count, int) or isinstance(catalog_count, bool) or catalog_count < requested):
         raise ValueError("行业采集覆盖统计不一致，不能认定更新成功")
-    status = "failed" if not price_ok else "success" if price_ok == members_ok == requested and not universe.get("last_error") else "partial"
+    raw_directory_provenance = result.get("directory_provenance")
+    directory_provenance = raw_directory_provenance if isinstance(raw_directory_provenance, dict) else {}
+    raw_directory = directory_provenance.get("directory")
+    directory_mode = raw_directory.get("mode") if isinstance(raw_directory, dict) else None
+    status = "failed" if not price_ok else "success" if (
+        price_ok == members_ok == requested and not universe.get("last_error") and directory_mode == "live"
+    ) else "partial"
     if progress:
         progress({"stage": "financials", "state": "running"})
     financials = (collect_sector_fundamentals(settings, items, progress=progress) if progress
@@ -61,6 +67,7 @@ def collect(settings: Settings, target: str, *, progress=None) -> dict:
             "ranking_as_of": universe["ranking_as_of"], "requested_count": requested,
             "catalog_count": catalog_count, "identity_excluded_count": catalog_count - requested,
             "collector_version": COLLECTOR_VERSION, "source_attempts": result.get("source_attempts", []),
+            "directory_provenance": directory_provenance,
             "price_cutoff": result.get("price_cutoff"), "price_window_coverage": window_coverage,
             "price_updated": price_ok, "price_failed": requested - price_ok,
             "membership_updated": members_ok, "membership_failed": requested - members_ok,

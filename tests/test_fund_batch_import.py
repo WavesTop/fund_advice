@@ -16,7 +16,7 @@ class BatchFundImportTests(unittest.TestCase):
             {"code": "000001", "name": "甲", "fund_type": "混合型"},
             {"code": "000002", "name": "乙", "fund_type": "混合型"},
             {"code": "000003", "name": "丙", "fund_type": "混合型"},
-        ], policy_version="test")
+        ], policy_version="test", source_id="fund_catalog.test_fixture")
 
     def tearDown(self):
         self.tmp.cleanup()

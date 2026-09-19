@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { Panel } from '../../shared/ui';
+import { sourceLabel } from '../../shared/source-label';
 import { directoryLayout, directoryPage, parseDirectory, type DirectoryResult } from './fund-directory-model';
 import { MarketDataRefresh } from './MarketDataRefresh';
 import { sectorDetailHref } from './sector-detail-model';
@@ -151,11 +152,11 @@ export function FundDirectory() {
           <article aria-label={`${fund.name} ${fund.code}`}>
             <h4><Link className="market-fund-title" to={`/funds/${fund.code}?from=${encodeURIComponent(returnPath)}`}>{fund.name}</Link></h4>
             <p className="fund-card-identity">{fund.code} · {fund.fund_type || '类型待提供'}</p>
-            <small className="market-fund-meta">份额 ID：{fund.share_id} · 来源：{fund.source_id || '待提供'}</small>
+            <small className="market-fund-meta">份额 ID：{fund.share_id} · 来源：{sourceLabel(fund.source_id, '待提供')}</small>
             <div className="fund-card-sectors"><strong>关联板块／指数</strong>
               {fund.relation_status === 'linked' && fund.related_sectors?.length === 1 ? fund.related_sectors.map((sector) => <div key={`${sector.source_id}:${sector.code}`}>
                 <Link to={sectorDetailHref(sector, returnPath, fund.code)}>查看{sector.name}详情</Link>
-                <small className="market-fund-meta">关系来源：{sector.relation_source_id} · 核验于 {sector.verified_at.slice(0, 10)}</small>
+                <small className="market-fund-meta">关系来源：{sourceLabel(sector.relation_source_id)} · 核验于 {sector.verified_at.slice(0, 10)}</small>
               </div>) : <p className="muted">{fund.relation_reason || '尚无已核验板块关联；不按基金名称推断。'}</p>}
             </div>
             <Link to={`/advice?fund=${fund.code}&from=${encodeURIComponent(returnPath)}`}>查看关联研究</Link>

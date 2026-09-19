@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ChartNoAxesCombined, ChevronLeft, Database } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
 import { EmptyState, PageHeader, Panel, Tabs } from '../../shared/ui';
+import { sourceLabel } from '../../shared/source-label';
 import { Chart } from '../../shared/Chart';
 import { recordFundVisit } from './fund-browse-history';
 import { FundDirectory as RealFundDirectory } from './FundDirectory';
@@ -235,7 +236,7 @@ function RealFundSeries({
     <Panel
       title={isPrice ? '真实 K 线' : '真实净值走势'}
       action={refreshButton}
-      subtitle={`行情截至 ${series.rows.at(-1)?.date} · ${series.source_id || '来源待补充'}${series.updated_at ? ` · 入库于 ${series.updated_at.slice(0, 10)}` : ''}`}
+      subtitle={`行情截至 ${series.rows.at(-1)?.date} · ${sourceLabel(series.source_id, '来源待补充')}${series.updated_at ? ` · 入库于 ${series.updated_at.slice(0, 10)}` : ''}`}
     >
       {refreshError && (
         <div className="notice notice-error" role="alert">
@@ -323,7 +324,7 @@ function RelatedMarketPanel({
   return (
     <Panel
       title="关联指数行情"
-      subtitle={`${market.name} · ${market.code} · ${market.source_id}`}
+      subtitle={`${market.name} · ${market.code} · ${sourceLabel(market.source_id)}`}
       action={
         <Link
           className="button secondary"
@@ -339,7 +340,7 @@ function RelatedMarketPanel({
     >
       <p className="muted">
         行情截至 {market.rows.at(-1)?.date} · 关系核验于 {market.verified_at || '未提供'} · 关系来源{' '}
-        {market.relation_source_id || '未提供'}{' '}
+        {sourceLabel(market.relation_source_id)}{' '}
         {sourceHref(market.evidence_url) && (
           <a href={sourceHref(market.evidence_url)!} target="_blank" rel="noreferrer">
             核对证据
@@ -564,7 +565,7 @@ function RealFundDetail() {
           </div>
           <div>
             <dt>数据来源</dt>
-            <dd>{fund.source_id || '—'}</dd>
+            <dd>{sourceLabel(fund.source_id, '—')}</dd>
           </div>
         </dl>
       </Panel>

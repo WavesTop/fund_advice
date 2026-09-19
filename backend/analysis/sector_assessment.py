@@ -53,9 +53,13 @@ def context_from_bundle(bundle: dict | None, now: datetime, *, board: dict | Non
     context["membership_hash"] = bundle.get("membership_hash")
     # Presentation-only migration of a known capability notice. Stored source facts
     # and append-only audit records remain unchanged; provenance is checked above.
-    old_notice = "尚未接入同花顺公开个股报表与带明确口径、日期的估值适配器；不使用已移除的东方财富接口替代。"
+    retired_capability_notices = {
+        "尚未接入同花顺公开个股报表与带明确口径、日期的估值适配器；不使用任何已退役第三方接口替代。",
+        "尚未接入同花顺公开个股报表与带明确口径、日期的估值适配器；不使用已移除的东方财富接口替代。",
+    }
     context["errors"] = ["尚未接入同花顺公开个股报表与带明确口径、日期的估值适配器。"
-                         if error == old_notice else error for error in context["errors"]]
+                         if error in retired_capability_notices else error
+                         for error in context["errors"]]
     problem = None
     if context["status"] == "collecting":
         problem = "本轮经营估值采集尚未完成（服务中断后也不会自动改为成功）"

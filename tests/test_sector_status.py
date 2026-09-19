@@ -87,7 +87,8 @@ class SectorStatusTests(unittest.TestCase):
             settings = Settings(database_path=Path(directory) / "app.sqlite3")
             migrate(settings)
             self.assertEqual(sector_opportunities(settings)["items"], [])
-            import_catalog(settings, [{"code": "012970", "name": "芯片ETF联接C", "fund_type": "指数型-股票"}], policy_version="v1")
+            import_catalog(settings, [{"code": "012970", "name": "芯片ETF联接C", "fund_type": "指数型-股票"}],
+                           policy_version="v1", source_id="fund_catalog.test_fixture")
             rows = [{**r, "open": r["close"], "high": r["close"], "low": r["close"]} for r in history(range(100, 221))]
             import_related_index(settings, fund_code="012970", index_code="980017", index_name="国证半导体芯片指数",
                                  rows=rows, source_id="index_daily.sina", relation_source_id="official",

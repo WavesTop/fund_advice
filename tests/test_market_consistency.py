@@ -23,7 +23,8 @@ class MarketConsistencyTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.settings = Settings(database_path=Path(self.temp.name) / "app.sqlite3")
-        import_catalog(self.settings, [{"code": "510050", "name": "测试ETF", "fund_type": "ETF"}], policy_version="fixture")
+        import_catalog(self.settings, [{"code": "510050", "name": "测试ETF", "fund_type": "ETF"}],
+                       policy_version="fixture", source_id="fund_catalog.test_fixture")
 
     def members(self, count):
         return [{"code": f"BK{index:04}", "name": f"测试行业{index}", "kind": "行业", "heat_rank": index + 1,

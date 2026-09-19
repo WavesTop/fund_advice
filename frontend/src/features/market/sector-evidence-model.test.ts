@@ -38,6 +38,11 @@ describe('collected sector evidence contract', () => {
     evidence.scope = '当前同花顺成分样本';
     evidence.sources = [{ url: 'https://push2.eastmoney.com/api/qt', asset_id: 'old-source' }];
     expect(hasRetiredSectorSource(evidence)).toBe(true);
+    evidence.sources[0].url = 'https://emdata.example/api/qt';
+    expect(hasRetiredSectorSource(evidence)).toBe(true);
+    evidence.scope = '当前东财成分样本';
+    expect(hasRetiredSectorSource(evidence)).toBe(true);
+    evidence.scope = '当前同花顺成分样本';
     evidence.sources[0].url = 'https://q.10jqka.com.cn/thshy/detail/code/881121/';
     expect(hasRetiredSectorSource(evidence)).toBe(false);
     evidence.sources[0].url = 'https://example.test/?archive=eastmoney.com';

@@ -20,8 +20,10 @@ from backend.core.trading_calendar import get_calendar
 from backend.integrations.sector_financials import (collect_sector_fundamentals, fetch_table, operating_sample,
     parse_rows, report_periods, previous_year)
 from backend.storage.database import connection_scope, migrate
-from backend.storage.research import freeze_snapshot, utc_now
-from backend.storage.sector_fundamentals import known_observations, membership_identity, save_observation
+from backend.storage.research import canonical, digest, freeze_snapshot, utc_now
+from backend.storage.sector_fundamentals import (
+    archive_response, known_observations, membership_identity, save_observation,
+)
 from backend.storage.sector_heat import read_sector_heat, save_sector_heat
 from scripts.refresh_market_data import collect
 from sector_financial_fixtures import NOW, SUBJECT, SourceFixture, board, FrozenDatetime
@@ -56,6 +58,16 @@ class SectorFinancialTests(unittest.TestCase):
 
     def gather(self, fixture=None, item=None):
         return collect_sector_fundamentals(self.settings, [item or board()], fetcher=fixture or SourceFixture(), now=NOW)
+
+    def inject_legacy_observation(self, payload):
+        """Represent a pre-retirement row without reopening the public write path."""
+        observed = utc_now()
+        with connection_scope(self.settings) as conn:
+            return conn.execute(
+                "INSERT INTO sector_fundamental_observation"
+                "(subject_key,observed_at,payload_hash,payload_json) VALUES(?,?,?,?)",
+                (payload["subject_key"], observed, digest(payload), canonical(payload)),
+            ).lastrowid
 
     def publish_prices(self):
         b = board()
@@ -318,15 +330,23 @@ class SectorFinancialTests(unittest.TestCase):
         old['valuation']['median_pe_ttm'] = '999'
         old.pop('observation_id')
         old.pop('observed_at')
-        saved = save_observation(self.settings, old)
+        with self.assertRaisesRegex(ValueError, "已退役来源"):
+            save_observation(self.settings, old)
+        saved_id = self.inject_legacy_observation(old)
         self.gather()
         current = self.read()
         self.assertEqual([(row['as_of'], row['value']) for row in current['valuation_history']],
                          [('2026-09-16', '25')])
         with connection_scope(self.settings) as conn:
             raw = conn.execute('SELECT payload_json FROM sector_fundamental_observation WHERE id=?',
-                               (saved['observation_id'],)).fetchone()[0]
+                               (saved_id,)).fetchone()[0]
         self.assertEqual(json.loads(raw), old)
+
+    def test_retired_raw_asset_url_is_rejected_before_storage(self):
+        with self.assertRaisesRegex(ValueError, "已退役"):
+            archive_response(self.settings, 'https://data.eastmoney.com/old', b'{}')
+        with connection_scope(self.settings) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM raw_asset').fetchone()[0], 0)
 
     def test_old_disabled_provider_notice_is_not_mistaken_for_source_evidence(self):
         collect_sector_fundamentals(self.settings, [board()], now=NOW)
@@ -344,7 +364,9 @@ class SectorFinancialTests(unittest.TestCase):
         self.publish_prices(); self.gather()
         old = self.read()
         old['sources'] = [{'url': 'https://data.eastmoney.com/old', 'asset_id': 'old'}]
-        save_observation(self.settings, old)
+        with self.assertRaisesRegex(ValueError, "已退役来源"):
+            save_observation(self.settings, old)
+        self.inject_legacy_observation(old)
         with ASGITestClient(create_app(self.settings)) as client:
             overview = client.get('/api/sectors/opportunities').json()
             detail = client.get('/api/sectors/BK0732?source_id=sector_daily.ths&universe_type=hot_board').json()

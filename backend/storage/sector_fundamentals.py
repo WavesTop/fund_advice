@@ -5,6 +5,10 @@ import json
 from hashlib import sha256
 
 from backend.core.config import Settings
+from backend.core.source_admission import (
+    contains_retired_source_reference,
+    reject_retired_source_reference,
+)
 from backend.storage.database import connection_scope, migrate
 from backend.storage.research import canonical, digest, subject_key, utc_now
 
@@ -17,8 +21,7 @@ def has_retired_source(payload: dict) -> bool:
 
     def contains(value):
         if isinstance(value, str):
-            return any(marker in value.lower() for marker in
-                       ("eastmoney", "emdata", "push2his", "datacenter-web", "东方财富"))
+            return contains_retired_source_reference(value)
         if isinstance(value, dict):
             return any(contains(item) for item in value.values())
         if isinstance(value, list):
@@ -49,6 +52,7 @@ def membership_identity(board: dict) -> dict:
 
 def archive_response(settings: Settings, url: str, body: bytes) -> str:
     """Store the original provider response, even when a downstream parser rejects it."""
+    reject_retired_source_reference(url, field="url")
     if not body or len(body) > 10 * 1024 * 1024:
         raise ValueError("来源响应为空或超过10MiB")
     media, body_hash = "application/json", sha256(body).hexdigest()
@@ -60,6 +64,8 @@ def archive_response(settings: Settings, url: str, body: bytes) -> str:
 
 
 def save_observation(settings: Settings, payload: dict) -> dict:
+    if has_retired_source(payload):
+        raise ValueError("板块经营或估值证据引用已退役来源，禁止新增写入")
     key = subject_key(payload["subject_key"])
     if not key.startswith("hot_board:") or payload.get("version") != VERSION:
         raise ValueError("板块证据身份或版本不匹配")

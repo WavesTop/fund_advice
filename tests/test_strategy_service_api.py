@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from asgi_client import ASGITestClient
-from backend.analysis.strategy_portfolio import historical_strategy_report
+from backend.analysis.strategy_portfolio import _combine_curves, historical_strategy_report
 from backend.analysis.strategy_service import build_recommendation, create_recommendation
 from backend.api.main import create_app
 from backend.core.config import Settings
@@ -55,12 +55,12 @@ def add_relation_and_nav(settings: Settings, code: str, index_code: str, rows: l
             "close": "100", "volume": "1", "amount": None,
         }],
         source_id="index_daily.official_test_shape",
-        relation_source_id="fund_disclosure.cninfo",
+        relation_source_id="fund_relations.manager_documents",
         evidence_url="https://example.test/prospectus.pdf",
     )
     import_timeseries(
         settings, code, "nav", rows,
-        source_id="fund_nav.test_shape", policy_version="test-real-shape-v1",
+        source_id="fund_nav.manager_documents", policy_version="test-real-shape-v1",
     )
 
 
@@ -101,6 +101,17 @@ class StrategyRecommendationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.settings = Settings(database_path=Path(self.temp.name) / "strategy.sqlite3")
+        readiness = patch(
+            "backend.analysis.strategy_portfolio.investment_validation_readiness",
+            return_value={
+                "status": "ready",
+                "investment_operations_enabled": True,
+                "blockers": [],
+                "meaning": "测试显式注入的投资级资格",
+            },
+        )
+        readiness.start()
+        self.addCleanup(readiness.stop)
         import_catalog(
             self.settings,
             [
@@ -109,12 +120,13 @@ class StrategyRecommendationTests(unittest.TestCase):
                 {"code": "510099", "name": "未纳入策略基金", "fund_type": "ETF"},
             ],
             policy_version="test-catalog",
+            source_id="fund_catalog.manager_documents",
         )
         add_relation_and_nav(self.settings, "510001", "980001", nav_rows("2026-09-16"))
         add_relation_and_nav(self.settings, "510002", "980002", nav_rows("2026-09-11"))
         import_timeseries(
             self.settings, "510099", "nav", nav_rows("2026-09-16"),
-            source_id="fund_nav.test_shape", policy_version="test-real-shape-v1",
+            source_id="fund_nav.manager_documents", policy_version="test-real-shape-v1",
         )
 
     def test_ready_fund_can_buy_while_stale_and_unsupported_funds_wait(self):
@@ -162,6 +174,95 @@ class StrategyRecommendationTests(unittest.TestCase):
         self.assertTrue(supported)
         self.assertEqual({item["action"] for item in supported}, {"WAIT"})
         self.assertEqual({item["reason_code"] for item in supported}, {"HORIZON_TOO_SHORT_FOR_INCREASE"})
+
+    def test_candidate_fact_source_cannot_generate_formal_trade(self):
+        import_timeseries(
+            self.settings, "510001", "nav", nav_rows("2026-09-16"),
+            source_id="exchange_daily.sina", policy_version="candidate-only-v1",
+        )
+        account_id = account(self.settings, "candidate-source")
+        _, output, _, _ = build_recommendation(
+            self.settings, account_id=account_id, cutoff="2026-09-16",
+        )
+        self.assertEqual(output["status"], "blocked")
+        self.assertIn("strategy_source_not_execution_grade", output["blockers"])
+        self.assertEqual(output["data_eligibility"]["blocked_fund_codes"], ["510001"])
+        self.assertEqual({item["action"] for item in output["items"]}, {"WAIT"})
+        by_code = {item["fund_code"]: item for item in output["items"]}
+        self.assertIn(
+            "source_not_primary_evidence",
+            by_code["510001"]["source"]["data_eligibility"]["signal_blockers"],
+        )
+
+    def test_investment_validation_gate_blocks_otherwise_ready_buy(self):
+        account_id = account(self.settings, "investment-gate")
+        blocked = {
+            "status": "blocked",
+            "investment_operations_enabled": False,
+            "blockers": ["walk_forward_holdout_not_completed"],
+            "meaning": "尚未完成样本外验证",
+        }
+        with patch(
+            "backend.analysis.strategy_portfolio.investment_validation_readiness",
+            return_value=blocked,
+        ):
+            _, output, _, _ = build_recommendation(
+                self.settings, account_id=account_id, cutoff="2026-09-16",
+            )
+        self.assertEqual(output["status"], "blocked")
+        self.assertIn("strategy_not_investment_validated", output["blockers"])
+        self.assertEqual({item["action"] for item in output["items"]}, {"WAIT"})
+        self.assertEqual(output["investment_eligibility"], blocked)
+
+    def test_blocked_exit_signal_remains_wait_but_exposes_non_executable_risk_alert(self):
+        blocked_settings = Settings(database_path=Path(self.temp.name) / "blocked-exit.sqlite3")
+        import_catalog(
+            blocked_settings,
+            [{"code": "510010", "name": "风险退出基金", "fund_type": "ETF"}],
+            policy_version="test-catalog",
+            source_id="fund_catalog.manager_documents",
+        )
+        rows = nav_rows("2026-09-16", count=240, mode="cycle")
+        add_relation_and_nav(blocked_settings, "510010", "980010", rows)
+        account_id = account(
+            blocked_settings, "blocked-exit", risk="balanced", no_holdings_confirmed=False,
+        )
+        append_event(
+            blocked_settings,
+            {
+                "account_id": account_id, "event_type": "initial_position", "fund_code": "510010",
+                "amount": None, "units": "1000", "business_date": "2025-01-02",
+                "confirmation_date": "2025-01-02", "settlement_date": None,
+                "channel": "测试隔离账户", "confirmed_fee": None, "state": "confirmed",
+                "source": "confirmed_external_position", "note": None,
+            },
+            idempotency_key="blocked-exit-position",
+        )
+        append_event(
+            blocked_settings,
+            {
+                "account_id": account_id, "event_type": "cash_in", "fund_code": None,
+                "amount": "1", "units": None, "business_date": "2026-09-16",
+                "confirmation_date": None, "settlement_date": None,
+                "channel": "测试隔离账户", "confirmed_fee": None, "state": "pending",
+                "source": "pending_confirmation", "note": None,
+            },
+            idempotency_key="blocked-exit-pending",
+        )
+
+        _, output, _, _ = build_recommendation(
+            blocked_settings, account_id=account_id, cutoff="2026-09-16",
+        )
+
+        item = output["items"][0]
+        self.assertEqual(output["status"], "blocked")
+        self.assertEqual(item["action"], "WAIT")
+        self.assertIsNone(item["proposed_amount"])
+        self.assertIsNone(item["proposed_units"])
+        self.assertEqual(item["strategy_signal_action"], "EXIT")
+        self.assertEqual(item["risk_alert"]["original_action"], "EXIT")
+        self.assertFalse(item["risk_alert"]["direct_execution_allowed"])
+        self.assertIn("pending_ledger_events_present", item["risk_alert"]["blockers"])
 
     def test_unconfirmed_empty_holdings_and_pending_events_fail_closed(self):
         unconfirmed = account(self.settings, "unconfirmed-empty", no_holdings_confirmed=False)
@@ -306,7 +407,8 @@ class StrategyRecommendationTests(unittest.TestCase):
             {"code": "510011", "name": "趋势基金", "fund_type": "ETF"},
             {"code": "510012", "name": "待退出基金", "fund_type": "ETF"},
         ]
-        import_catalog(rotate_settings, funds, policy_version="test-catalog")
+        import_catalog(rotate_settings, funds, policy_version="test-catalog",
+                       source_id="fund_catalog.manager_documents")
         strong_rows = nav_rows("2026-09-16", count=240, mode="strong")
         exit_rows = nav_rows("2026-09-16", count=240, mode="cycle")
         add_relation_and_nav(rotate_settings, "510011", "980011", strong_rows)
@@ -355,7 +457,13 @@ class StrategyRecommendationTests(unittest.TestCase):
     def test_decision_and_trade_links_reject_cross_account_or_tampered_actions(self):
         first = account(self.settings, "first")
         second = account(self.settings, "second")
-        recommendation = create_recommendation(self.settings, account_id=first, cutoff="2026-09-11")
+        with patch(
+            "backend.storage.strategy_runs.utc_now",
+            return_value="2026-09-11T09:00:00Z",
+        ):
+            recommendation = create_recommendation(
+                self.settings, account_id=first, cutoff="2026-09-11",
+            )
         item = next(value for value in recommendation["output"]["items"] if value["action"] == "BUY")
         app = create_app(self.settings)
         with ASGITestClient(app) as client:
@@ -399,10 +507,14 @@ class StrategyRecommendationTests(unittest.TestCase):
                            "planned_amount": item["proposed_amount"]},
                 headers={"Idempotency-Key": "not-actually-partial"},
             ).status_code, 422)
-            accepted = client.post(
-                "/api/v1/strategy/decisions", json_body={**body, "account_id": first},
-                headers={"Idempotency-Key": "accepted"},
-            )
+            with patch(
+                "backend.storage.strategy_runs.utc_now",
+                return_value="2026-09-11T09:00:00Z",
+            ):
+                accepted = client.post(
+                    "/api/v1/strategy/decisions", json_body={**body, "account_id": first},
+                    headers={"Idempotency-Key": "accepted"},
+                )
             self.assertEqual(accepted.status_code, 200)
             append_condition(
                 self.settings,
@@ -435,8 +547,8 @@ class StrategyRecommendationTests(unittest.TestCase):
             self.settings,
             {
                 "account_id": first, "event_type": "buy", "fund_code": item["fund_code"],
-                "amount": "100", "units": "1", "business_date": "2026-09-14",
-                "confirmation_date": "2026-09-14", "settlement_date": "2026-09-15",
+                "amount": "100", "units": "1", "business_date": "2026-09-11",
+                "confirmation_date": "2026-09-11", "settlement_date": "2026-09-14",
                 "channel": "测试隔离账户", "confirmed_fee": "0", "state": "confirmed",
                 "source": "test_execution", "note": None,
             }, idempotency_key="old-buy",
@@ -445,8 +557,8 @@ class StrategyRecommendationTests(unittest.TestCase):
             self.settings,
             {
                 "account_id": first, "event_type": "buy", "fund_code": item["fund_code"],
-                "amount": "100", "units": "1", "business_date": "2026-09-21",
-                "confirmation_date": "2026-09-21", "settlement_date": "2026-09-22",
+                "amount": "100", "units": "1", "business_date": "2026-09-14",
+                "confirmation_date": "2026-09-14", "settlement_date": "2026-09-15",
                 "channel": "测试隔离账户", "confirmed_fee": "0", "state": "confirmed",
                 "source": "test_execution", "note": None,
             }, idempotency_key="first-buy",
@@ -455,8 +567,8 @@ class StrategyRecommendationTests(unittest.TestCase):
             self.settings,
             {
                 "account_id": second, "event_type": "buy", "fund_code": item["fund_code"],
-                "amount": "100", "units": "1", "business_date": "2026-09-21",
-                "confirmation_date": "2026-09-21", "settlement_date": "2026-09-22",
+                "amount": "100", "units": "1", "business_date": "2026-09-14",
+                "confirmation_date": "2026-09-14", "settlement_date": "2026-09-15",
                 "channel": "测试隔离账户", "confirmed_fee": "0", "state": "confirmed",
                 "source": "test_execution", "note": None,
             }, idempotency_key="second-buy",
@@ -465,8 +577,8 @@ class StrategyRecommendationTests(unittest.TestCase):
             self.settings,
             {
                 "account_id": first, "event_type": "buy", "fund_code": "510002",
-                "amount": "100", "units": "1", "business_date": "2026-09-21",
-                "confirmation_date": "2026-09-21", "settlement_date": "2026-09-22",
+                "amount": "100", "units": "1", "business_date": "2026-09-14",
+                "confirmation_date": "2026-09-14", "settlement_date": "2026-09-15",
                 "channel": "测试隔离账户", "confirmed_fee": "0", "state": "confirmed",
                 "source": "test_execution", "note": None,
             }, idempotency_key="wrong-fund-buy",
@@ -475,8 +587,8 @@ class StrategyRecommendationTests(unittest.TestCase):
             self.settings,
             {
                 "account_id": first, "event_type": "sell", "fund_code": item["fund_code"],
-                "amount": "50", "units": "0.5", "business_date": "2026-09-21",
-                "confirmation_date": "2026-09-21", "settlement_date": "2026-09-22",
+                "amount": "50", "units": "0.5", "business_date": "2026-09-14",
+                "confirmation_date": "2026-09-14", "settlement_date": "2026-09-15",
                 "channel": "测试隔离账户", "confirmed_fee": "0", "state": "confirmed",
                 "source": "test_execution", "note": None,
             }, idempotency_key="wrong-direction-sell",
@@ -487,8 +599,8 @@ class StrategyRecommendationTests(unittest.TestCase):
                 "account_id": first, "event_type": "buy", "fund_code": item["fund_code"],
                 "amount": format(Decimal(str(item["proposed_amount"])) - Decimal("100"), "f"),
                 "units": format(Decimal(str(item["proposed_units"])) - Decimal("1"), "f"),
-                "business_date": "2026-09-22",
-                "confirmation_date": "2026-09-22", "settlement_date": "2026-09-23",
+                "business_date": "2026-09-14",
+                "confirmation_date": "2026-09-15", "settlement_date": "2026-09-16",
                 "channel": "测试隔离账户", "confirmed_fee": "0", "state": "confirmed",
                 "source": "test_execution", "note": None,
             }, idempotency_key="completion-buy",
@@ -498,11 +610,21 @@ class StrategyRecommendationTests(unittest.TestCase):
             {
                 "account_id": first, "event_type": "buy", "fund_code": item["fund_code"],
                 "amount": "1", "units": "0.000001",
-                "business_date": "2026-09-23",
-                "confirmation_date": "2026-09-23", "settlement_date": "2026-09-24",
+                "business_date": "2026-09-14",
+                "confirmation_date": "2026-09-15", "settlement_date": "2026-09-17",
                 "channel": "测试隔离账户", "confirmed_fee": "0", "state": "confirmed",
                 "source": "test_execution", "note": None,
             }, idempotency_key="over-buy",
+        )
+        expired_event = append_event(
+            self.settings,
+            {
+                "account_id": first, "event_type": "buy", "fund_code": item["fund_code"],
+                "amount": "1", "units": "0.000001", "business_date": "2026-09-15",
+                "confirmation_date": "2026-09-15", "settlement_date": "2026-09-16",
+                "channel": "测试隔离账户", "confirmed_fee": "0", "state": "confirmed",
+                "source": "expired_execution", "note": None,
+            }, idempotency_key="expired-buy",
         )
         app = create_app(self.settings)
         with ASGITestClient(app) as client:
@@ -517,6 +639,14 @@ class StrategyRecommendationTests(unittest.TestCase):
                                          json_body={"role": "actual_execution"}).status_code, 409)
             self.assertEqual(client.post(f"{path}/{wrong_direction_event['event_id']}",
                                          json_body={"role": "actual_execution"}).status_code, 409)
+            expired = client.post(f"{path}/{expired_event['event_id']}",
+                                  json_body={"role": "actual_execution"})
+            self.assertEqual(expired.status_code, 409)
+            self.assertEqual(expired.json()["error"]["code"], "strategy_trade_link_expired")
+            self.assertEqual(
+                expired.json()["error"]["details"]["latest_execution_session"],
+                "2026-09-14",
+            )
             self.assertEqual(client.post(f"{path}/{first_event['event_id']}",
                                          json_body={"role": "actual_execution"}).status_code, 200)
             listed = client.get(
@@ -558,38 +688,46 @@ class StrategyRecommendationTests(unittest.TestCase):
 
     def test_atomic_decision_execution_rolls_back_invalid_link_and_replays_once(self):
         account_id = account(self.settings, "atomic-execution")
-        recommendation = create_recommendation(
-            self.settings,
-            account_id=account_id,
-            cutoff="2026-09-11",
-        )
+        with patch(
+            "backend.storage.strategy_runs.utc_now",
+            return_value="2026-09-11T09:00:00Z",
+        ):
+            recommendation = create_recommendation(
+                self.settings,
+                account_id=account_id,
+                cutoff="2026-09-11",
+            )
         item = next(value for value in recommendation["output"]["items"] if value["action"] == "BUY")
         app = create_app(self.settings)
         with ASGITestClient(app) as client:
-            decision = client.post(
-                "/api/v1/strategy/decisions",
-                json_body={
-                    "recommendation_id": recommendation["recommendation_id"],
-                    "account_id": account_id,
-                    "cutoff": "2026-09-11",
-                    "fund_code": item["fund_code"],
-                    "proposed_action": "BUY",
-                    "choice": "accepted",
-                    "planned_amount": item["proposed_amount"],
-                    "reason": "核验原子成交",
-                    "supersedes_decision_id": None,
-                },
-                headers={"Idempotency-Key": "atomic-decision"},
-            ).json()
+            with patch(
+                "backend.storage.strategy_runs.utc_now",
+                return_value="2026-09-11T09:00:00Z",
+            ):
+                decision = client.post(
+                    "/api/v1/strategy/decisions",
+                    json_body={
+                        "recommendation_id": recommendation["recommendation_id"],
+                        "account_id": account_id,
+                        "cutoff": "2026-09-11",
+                        "fund_code": item["fund_code"],
+                        "proposed_action": "BUY",
+                        "choice": "accepted",
+                        "planned_amount": item["proposed_amount"],
+                        "reason": "核验原子成交",
+                        "supersedes_decision_id": None,
+                    },
+                    headers={"Idempotency-Key": "atomic-decision"},
+                ).json()
             path = f"/api/v1/strategy/decisions/{decision['decision_id']}/executions"
             invalid = {
                 "event_type": "buy",
                 "fund_code": item["fund_code"],
                 "amount": "100",
                 "units": "1",
-                "business_date": "2026-09-14",
-                "confirmation_date": "2026-09-14",
-                "settlement_date": "2026-09-15",
+                "business_date": "2026-09-11",
+                "confirmation_date": "2026-09-11",
+                "settlement_date": "2026-09-14",
                 "channel": "测试隔离账户",
                 "confirmed_fee": "0",
                 "state": "confirmed",
@@ -612,9 +750,9 @@ class StrategyRecommendationTests(unittest.TestCase):
 
             valid = {
                 **invalid,
-                "business_date": "2026-09-21",
-                "confirmation_date": "2026-09-21",
-                "settlement_date": "2026-09-22",
+                "business_date": "2026-09-14",
+                "confirmation_date": "2026-09-14",
+                "settlement_date": "2026-09-15",
                 "source": "atomic_valid_execution",
             }
             first = client.post(
@@ -649,6 +787,7 @@ class StrategyRecommendationTests(unittest.TestCase):
             empty_settings,
             [{"code": "510090", "name": "仅目录基金", "fund_type": "ETF"}],
             policy_version="test-catalog",
+            source_id="fund_catalog.manager_documents",
         )
         account_id = account(empty_settings, "empty")
         recommendation = create_recommendation(
@@ -688,14 +827,17 @@ class StrategyHistoricalReportTests(unittest.TestCase):
             {"code": f"51000{index}", "name": f"长周期基金{index}", "fund_type": "ETF"}
             for index in range(1, 4)
         ]
-        import_catalog(self.settings, funds, policy_version="test-catalog")
+        import_catalog(self.settings, funds, policy_version="test-catalog",
+                       source_id="fund_catalog.manager_documents")
         rows = nav_rows("2026-09-16", count=1000, mode="cycle")
         for index, fund in enumerate(funds, 1):
             add_relation_and_nav(self.settings, fund["code"], f"99000{index}", rows)
 
     def test_three_sleeve_curve_is_exact_and_every_execution_action_occurs(self):
         report = historical_strategy_report(self.settings, initial_cash="100000")
-        self.assertEqual(report["status"], "completed")
+        self.assertEqual(report["status"], "review_required")
+        self.assertFalse(report["investment_eligibility"]["investment_operations_enabled"])
+        self.assertIn("verified_total_return_missing", report["investment_eligibility"]["blockers"])
         for action in ("BUY", "ADD", "REDUCE", "EXIT"):
             self.assertGreater(report["executed_action_summary"][action], 0)
         strategy_curve = report["curves"][0]["points"]
@@ -709,6 +851,82 @@ class StrategyHistoricalReportTests(unittest.TestCase):
                 )
                 self.assertGreaterEqual(Decimal(point["cash"]), 0)
         self.assertEqual(len(strategy_curve), len(report["curves"][1]["points"]))
+        curves = {item["id"]: item["points"] for item in report["curves"]}
+        self.assertEqual(set(("strategy", "benchmark", "exposure_matched", "cash"))
+                         - set(curves), set())
+        self.assertTrue(all(Decimal(point["equity"]) == Decimal("100000")
+                            for point in curves["cash"]))
+        with localcontext() as context:
+            context.prec = report["protocol"]["decimal_precision"]
+            self.assertEqual(
+                Decimal(report["metrics"]["exposure_timing_excess_pct"]),
+                Decimal(report["metrics"]["total_return_pct"])
+                - Decimal(report["metrics"]["exposure_matched_return_pct"]),
+            )
+        self.assertEqual(report["exposure_summary"]["observation_count"], len(strategy_curve))
+        risk_quality = report["risk_quality"]
+        self.assertEqual(risk_quality["return_observations"], len(strategy_curve) - 1)
+        self.assertEqual(risk_quality["observations_per_year"], "244")
+        self.assertEqual(
+            Decimal(risk_quality["max_drawdown_pct"]),
+            Decimal(report["metrics"]["max_drawdown_pct"]),
+        )
+        self.assertEqual(risk_quality["risk_free_return_assumption_pct"], "0")
+        self.assertEqual(risk_quality["minimum_acceptable_return_assumption_pct"], "0")
+        self.assertEqual(report["holding_cycles"]["trade_count"], report["metrics"]["trade_count"])
+        scenarios = {
+            (Decimal(item["buy_fee_bps"]), Decimal(item["sell_fee_bps"])): item
+            for item in report["cost_stress"]
+        }
+        self.assertTrue({(Decimal(0), Decimal(0)), (Decimal(10), Decimal(10)),
+                         (Decimal(50), Decimal(50)), (Decimal(100), Decimal(100))}
+                        <= set(scenarios))
+        requested = scenarios[(Decimal(10), Decimal(10))]
+        self.assertTrue(requested["is_requested_scenario"])
+        self.assertEqual(Decimal(requested["final_equity"]),
+                         Decimal(report["metrics"]["final_equity"]))
+        attribution = report["economic_attribution"]
+        with localcontext() as context:
+            context.prec = report["protocol"]["decimal_precision"]
+            self.assertEqual(
+                Decimal(attribution["market_exposure_return_pct"])
+                + Decimal(attribution["signal_and_execution_before_cost_pct"])
+                + Decimal(attribution["modeled_transaction_cost_drag_pct"]),
+                Decimal(attribution["strategy_total_return_pct"]),
+            )
+
+    def test_combined_curve_uses_canonical_fund_order_for_exact_v5_reconciliation(self):
+        # At precision 40 these three finite sleeve values differ by one final
+        # digit when summed as C,A,B instead of A,B,C.  The public aggregate
+        # must use the canonical fund-code order shared by v5 attribution and
+        # its independent validator.
+        values = {
+            "A": "6790.047417836848885959141742454302745206",
+            "B": "5540.302777388590563835179231498510111680",
+            "C": "6208.915587606456411535047757498179530368",
+        }
+        results = [
+            {
+                "code": code,
+                "initial_equity": "10000",
+                "equity_curve": [{
+                    "date": "2026-01-05",
+                    "cash": "0",
+                    "market_value": value,
+                    "equity": value,
+                }],
+            }
+            for code, value in (("C", values["C"]), ("A", values["A"]), ("B", values["B"]))
+        ]
+        with localcontext() as context:
+            context.prec = 40
+            combined = _combine_curves(results)
+            expected_market = sum(
+                (Decimal(values[code]) for code in ("A", "B", "C")), Decimal(0),
+            )
+
+        self.assertEqual(Decimal(combined[0]["market_value"]), expected_market)
+        self.assertEqual(combined[0]["equity"], combined[0]["market_value"])
 
     def test_historical_report_is_independent_of_caller_decimal_precision(self):
         with localcontext() as context:

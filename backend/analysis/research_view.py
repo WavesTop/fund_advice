@@ -7,6 +7,7 @@ fund mapping, a buy amount, a probability, or investment suitability.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from backend.core.source_admission import contains_retired_source_reference
 from backend.core.relation_policy import public_source as _public_source, timestamp as _timestamp, relation_problems
 
 VIEW_VERSION = "research-view-v1"
@@ -30,12 +31,15 @@ def fund_associations(item: Mapping[str, object], *, generated_at: str) -> list[
                 or not code.isdigit() or not isinstance(name, str) or not name.strip()):
             continue
         problems = relation_problems(fund, generated_at=generated_at)
+        evidence_url = fund.get("evidence_url")
+        retired = any(contains_retired_source_reference(fund.get(field))
+                      for field in ("relation_source_id", "evidence_url", "market_source_id"))
         result.append({
             "code": code, "name": name,
             "status": "withheld" if problems else "linked",
             "relation_type": fund.get("relation_type"),
             "source_id": fund.get("relation_source_id"),
-            "evidence_url": fund.get("evidence_url") if _public_source(fund.get("evidence_url")) else None,
+            "evidence_url": evidence_url if _public_source(evidence_url) and not retired else None,
             "verified_at": fund.get("verified_at"),
             "limitations": problems + [
                 "这是已存储的指数关联，不代表该基金已通过推荐筛选。",

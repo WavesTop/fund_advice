@@ -170,6 +170,47 @@ describe('正式交易流程', () => {
     expect(posted).toMatchObject({ choice: 'deferred', planned_amount: null, fund_code: null, proposed_action: 'WAIT', cutoff: expect.any(String) });
   });
 
+  it('阻断状态下醒目展示不可直接执行的风险降低信号', async () => {
+    const recommendation = {
+      recommendation_id: 'rec-risk-alert', account_id: account.account_id,
+      strategy_version: 'strategy-v1', input_cutoff: '2026-09-18', data_as_of: '2026-09-18',
+      created_at: '2026-09-19T08:00:00Z', status: 'blocked',
+      output: {
+        expected_market_session: '2026-09-18', latest_available_data_date: '2026-09-18',
+        items: [{
+          fund_code: '008888', fund_name: '真实持仓基金', action: 'WAIT',
+          target_weight_pct: '20', current_weight_pct: '20', current_value: '2000', proposed_amount: null,
+          reason_code: 'PENDING_LEDGER_EVENTS_PRESENT', reason: '账户仍有待确认事件，暂不交易。',
+          data_quality: { status: 'ready' },
+          risk_alert: {
+            status: 'manual_price_and_evidence_review_required', label: '风险降低信号待人工核价/复核',
+            original_action: 'EXIT', original_target_weight_pct: '0', original_reason_code: 'RISK_EXIT',
+            original_reason: '价格触发风险线。', blockers: ['pending_ledger_events_present'],
+            direct_execution_allowed: false, instruction: '核验完成前不可直接成交。',
+          },
+        }],
+        limitations: [], blockers: ['pending_ledger_events_present'], warnings: [],
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/v1/portfolio/accounts') return json({ items: [account] });
+      if (url.startsWith('/api/v1/strategy/recommendations/latest')) return json({ item: recommendation, freshness: currentFreshness });
+      if (url.startsWith('/api/v1/strategy/decisions?')) return json({ account_id: account.account_id, items: [] });
+      throw new Error(`unexpected ${url}`);
+    }));
+
+    renderRoute('/advice', <StrategyAdvicePage />);
+
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText('风险降低信号待人工核价/复核')).toBeInTheDocument();
+    expect(within(alert).getByText('不可直接执行。')).toBeInTheDocument();
+    expect(within(alert).getByText(/底层信号为“清仓”/)).toBeInTheDocument();
+    expect(within(alert).getByText(/账户仍有待确认记录/)).toBeInTheDocument();
+    expect(screen.queryByText('建议变动金额', { selector: 'dt' })).toBeInTheDocument();
+    expect(screen.getAllByText('—', { selector: 'dd' })).toHaveLength(2);
+  });
+
   it('建议输入已经变化时禁用决定与成交入口并要求重算', async () => {
     let latestUrl = '';
     const recommendation = {
@@ -303,5 +344,81 @@ describe('正式交易流程', () => {
     expect(await screen.findByText('需要重新验收')).toBeInTheDocument();
     expect(screen.getByText('这份结果缺少独立验收记录')).toBeInTheDocument();
     expect(screen.queryByText('验收通过')).not.toBeInTheDocument();
+  });
+
+  it('展示投资阻断、同敞口比较、成本压力和基金数据资格', async () => {
+    const points = (end: string) => [
+      { date: '2021-01-04', equity: '100000', cash: '100000', market_value: '0', return_pct: '0', drawdown_pct: '0' },
+      { date: '2026-09-18', equity: end, cash: '90000', market_value: String(Number(end) - 90000), return_pct: String((Number(end) / 100000 - 1) * 100), drawdown_pct: '-2' },
+    ];
+    const output = {
+      version: 'integrated-fund-strategy-v3', status: 'review_required', strategy_version: 'strategy-v1',
+      start_date: '2021-01-04', end_date: '2026-09-18', input_identity: { common_observations: 1360 },
+      investment_eligibility: {
+        status: 'blocked', investment_operations_enabled: false,
+        blockers: ['verified_total_return_missing', 'walk_forward_holdout_not_completed'],
+        meaning: '当前结果只可用于规则行为与账本核验，不能证明策略可用于真实资金。',
+      },
+      universe: { items: [{
+        code: '008888', name: '真实基金', first_date: '2021-01-04', last_date: '2026-09-18', observation_count: 1360,
+        series_kind: 'nav', series_source_id: 'fund_nav.eastmoney', relation_source_id: 'fund_relations.manager_documents',
+        data_eligibility: {
+          source_id: 'fund_nav.eastmoney', return_basis: 'unit_nav_without_verified_distributions',
+          eligible_for_signal: false, eligible_for_execution: false, eligible_for_performance: false,
+          performance_blockers: ['source_not_primary_evidence', 'verified_total_return_missing'],
+        },
+        relation_eligibility: {
+          source_id: 'fund_relations.manager_documents', eligible_for_signal: true,
+          eligible_for_execution: true, eligible_for_performance: true, performance_blockers: [],
+        },
+      }] },
+      curves: [
+        { id: 'strategy', name: '综合策略', points: points('94000') },
+        { id: 'cash', name: '现金基准', points: points('100000') },
+        { id: 'benchmark', name: '同基金等权持有基准', points: points('85000') },
+        { id: 'exposure_matched', name: '同敞口等权无成本基准', points: points('99800') },
+      ],
+      metrics: { initial_equity: '100000', final_equity: '94000', total_return_pct: '-6', benchmark_return_pct: '-15', excess_return_pct: '9', max_drawdown_pct: '-11', total_fees: '1750', trade_count: 167, trades_per_fund_year: '10', exposure_matched_return_pct: '-0.2', exposure_timing_excess_pct: '-5.8' },
+      exposure_summary: { observation_count: 1360, average_exposure_pct: '7.44', median_exposure_pct: '0', full_cash_observation_days: 797, below_10_percent_exposure_days: 932 },
+      risk_quality: {
+        version: 'strategy-risk-quality-v1', return_observations: 1359,
+        observations_per_year: '244', risk_free_return_assumption_pct: '0', minimum_acceptable_return_assumption_pct: '0',
+        annualized_return_pct: '-1.1', annualized_volatility_pct: '8.2', sharpe_ratio: '-0.13', sortino_ratio: '-0.17',
+        calmar_ratio: '-0.1', max_drawdown_pct: '-11', max_drawdown_duration_observations: 217,
+        positive_return_observation_pct: '44.3', worst_observation_return_pct: '-3.8',
+      },
+      holding_cycles: { trade_count: 167, completed_cycle_count: 72, open_cycle_count: 0, median_holding_observation_days: '6', cycles_lte_10_observation_days: 51, cycles_lte_20_observation_days: 68 },
+      economic_attribution: { cash_return_pct: '0', market_exposure_return_pct: '-0.2', signal_and_execution_before_cost_pct: '-4.16', modeled_transaction_cost_drag_pct: '-1.64', strategy_total_return_pct: '-6' },
+      cost_stress: [
+        { buy_fee_bps: '0', sell_fee_bps: '0', final_equity: '95640', total_return_pct: '-4.36', total_fees: '0', trade_count: 167 },
+        { buy_fee_bps: '10', sell_fee_bps: '10', is_requested_scenario: true, final_equity: '93880', total_return_pct: '-6.12', total_fees: '1750', trade_count: 167 },
+      ],
+      action_summary: {}, executed_action_summary: {}, periods: [], trades: [],
+      diagnostics: ['investment_validation_not_eligible'], limitations: ['历史结果不保证未来收益。'],
+      validation: { status: 'review_required', blocking_errors: [], review_findings: [{ code: 'investment_validation_not_eligible', message: '真实资金门槛未满足。' }], actions: {} },
+    };
+    vi.stubGlobal('fetch', vi.fn(() => json({ item: { run_id: 'run-2', strategy_version: 'strategy-v1', created_at: '2026-09-19T08:00:00Z', start_date: output.start_date, end_date: output.end_date, calendar_basis: 'observed', status: 'review_required', output } })));
+    renderRoute('/review', <RealReviewPage />);
+
+    expect(await screen.findByText('当前结果不能用于真实资金操作')).toBeInTheDocument();
+    expect(screen.getByText('缺少含分红再投资的已核验总收益序列')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: '历史策略、现金、同基金等权持有与同敞口基准累计收益率曲线' })).toBeInTheDocument();
+    expect(screen.getByText('平均市场敞口')).toBeInTheDocument();
+    expect(screen.getByText('+7.44%')).toBeInTheDocument();
+    expect(screen.getByText('中位持有期')).toBeInTheDocument();
+    expect(screen.getByText('风险与收益质量')).toBeInTheDocument();
+    expect(screen.getByText(/年化统一假设每年 244 个观察日/)).toBeInTheDocument();
+    expect(screen.getByText('Sharpe')).toBeInTheDocument();
+    expect(screen.getByText('最长回撤期')).toBeInTheDocument();
+    expect(screen.getByText('交易费用压力测试')).toBeInTheDocument();
+    expect(screen.getByText('收益来源拆解')).toBeInTheDocument();
+    expect(screen.getByText('信号与执行路径差')).toBeInTheDocument();
+    expect(screen.getByText('本次设定')).toBeInTheDocument();
+    expect(screen.getByText('基金数据来源与使用资格')).toBeInTheDocument();
+    expect(screen.getByText('已退役历史来源（只读、不可用于交易）')).toBeInTheDocument();
+    expect(screen.queryByText('fund_nav.eastmoney')).not.toBeInTheDocument();
+    expect(screen.getByText(/跟踪关系：fund_relations.manager_documents/)).toBeInTheDocument();
+    expect(screen.getByText('单位净值（未核验分红再投资）')).toBeInTheDocument();
+    expect(screen.getByText('操作阻断')).toBeInTheDocument();
   });
 });

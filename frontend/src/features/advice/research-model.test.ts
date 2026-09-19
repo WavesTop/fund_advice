@@ -69,6 +69,9 @@ describe('real research identity and display contracts', () => {
     expect(safeReturnPath('/funds?q=test&page=2', '/funds')).toBe('/funds?q=test&page=2');
     expect(sourceHref('javascript:alert(1)')).toBeUndefined();
     expect(sourceHref('https://name:password@example.org')).toBeUndefined();
+    expect(sourceHref('https://fund.eastmoney.com/000001.html')).toBeUndefined();
+    expect(sourceHref('https://EAST-MONEY.example/source')).toBeUndefined();
+    expect(sourceHref('https://东财.example/source')).toBeUndefined();
     expect(sourceHref('https://example.org/source')).toBe('https://example.org/source');
   });
   it('uses real research by default and preserves explicitly selected legacy demonstrations', () => {

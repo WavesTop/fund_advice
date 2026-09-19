@@ -97,6 +97,20 @@ class ResearchStorageTests(unittest.TestCase):
             snap = freeze_snapshot(self.settings, [SUBJECT])
         self.assertEqual([f['revision_id'] for f in snap['manifest']['facts']], good['revision_ids'])
 
+    def test_retired_source_cannot_create_new_research_fact_or_raw_asset(self):
+        with clock(NOW):
+            for facts, url in (
+                ([numeric(source_id='fund_nav.eastmoney')], 'https://example.test/source'),
+                ([numeric()], 'https://push2.example.test/source'),
+                ([numeric(source_id='东财.基金净值')], 'https://example.test/source'),
+            ):
+                with self.subTest(facts=facts, url=url), self.assertRaisesRegex(ValueError, '已退役'):
+                    append_facts(self.settings, facts, source_url=url, raw_body=b'legacy')
+        migrate(self.settings)
+        with connection_scope(self.settings) as connection:
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM raw_asset').fetchone()[0], 0)
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM data_revision').fetchone()[0], 0)
+
     def test_bad_series_cannot_become_total_return_or_cross_calendar(self):
         fact = series(count=1)[0]
         with clock(NOW):

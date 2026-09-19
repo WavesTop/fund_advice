@@ -3,8 +3,9 @@ import unittest
 from pathlib import Path
 
 from backend.core.config import Settings
+from backend.core.errors import AppError
 from backend.storage.catalog import import_catalog, list_catalog
-from backend.storage.database import connection_scope
+from backend.storage.database import connection_scope, migrate
 
 
 class FundCatalogTests(unittest.TestCase):
@@ -19,7 +20,7 @@ class FundCatalogTests(unittest.TestCase):
         import_catalog(self.settings, [
             {"基金代码": "110022", "基金简称": "精选成长", "基金类型": "混合型"},
             {"code": "001", "name": "短债", "fund_type": "债券型"},
-        ], policy_version="test")
+        ], policy_version="test", source_id="fund_catalog.test_fixture")
         result = list_catalog(self.settings, "001", page_size=1)
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["catalog_total"], 2)
@@ -27,22 +28,42 @@ class FundCatalogTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["share_id"], "000001")
 
     def test_invalid_batch_keeps_previous_projection(self):
-        import_catalog(self.settings, [{"code": "510050", "name": "上证50", "fund_type": "ETF"}], policy_version="test")
+        import_catalog(self.settings, [{"code": "510050", "name": "上证50", "fund_type": "ETF"}],
+                       policy_version="test", source_id="fund_catalog.test_fixture")
         with self.assertRaises(Exception):
-            import_catalog(self.settings, [{"code": "bad", "name": "坏数据", "fund_type": "ETF"}], policy_version="test")
+            import_catalog(self.settings, [{"code": "bad", "name": "坏数据", "fund_type": "ETF"}],
+                           policy_version="test", source_id="fund_catalog.test_fixture")
         with connection_scope(self.settings) as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM fund_catalog_projection").fetchone()[0], 1)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM fund_catalog_import_batch").fetchone()[0], 1)
 
     def test_repeated_import_is_idempotent_and_empty_source_keeps_old_rows(self):
         rows = [{"code": "005911", "name": "科技精选", "fund_type": "股票型"}]
-        import_catalog(self.settings, rows, policy_version="test")
-        import_catalog(self.settings, rows, policy_version="test")
+        import_catalog(self.settings, rows, policy_version="test", source_id="fund_catalog.test_fixture")
+        import_catalog(self.settings, rows, policy_version="test", source_id="fund_catalog.test_fixture")
         with self.assertRaises(Exception):
-            import_catalog(self.settings, [], policy_version="test")
+            import_catalog(self.settings, [], policy_version="test", source_id="fund_catalog.test_fixture")
         with connection_scope(self.settings) as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM fund_catalog_projection").fetchone()[0], 1)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM fund_catalog_import_batch").fetchone()[0], 2)
+
+    def test_source_is_required_and_eastmoney_is_rejected_before_storage(self):
+        migrate(self.settings)
+        rows = [{"code": "510050", "name": "上证50", "fund_type": "ETF"}]
+        with self.assertRaises(TypeError):
+            import_catalog(self.settings, rows, policy_version="test")
+        for source_id in (
+            "", "   ", "fund_catalog.eastmoney", "FUND_CATALOG.EAST-MONEY",
+            "ｆｕｎｄ＿ｃａｔａｌｏｇ．ｅａｓｔｍｏｎｅｙ", "东方财富.基金目录", "东财.基金目录",
+            "fund_catalog.emdata", "fund_catalog.push2", "https://datacenter-web.example/catalog",
+        ):
+            with self.subTest(source_id=source_id):
+                with self.assertRaises(AppError) as caught:
+                    import_catalog(self.settings, rows, policy_version="test", source_id=source_id)
+                self.assertEqual(caught.exception.body.code, "catalog_source_not_allowed")
+        with connection_scope(self.settings) as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM fund_catalog_projection").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM fund_catalog_import_batch").fetchone()[0], 0)
 
     def test_pagination_boundary(self):
         with self.assertRaises(Exception):

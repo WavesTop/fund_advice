@@ -49,13 +49,19 @@ const labels: Record<string, string> = {
   blocked: '核验未通过', stale: '资料过期', membership_mismatch: '成分已变化或核验失败',
 };
 export function evidenceStatus(status: string): string { return labels[status] ?? '状态待核验'; }
+const retiredSourceMarkers = ['eastmoney', '东方财富', '东财', 'emdata', 'push2', 'datacenterweb'];
+function containsRetiredSource(value: string): boolean {
+  const normalized = value.normalize('NFKC').toLowerCase();
+  const compact = normalized.replace(/[^\p{L}\p{N}]/gu, '');
+  return retiredSourceMarkers.some((marker) => normalized.includes(marker) || compact.includes(marker));
+}
 /** Retired evidence must not be relabelled as evidence from the current provider. */
 export function hasRetiredSectorSource(evidence: SectorFundamentals): boolean {
-  if (/东方财富|eastmoney/i.test(evidence.scope)) return true;
+  if (containsRetiredSource(evidence.scope)) return true;
   return evidence.sources.some(({ url }) => {
     try {
       const host = new URL(url).hostname.toLowerCase();
-      return host === 'eastmoney.com' || host.endsWith('.eastmoney.com');
+      return containsRetiredSource(host);
     } catch {
       return false;
     }
