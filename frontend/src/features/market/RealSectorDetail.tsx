@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { EmptyState, Notice, PageHeader } from '../../shared/ui';
-import { safeReturnPath } from '../advice/research-model';
+import { safeReturnPath } from './real-market-support';
 import { OpportunityCard } from './SectorOpportunities';
 import { parseSectorDetail } from './sector-detail-model';
 import { MarketDataRefresh } from './MarketDataRefresh';
@@ -19,7 +19,7 @@ export function RealSectorDetail() {
     const controller = new AbortController();
     setState({ key, data: null, error: '' });
     if (!code || !source || (universe !== 'hot_board' && universe !== 'tracked_index')) {
-      setState({ key, data: null, error: '真实板块链接缺少有效来源或研究范围，未回退到演示板块。' });
+      setState({ key, data: null, error: '板块链接缺少有效来源或研究范围，无法确认唯一的真实板块。' });
       return () => controller.abort();
     }
     const query = new URLSearchParams({ source_id: source, universe_type: universe });

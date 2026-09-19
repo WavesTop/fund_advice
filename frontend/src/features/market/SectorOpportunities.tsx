@@ -7,7 +7,7 @@ import { SectorSummaryTable } from './SectorSummaryTable';
 import { SectorHistory } from './SectorHistory';
 import { SectorEvidencePanel } from './SectorEvidencePanel';
 import type { SectorFundamentals } from './sector-evidence-model';
-import { researchHref, subjectKey } from '../advice/research-model';
+import { researchHref, subjectKey } from './real-market-support';
 import { directoryPage } from './fund-directory-model';
 import { MarketDataRefresh } from './MarketDataRefresh';
 import { parseSectorEvaluation } from './sector-evaluation-model';

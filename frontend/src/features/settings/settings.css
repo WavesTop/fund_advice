@@ -255,6 +255,30 @@
   background: #f8fafc;
   border-style: dashed;
 }
+.settings-capability-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+.settings-capability-list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  background: #f6f8fb;
+  border-radius: 7px;
+  color: #4d657a;
+}
+.settings-capability-list svg { color: #2e7863; }
+.settings-excluded { margin-top: 18px; }
+.settings-excluded ul { line-height: 1.9; color: var(--muted); }
+@media (max-width: 560px) {
+  .settings-capability-list li { grid-template-columns: auto 1fr; }
+  .settings-capability-list code { grid-column: 2; }
+}
 @media (max-width: 959px) {
   .settings-status-banner {
     padding: 22px;

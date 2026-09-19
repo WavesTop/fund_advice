@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Badge } from '../../shared/ui';
 import type { SectorOpportunity } from './SectorOpportunities';
-import { percent, researchHref, subjectKey } from '../advice/research-model';
+import { percent, researchHref, subjectKey } from './real-market-support';
 import './sector-summary.css';
 import { priceDisplay } from './sector-history-display';
 

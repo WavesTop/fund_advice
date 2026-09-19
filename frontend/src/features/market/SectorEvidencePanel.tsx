@@ -1,5 +1,5 @@
 import { evidenceStatus, hasRetiredSectorSource, type EvidenceMetric, type SectorFundamentals } from './sector-evidence-model';
-import { sourceHref } from '../advice/research-model';
+import { sourceHref } from './real-market-support';
 import './sector-evidence.css';
 
 const names = { revenue_yoy: '营业总收入同比', profit_yoy: '归母净利润同比', operating_cashflow_yoy: '经营现金流同比' };
@@ -17,7 +17,7 @@ function Metric({ metric }: { metric?: EvidenceMetric }) {
   </>;
 }
 export function SectorEvidencePanel({ evidence, name }: { evidence?: SectorFundamentals; name: string }) {
-  if (!evidence) return <p className="notice notice-warning">{name}：当前后端尚未返回新版成分证据，请更新并重启数据服务；不会填入演示数据。</p>;
+  if (!evidence) return <p className="notice notice-warning">{name}：当前后端尚未返回新版成分证据，请更新并重启数据服务；缺失内容保持为空。</p>;
   if (hasRetiredSectorSource(evidence)) return <section className="sector-evidence-panel" aria-label={`${name}资料采集与覆盖`}>
     <h3>{name} · 资料采集与覆盖</h3>
     <p className="notice notice-warning">当前数据服务返回的来源声明与同花顺配置不一致，已暂停展示这份资料。请更新并重启数据服务后重新评估，核验来源与采集状态。</p>

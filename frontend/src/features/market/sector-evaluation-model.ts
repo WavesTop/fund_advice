@@ -1,4 +1,4 @@
-import { parseResearchResponse } from '../advice/research-model';
+import { parseResearchResponse } from './real-market-support';
 import type { OpportunitiesResponse } from './SectorOpportunities';
 
 /** Reuse research identity/evidence checks; a successful import alone is not an evaluation. */

@@ -120,6 +120,43 @@
 .portfolio-page .grid-two .notice {
   align-self: start;
 }
+.portfolio-account-select {
+  margin: 0;
+  min-width: min(360px, 100%);
+}
+.portfolio-row-actions {
+  margin: 0;
+  flex-wrap: nowrap;
+}
+.portfolio-reversed-row {
+  color: #7b8793;
+  background: #f8f9fb;
+}
+.portfolio-reversed-row td:not(:last-child) {
+  text-decoration: line-through;
+  text-decoration-color: #c7cdd5;
+}
+.portfolio-inline-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.portfolio-inline-input input {
+  flex: 1;
+}
+.portfolio-condition-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0 0 20px;
+}
+.portfolio-condition-grid > div {
+  padding: 15px;
+  background: #f6f8fb;
+  border-radius: 8px;
+}
+.portfolio-condition-grid dt { color: var(--muted); font-size: 11px; }
+.portfolio-condition-grid dd { margin: 7px 0 0; font-weight: 600; }
 .portfolio-fee-rules article {
   padding-bottom: 24px;
   margin-bottom: 24px;
@@ -185,4 +222,5 @@
     gap: 8px;
     font-size: 12px;
   }
+  .portfolio-condition-grid { grid-template-columns: 1fr; }
 }

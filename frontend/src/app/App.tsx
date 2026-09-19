@@ -29,15 +29,13 @@ import {
   ArrowUpRight,
   Menu,
   X,
-  ListTodo,
+  Database,
   Monitor,
   ChevronRight,
   CircleHelp,
 } from 'lucide-react';
-import { DemoProvider, useDemo } from '../shared/store';
-import { EmptyState, Notice } from '../shared/ui';
+import { EmptyState } from '../shared/ui';
 import './styles.css';
-import { isDemoAdvice } from '../features/advice/research-model';
 
 const FundsPage = lazy(() =>
   import('../features/market/MarketPages').then((module) => ({ default: module.FundsPage })),
@@ -52,18 +50,18 @@ const SectorDetailPage = lazy(() =>
   import('../features/market/MarketPages').then((module) => ({ default: module.SectorDetailPage })),
 );
 const PortfolioPage = lazy(() =>
-  import('../features/portfolio/PortfolioPage').then((module) => ({
-    default: module.PortfolioPage,
+  import('../features/portfolio/RealPortfolioPage').then((module) => ({
+    default: module.RealPortfolioPage,
   })),
 );
 const AdvicePage = lazy(() =>
-  import('../features/advice/AdvicePage').then((module) => ({ default: module.AdvicePage })),
+  import('../features/advice/StrategyAdvicePage').then((module) => ({ default: module.StrategyAdvicePage })),
 );
 const ReviewPage = lazy(() =>
-  import('../features/review/ReviewPage').then((module) => ({ default: module.ReviewPage })),
+  import('../features/review/RealReviewPage').then((module) => ({ default: module.RealReviewPage })),
 );
 const SettingsPage = lazy(() =>
-  import('../features/settings/SettingsPage').then((module) => ({ default: module.SettingsPage })),
+  import('../features/settings/RealSettingsPage').then((module) => ({ default: module.RealSettingsPage })),
 );
 
 const navigation = [
@@ -72,25 +70,12 @@ const navigation = [
   { to: '/advice', label: '建议与决策', caption: '让每次选择有据可循', icon: Compass },
   { to: '/review', label: '收益与复盘', caption: '比较、验证与改良', icon: ChartNoAxesCombined },
 ];
-const scenarioNotices = {
-  ready: '',
-  empty: '空数据演示：展示首次使用、资料缺失与补全入口。',
-  loading: '加载状态演示：不会自动伪装数据已下载。可在设置中切回正常场景。',
-  offline: '断网状态演示：仍可查看已有示例资料，外部更新不可执行。',
-  error: '失败状态演示：保存会失败并保留输入。请到设置切换场景后重试。',
-  stale: '资料过期演示：结果仅供界面审查，示例日期为 2026-09-11。',
-  'ai-conflict': '判断冲突演示：本地与 AI 意见分别显示，尚未形成一致结论。',
-};
 function Shell() {
-  const { state } = useDemo();
   const location = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
   const isMarket = /^\/(funds|sectors)/.test(location.pathname);
-  const isRealFundArea = location.pathname === '/funds' || location.pathname.startsWith('/funds/');
-  const isSectorOpportunityArea = location.pathname === '/sectors';
-  const isResearchArea = location.pathname === '/advice' && !isDemoAdvice(new URLSearchParams(location.search));
   const active = navigation.find((item) =>
     item.to === '/funds' ? isMarket : location.pathname.startsWith(item.to),
   );
@@ -200,33 +185,19 @@ function Shell() {
           </form>
           <Link
             className="task-link"
-            to="/settings?tab=tasks"
-            aria-label={`任务记录，${state.tasks.filter((task) => task.status === '排队中').length} 项排队`}
+            to="/settings"
+            aria-label="查看本地服务与数据状态"
           >
-            <ListTodo size={18} />
-            <span>任务记录</span>
-            {state.tasks.some((task) => task.status === '排队中') && <i />}
+            <Database size={18} />
+            <span>数据状态</span>
           </Link>
         </header>
-        <div className="demo-banner">
-          <span className="demo-tag">{isRealFundArea ? '真实基金数据' : isSectorOpportunityArea ? '板块证据观察' : isResearchArea ? '真实投资研究' : '界面演示'}</span>
-          <span>
-            {isRealFundArea
-              ? '基金目录及已采集序列来自本地数据库；未采集内容会明确留空。'
-              : isSectorOpportunityArea
-                ? '真实行情与已核验行业快照；请结合资料日期、适用范围和反证阅读。'
-                : isResearchArea
-                  ? '读取真实本地资料；历史走势、研究证据、基金关联与正式推荐分别展示。'
-                  : '虚构示例资料 · 输入仅保存在本浏览器的演示草稿中，请勿录入真实隐私或密钥。'}
-          </span>
-          {!isRealFundArea && !isSectorOpportunityArea && !isResearchArea && <Link to="/settings?tab=demo">切换演示场景 <ArrowUpRight size={13} /></Link>}
+        <div className="data-banner">
+          <span className="data-tag">本机真实数据</span>
+          <span>基金、板块、持仓、策略建议和历史验证均读取本地正式接口；资料缺失会明确保留为空。</span>
+          <Link to="/settings">核对数据状态 <ArrowUpRight size={13} /></Link>
         </div>
         <main id="main-content" className="main-content" tabIndex={-1}>
-          {state.scenario !== 'ready' && !isSectorOpportunityArea && !isRealFundArea && !isResearchArea && (
-            <Notice tone={state.scenario === 'error' ? 'error' : 'warning'}>
-              {scenarioNotices[state.scenario]} <Link to="/settings?tab=demo">切换场景</Link>
-            </Notice>
-          )}
           <Suspense
             fallback={
               <div className="page-loading" role="status">
@@ -250,7 +221,7 @@ function Shell() {
                 element={
                   <EmptyState
                     title="这个页面暂不存在"
-                    description="可以返回基金库继续浏览，已保存的演示记录仍然保留。"
+                    description="可以返回基金库继续浏览真实目录和已采集的历史资料。"
                     action={
                       <Link className="button primary" to="/funds">
                         返回基金库
@@ -265,7 +236,7 @@ function Shell() {
         <footer className="app-footer">
           <span>知衡 · 让投资判断留下依据</span>
           <span>
-            <CircleHelp size={13} /> {isRealFundArea ? '真实基金目录与本地时序数据' : '其他功能仍处于界面演示阶段'}
+            <CircleHelp size={13} /> 本地正式账本 · 可追溯建议 · 真实历史验证
           </span>
         </footer>
       </div>
@@ -285,7 +256,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
       return (
         <div className="fatal-error">
           <h1>界面遇到了问题</h1>
-          <p>已保存的演示草稿仍保留在本浏览器中。请刷新重试。</p>
+          <p>页面未能继续运行。正式数据仍保存在本地数据库中，请刷新重试。</p>
           <button className="button primary" onClick={() => window.location.reload()}>
             重新加载
           </button>
@@ -297,15 +268,11 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 const router = createBrowserRouter([
   {
     path: '*',
-    element: (
-      <DemoProvider>
-        <Shell />
-      </DemoProvider>
-    ),
+    element: <Shell />,
     errorElement: (
       <div className="fatal-error">
         <h1>页面暂时无法加载</h1>
-        <p>请重新加载页面。已保存的演示记录仍保留在浏览器中。</p>
+        <p>请重新加载页面。本地数据库中的正式记录不会受到影响。</p>
         <a className="button primary" href="/funds">
           重新打开基金库
         </a>

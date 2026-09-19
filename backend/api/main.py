@@ -42,7 +42,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health() -> dict[str, object]:
         with connection_scope(resolved) as connection:
             return {"status": "ok", "api_contract": "market-workbench-v2",
-                    "capabilities": ["fund_browse_codes", "sector_refresh_then_evaluate", "point_in_time_research_v1"],
+                    "capabilities": ["fund_browse_codes", "sector_refresh_then_evaluate", "point_in_time_research_v1",
+                                     "portfolio_ledger_v1", "strategy_execution_v1",
+                                     "strategy_atomic_execution_v2"],
                     "schema_version": migrate(resolved), "sqlite": sqlite_runtime_info(connection)}
 
     @app.get("/api/funds")
@@ -123,7 +125,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             lock.release()
 
     from backend.api.research import research_router
+    from backend.api.portfolio import portfolio_router
+    from backend.api.strategy import strategy_router
     app.include_router(research_router(resolved))
+    app.include_router(portfolio_router(resolved))
+    app.include_router(strategy_router(resolved))
     return app
 
 

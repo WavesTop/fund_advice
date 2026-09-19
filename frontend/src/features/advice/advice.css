@@ -305,3 +305,83 @@
     grid-template-columns: 1fr;
   }
 }
+.strategy-account-context .field {
+  margin: 0;
+}
+.strategy-action-legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.strategy-action-legend > div {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e7edf3;
+  border-radius: 9px;
+}
+.strategy-action-legend b {
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+}
+.strategy-action-legend span:last-child {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+}
+.strategy-recommendation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.strategy-recommendation-grid .panel {
+  margin-bottom: 0;
+  border-top: 3px solid #98a8b7;
+}
+.strategy-recommendation-grid .action-buy,
+.strategy-recommendation-grid .action-add { border-top-color: #b84e52; }
+.strategy-recommendation-grid .action-hold { border-top-color: #2e7863; }
+.strategy-recommendation-grid .action-reduce { border-top-color: #b0843d; }
+.strategy-recommendation-grid .action-exit { border-top-color: #963c48; }
+.strategy-reason {
+  min-height: 48px;
+  line-height: 1.8;
+}
+.strategy-weight-grid,
+.strategy-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+.strategy-weight-grid > div,
+.strategy-metrics > div {
+  padding: 10px 12px;
+  background: #f6f8fb;
+  border-radius: 7px;
+}
+.strategy-weight-grid dt,
+.strategy-metrics dt { color: var(--muted); font-size: 10px; }
+.strategy-weight-grid dd,
+.strategy-metrics dd { margin: 4px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.strategy-trade-link { margin-top: 16px; }
+.strategy-valuation {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.strategy-valuation > div { display: grid; gap: 6px; }
+.strategy-valuation span { color: var(--muted); font-size: 11px; }
+.strategy-valuation b { font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) {
+  .strategy-action-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .strategy-recommendation-grid { grid-template-columns: 1fr; }
+  .strategy-valuation { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .strategy-action-legend { grid-template-columns: 1fr; }
+  .strategy-valuation { grid-template-columns: 1fr; }
+}

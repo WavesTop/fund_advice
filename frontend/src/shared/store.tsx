@@ -166,9 +166,10 @@ export function useDemo() {
   return context;
 }
 export function useUnsavedChanges(dirty: boolean) {
-  const { registerUnsavedForm } = useDemo();
+  const context = useContext(DemoContext);
+  const registerUnsavedForm = context?.registerUnsavedForm;
   const id = useRef(Symbol('unsaved-form'));
   useEffect(() => {
-    if (dirty) return registerUnsavedForm(id.current);
+    if (dirty && registerUnsavedForm) return registerUnsavedForm(id.current);
   }, [dirty, registerUnsavedForm]);
 }
