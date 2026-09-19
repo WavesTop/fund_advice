@@ -158,6 +158,21 @@ export type OpportunitiesResponse = {
   coverage?: { universe_type: string; total: number; industry_current: number;
     valuation_observations: number; valuation_dated_current: number;
     price_eligible: { short: number; medium: number; long: number } }[];
+  data_support?: {
+    version: string;
+    scope: string;
+    formal_recommendation_ready: boolean;
+    note: string;
+    blocking_gaps: string[];
+    datasets: {
+      id: string;
+      label: string;
+      status: 'available' | 'partial' | 'not_collected' | 'blocked';
+      coverage: Record<string, number>;
+      required_for: string[];
+      note?: string;
+    }[];
+  };
   method_version: string;
   generated_at: string;
   items: SectorOpportunity[];
@@ -202,6 +217,10 @@ function formatPercent(value: number | null) {
 
 function heatBasisLabel(value: string) {
   return value === 'turnover_amount' ? '成交额' : value === 'source_heat' ? '源人气值' : value;
+}
+
+function supportStatusLabel(value: 'available' | 'partial' | 'not_collected' | 'blocked') {
+  return value === 'available' ? '已具备' : value === 'partial' ? '部分具备' : value === 'blocked' ? '受阻' : '尚未采集';
 }
 
 function periodFor(item: SectorOpportunity, key: SortKey) {
@@ -690,7 +709,7 @@ export function SectorOpportunities() {
           setState('ready');
         }} />
       </div>
-      <p className="muted">“重新评估”先联网采集可核验行业名单、日线和成分，再返回本次评估。当前成分的经营报表和同日估值随本次任务采集；已有参考指数仍须从关联基金详情更新，资料日期不等于评估时间。缺项或更新失败时不能视为完整投资判断。</p>
+      <p className="muted">“重新评估”先联网采集可核验行业名单、日线和成分，再返回本次评估。当前同花顺公开链路尚未接入完整的成分经营报表和带明确口径的同日估值；已有参考指数仍须从关联基金详情更新。资料日期不等于评估时间，缺项或更新失败时不能视为完整投资判断。</p>
       {data?.collection_status && <p className="muted" aria-label="板块采集任务状态">
         最近采集任务：{data.collection_status.state} · {data.collection_status.run_id || '尚未开始'}
         {taskProgress && <> · 阶段 {taskProgress.stage}
@@ -705,6 +724,19 @@ export function SectorOpportunities() {
           有效经营依据 {coverage.industry_current} 个；估值原始观察 {coverage.valuation_observations} 个，其中日期明确且未过期 {coverage.valuation_dated_current} 个。
         </p>)}
         <p>尚缺同口径历史估值、成分盈利与现金流穿透、资金申赎及催化／预期快照、完整交易日历和样本外验证；本页面不生成正式投资推荐。</p>
+      </section>}
+      {data?.data_support && <section className="sector-coverage" aria-label="板块底层数据支撑">
+        <strong>底层数据支撑</strong>
+        <p>{data.data_support.note}</p>
+        <details>
+          <summary>查看全部数据项（缺口 {data.data_support.blocking_gaps.length} 项）</summary>
+          <ul>
+            {data.data_support.datasets.map((item) => <li key={item.id}>
+              <b>{item.label}</b>：{supportStatusLabel(item.status)}
+              {item.note ? `；${item.note}` : ''}
+            </li>)}
+          </ul>
+        </details>
       </section>}
       {data?.universe && (
         <div className="sector-universe-meta">

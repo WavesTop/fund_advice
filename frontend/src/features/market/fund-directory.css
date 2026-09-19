@@ -14,6 +14,8 @@
 .real-fund-catalog .catalog-progress, .real-fund-catalog .market-pagination { flex-wrap: wrap; }
 .sector-coverage { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--border, #e4e9ee); border-radius: 10px; }
 .sector-coverage p { margin: 0; font-size: 13px; }
+.sector-coverage details { font-size: 13px; }
+.sector-coverage ul { display: grid; gap: 6px; margin: 10px 0 0; padding-left: 20px; }
 @media (max-width: 600px) {
   .fund-card-grid { padding-right: 12px; padding-left: 12px; }
   .fund-search-card { padding: 16px; }

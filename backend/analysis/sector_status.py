@@ -30,6 +30,7 @@ RISK_DRAWDOWN = Decimal("-0.10")
 STALE_DAYS = 10
 MAX_GAP_DAYS = 14
 LEGACY_SECTOR_SOURCE_MARKERS = ("east" + "money", "em" + "data", "push2" + "his", "datacenter" + "-web")
+DATA_SUPPORT_VERSION = "sector-data-support-v1"
 
 
 def _percent(value: Decimal) -> float:
@@ -162,6 +163,108 @@ def _historical_display(period: dict, as_of: str) -> dict:
             "note": "历史窗口已校验；不代表最新行情，不参与当前排名。"}
 
 
+def summarize_data_support(items: list[dict]) -> dict[str, object]:
+    """Expose the evidence denominator and material gaps behind the analysis."""
+    boards = [item for item in items if item.get("universe_type") == "hot_board"]
+    total = len(boards)
+    ready_boards = [item for item in boards if item.get("membership", {}).get("status") == "ready"]
+    members = [member for item in ready_boards for member in item["membership"].get("members", [])]
+
+    def status(available: int, denominator: int) -> str:
+        if available <= 0:
+            return "not_collected"
+        return "available" if denominator > 0 and available == denominator else "partial"
+
+    price = {
+        key: sum(any(period.get("id") == key and period.get("strength", {}).get("eligible") is True
+                     for period in item.get("periods", [])) for item in boards)
+        for key in ("short", "medium", "long")
+    }
+    operating_available = sum(
+        item.get("fundamentals", {}).get("operating", {}).get("status") == "available" for item in boards
+    )
+    operating_partial = sum(
+        item.get("fundamentals", {}).get("operating", {}).get("status") == "partial" for item in boards
+    )
+    valuation_current = sum(
+        item.get("fundamentals", {}).get("valuation", {}).get("status") == "available"
+        and item.get("fundamentals", {}).get("valuation", {}).get("as_of")
+        and (item["fundamentals"]["valuation"].get("median_pe_ttm") is not None
+             or item["fundamentals"]["valuation"].get("index_pe_ttm") is not None)
+        for item in boards
+    )
+    valuation_history = sum(
+        item.get("fundamentals", {}).get("valuation", {}).get("percentile") is not None for item in boards
+    )
+    catalyst_available = sum(
+        item.get("fundamentals", {}).get("catalysts", {}).get("status") == "available" for item in boards
+    )
+    market_caps = sum(member.get("market_cap") is not None for member in members)
+    weights = sum(member.get("weight") is not None for member in members)
+    datasets = [
+        {"id": "sector_price_history", "label": "板块日线与三周期窗口",
+         "status": "available" if total and all(value == total for value in price.values()) else "partial" if any(price.values()) else "not_collected",
+         "coverage": {**price, "total": total}, "required_for": ["short", "medium", "long"]},
+        {"id": "current_constituents", "label": "当前行业成分",
+         "status": status(len(ready_boards), total),
+         "coverage": {"boards": len(ready_boards), "total_boards": total, "members": len(members)},
+         "required_for": ["medium", "long", "valuation"]},
+        {"id": "constituent_market_cap", "label": "成分流通市值",
+         "status": status(market_caps, len(members)),
+         "coverage": {"members": market_caps, "total_members": len(members)},
+         "required_for": ["sample_quality"],
+         "note": "流通市值不是同花顺官方行业权重。"},
+        {"id": "official_constituent_weights", "label": "官方成分权重与历史成分",
+         "status": status(weights, len(members)),
+         "coverage": {"members": weights, "total_members": len(members)},
+         "required_for": ["weighted_fundamentals", "historical_replay"]},
+        {"id": "constituent_financials", "label": "成分收入、利润与经营现金流",
+         "status": "available" if total and operating_available == total else "partial" if operating_available or operating_partial else "not_collected",
+         "coverage": {"available_boards": operating_available, "partial_boards": operating_partial,
+                      "total_boards": total}, "required_for": ["medium", "long"]},
+        {"id": "constituent_quote_valuation", "label": "成分股带日期行情与原始估值字段",
+         "status": "not_collected", "coverage": {"boards": 0, "total_boards": total},
+         "required_for": ["valuation", "sample_quality"],
+         "note": "普通成分页的“市盈率”尚未核验类型、业务日期和亏损处理。"},
+        {"id": "dated_valuation", "label": "有明确口径和业务日期的估值",
+         "status": status(valuation_current, total),
+         "coverage": {"boards": valuation_current, "total_boards": total},
+         "required_for": ["long", "pricing"]},
+        {"id": "comparable_valuation_history", "label": "同成分同口径估值历史",
+         "status": status(valuation_history, total),
+         "coverage": {"boards": valuation_history, "total_boards": total},
+         "required_for": ["valuation_percentile", "long"]},
+        {"id": "market_breadth_and_flow", "label": "上涨家数、成交扩散与资金流口径",
+         "status": "not_collected", "coverage": {"boards": 0, "total_boards": total},
+         "required_for": ["short", "crowding"]},
+        {"id": "benchmark_relative_return", "label": "相对宽基收益、波动与回撤",
+         "status": "not_collected", "coverage": {"boards": 0, "total_boards": total},
+         "required_for": ["short", "medium", "risk"]},
+        {"id": "total_return_adjustments", "label": "分红拆分与总收益口径",
+         "status": "not_collected", "coverage": {"boards": 0, "total_boards": total},
+         "required_for": ["relative_return", "historical_replay"],
+         "note": "当前板块日线为不复权价格序列。"},
+        {"id": "point_in_time_catalysts", "label": "催化、预期与失效事件快照",
+         "status": status(catalyst_available, total),
+         "coverage": {"boards": catalyst_available, "total_boards": total},
+         "required_for": ["short", "medium"]},
+        {"id": "industry_specific_metrics", "label": "金融及行业专属经营指标",
+         "status": "not_collected", "coverage": {"boards": 0, "total_boards": total},
+         "required_for": ["medium", "long"]},
+        {"id": "fund_exposure_and_cost", "label": "基金真实暴露、跟踪与成本",
+         "status": "not_collected", "coverage": {"boards": 0, "total_boards": total},
+         "required_for": ["fund_selection", "formal_recommendation"]},
+    ]
+    return {
+        "version": DATA_SUPPORT_VERSION,
+        "scope": "tonghuashun_industry_pool",
+        "datasets": datasets,
+        "blocking_gaps": [row["id"] for row in datasets if row["status"] != "available"],
+        "formal_recommendation_ready": False,
+        "note": "覆盖率说明底层资料是否存在及是否完整，不是投资评分；未采集项不会由价格走势代填。",
+    }
+
+
 def sector_opportunities(settings: Settings) -> dict[str, object]:
     from backend.storage.sector_heat import read_sector_heat
 
@@ -255,6 +358,7 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     return {"collection_status": _current_collection_status(settings),
             "method_version": "sector-horizons-v1", "price_method_version": METHOD_VERSION,
             "strength_method_version": "common-grid-quartile-v3", "coverage": coverage,
+            "data_support": summarize_data_support(items),
             "price_cutoff": price_cutoff.isoformat(),
             "calendar_status": "ready" if calendar_error is None else "unsupported_range",
             "calendar_version": calendar.version, "calendar_hash": calendar.hash, "calendar_error": calendar_error,

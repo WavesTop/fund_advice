@@ -3,7 +3,7 @@
 - 更新日期：2026-09-16
 - 对应范围：[整体技术架构](technical-architecture.md) §3.2。
 - 文档状态：开发设计稿；定义本阶段实现、接口及验收要求，不表示真实数据接入已经完成。
-- 需求依据：[产品目标与用户流程](product-goals-and-user-flow.md)、[界面展示与交互开发文档](ui-interaction-design.md)。
+- 需求依据：[产品目标与用户流程](product-goals-and-user-flow.md)、[界面展示与交互开发文档](ui-interaction-design.md)、[板块分析底层数据支撑](sector-analysis-data-support.md)。
 - 当前基础：§3.1 已实现 React 界面与演示交互；后端已有 FastAPI／SQLite、真实目录和部分净值／行情接入；新增的三类事实版本、system_as_of 快照及有限日历实现见 §1.5；完整身份、公开历史重建和披露链仍待实现。本文沿用 Python + FastAPI、SQLite、本地文件及一个本机任务进程，不改变整体架构。
 
 ## 1. 本阶段目标与边界
@@ -55,7 +55,7 @@ MW1 历史切片复用现有目录、行业、基金行情和关系存储，当�
 | 目录 `items[].related_sectors` | 批量查询本页基金的全部关系核验记录；只为唯一当前已核验关系返回一个目标，字段为代码、名称、行情来源、`universe_type=tracked_index`、关系来源、证据 URL 与带时区核验时间。`relation_status` 为 `linked/withheld/missing`，其他情况返回空目标和原因；不逐卡请求全量日线，不按名称补关系。 |
 | `GET /api/sectors/{code}?source_id=&universe_type=` | 精确定位现有研究对象，返回 `item/generated_at/method_version`；对象非唯一或不存在返回 404，参数缺失／非法由 API 拒绝；与真实日线接口采用同一身份条件。未采集 `updated_at=null` 可以展示缺项。 |
 | `POST /api/funds/catalog/refresh` | 经现有来源注册表核验后，复用目录 CLI 的同一获取／校验／导入函数，更新基金份额身份；不下载全库净值。 |
-| `POST /api/sectors/refresh` | 复用 `refresh_sector_heat(..., industry_only=True)`，采集行业目录、日线及成分，随后在同一次请求、同一目标互斥范围内计算评估，返回 `refresh/evaluation/api_contract`；不更新人工经营／估值配置和既有参考指数。 |
+| `POST /api/sectors/refresh` | 复用 `refresh_sector_heat(..., industry_only=True)`，采集行业目录、日线及普通分页可完整核验的成分，随后在同一次请求、同一目标互斥范围内计算评估，返回 `refresh/evaluation/api_contract`；超过 100 只成分且第 6 页受限的行业保持失败分母，不发布前 100 只伪完整名单；不更新人工经营／估值配置和既有参考指数。 |
 | `GET /health` | 增加 `api_contract=market-workbench-v2` 和浏览代码选择／采集后评估能力；开发服务复用前核对协议，不能仅凭 status=ok 复用旧后端。 |
 
 POST 的 `refresh` 含目标、起止时间、`success/partial/failed`、说明及对应数量；行业 POST 另外返回本次 `evaluation`，计算失败返回 500／`market_evaluation_failed`，不能只凭采集成功判断评估成功。行业结果分列日线／成分成功和失败数、条目原因、榜单日期，且 `manual_evidence_refreshed=false`。计数保留冻结的纳入目标 `requested_count`，不缩小到实际返回条数冒充完整；分列 `catalog_count` 和身份未纳入数，纳入子集成功不代表市场全部行业。无有效日线不是成功；部分来源成功时可发布已有提交，但不宣称整个行业池最新。
