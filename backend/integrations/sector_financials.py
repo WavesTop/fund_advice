@@ -273,7 +273,7 @@ def collect_sector_fundamentals(settings: Settings, boards: list[dict], *, fetch
             if current_members:
                 errors = [
                     f"当前同花顺行业成分股已取得（{identity['count']}只）。",
-                    "尚未接入同花顺公开个股报表与带明确口径、日期的估值适配器；不使用已移除的东方财富接口替代。",
+                    "尚未接入同花顺公开个股报表与带明确口径、日期的估值适配器。",
                 ]
                 datasets = [
                     {"dataset": "constituents", "business_date": cutoff, "state": "available",

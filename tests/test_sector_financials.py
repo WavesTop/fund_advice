@@ -284,6 +284,76 @@ class SectorFinancialTests(unittest.TestCase):
         c=context_from_bundle(self.read(),NOW,board=b)
         self.assertFalse(c['usable']);self.assertIn('成分身份变化',c['errors'][0])
 
+    def test_retired_source_cannot_be_relabeled_or_used_even_with_matching_members(self):
+        self.gather()
+        current = self.read()
+        for provenance in (
+            {'scope': '当前东方财富成分样本（非官方指数加权）'},
+            {'sources': [{'url': 'https://datacenter-web.eastmoney.com/api/data/v1/', 'asset_id': 'old'}]},
+            {'source_id': 'financials.eastmoney'},
+        ):
+            with self.subTest(provenance=provenance):
+                bundle = {**copy.deepcopy(current), **provenance}
+                original = copy.deepcopy(bundle)
+                context = context_from_bundle(bundle, NOW, board=board())
+                self.assertFalse(context['usable'])
+                self.assertEqual(context['status'], 'blocked')
+                self.assertEqual(context['scope'], '旧来源证据已停用')
+                self.assertFalse(context['operating']['periods'])
+                self.assertFalse(context['sources'])
+                self.assertNotIn('median_pe_ttm', context['valuation'])
+                self.assertEqual(context['valuation']['history_count'], 0)
+                periods = analyze_index(board()['rows'], as_of=get_calendar().latest_completed(NOW))['periods']
+                decisions = [evaluate_period(period, context) for period in periods]
+                self.assertEqual(decisions[1]['label'], '中期业绩待确认')
+                self.assertEqual(decisions[2]['label'], '长期依据待补齐')
+                self.assertNotIn('东方财富', json.dumps(decisions, ensure_ascii=False))
+                self.assertEqual(bundle, original)
+
+    def test_retired_valuation_history_is_excluded_without_rewriting_audit_records(self):
+        self.gather()
+        old = self.read()
+        old['sources'] = [{'url': 'https://data.eastmoney.com/valuation', 'asset_id': 'old'}]
+        old['valuation']['as_of'] = '2026-09-15'
+        old['valuation']['median_pe_ttm'] = '999'
+        old.pop('observation_id')
+        old.pop('observed_at')
+        saved = save_observation(self.settings, old)
+        self.gather()
+        current = self.read()
+        self.assertEqual([(row['as_of'], row['value']) for row in current['valuation_history']],
+                         [('2026-09-16', '25')])
+        with connection_scope(self.settings) as conn:
+            raw = conn.execute('SELECT payload_json FROM sector_fundamental_observation WHERE id=?',
+                               (saved['observation_id'],)).fetchone()[0]
+        self.assertEqual(json.loads(raw), old)
+
+    def test_old_disabled_provider_notice_is_not_mistaken_for_source_evidence(self):
+        collect_sector_fundamentals(self.settings, [board()], now=NOW)
+        old = self.read()
+        old['errors'].append('尚未接入同花顺公开个股报表与带明确口径、日期的估值适配器；不使用已移除的东方财富接口替代。')
+        original = copy.deepcopy(old)
+        context = context_from_bundle(old, NOW, board=board())
+        self.assertEqual(context['scope'], '当前同花顺行业成分样本（非官方指数加权）')
+        self.assertEqual(context['total_members'], 2)
+        self.assertNotIn('东方财富', json.dumps(context, ensure_ascii=False))
+        self.assertIn('估值适配器', ' '.join(context['errors']))
+        self.assertEqual(old, original)
+
+    def test_opportunities_and_detail_withhold_retired_evidence(self):
+        self.publish_prices(); self.gather()
+        old = self.read()
+        old['sources'] = [{'url': 'https://data.eastmoney.com/old', 'asset_id': 'old'}]
+        save_observation(self.settings, old)
+        with ASGITestClient(create_app(self.settings)) as client:
+            overview = client.get('/api/sectors/opportunities').json()
+            detail = client.get('/api/sectors/BK0732?source_id=sector_daily.ths&universe_type=hot_board').json()
+        for item in (overview['items'][0], detail['item']):
+            self.assertFalse(item['fundamentals']['usable'])
+            self.assertFalse(item['fundamentals']['sources'])
+            self.assertEqual(item['periods'][1]['opportunity']['label'], '中期业绩待确认')
+            self.assertNotIn('eastmoney', json.dumps(item, ensure_ascii=False))
+
     def test_stale_evidence_not_counted_as_current(self):
         self.gather();c=context_from_bundle(self.read(),NOW+timedelta(days=7),board=board())
         self.assertFalse(c['usable']);self.assertNotEqual(c['valuation']['status'],'available')

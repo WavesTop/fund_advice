@@ -95,7 +95,7 @@ export function ResearchAdvicePage() {
     </nav>
     <Notice title="真实研究入口 · 正式投资推荐尚未完成">
       此页不使用虚构基金或随机走势。走势观察、投资研究、基金关联分别展示；不会生成买卖指令、目标金额或上涨概率。
-      重新评估会采集行业行情、当前成分公司的经营和同日估值，再计算三周期判断；参考指数及旧人工背景不在此批量采集范围，也不调用 AI。
+      重新评估会采集同花顺行业名单、行情和成分，再计算三周期判断；成分股经营报表与带明确日期、口径的估值尚未接入，刷新暂不能补齐。参考指数及旧人工背景不在此批量采集范围，也不调用 AI。
     </Notice>
     <form className="research-search" onSubmit={(event) => {
       event.preventDefault();

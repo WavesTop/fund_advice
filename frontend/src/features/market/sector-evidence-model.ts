@@ -49,6 +49,18 @@ const labels: Record<string, string> = {
   blocked: '核验未通过', stale: '资料过期', membership_mismatch: '成分已变化或核验失败',
 };
 export function evidenceStatus(status: string): string { return labels[status] ?? '状态待核验'; }
+/** Retired evidence must not be relabelled as evidence from the current provider. */
+export function hasRetiredSectorSource(evidence: SectorFundamentals): boolean {
+  if (/东方财富|eastmoney/i.test(evidence.scope)) return true;
+  return evidence.sources.some(({ url }) => {
+    try {
+      const host = new URL(url).hostname.toLowerCase();
+      return host === 'eastmoney.com' || host.endsWith('.eastmoney.com');
+    } catch {
+      return false;
+    }
+  });
+}
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

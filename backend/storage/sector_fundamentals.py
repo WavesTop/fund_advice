@@ -11,6 +11,31 @@ from backend.storage.research import canonical, digest, subject_key, utc_now
 VERSION = "sector-fundamentals-v1"
 
 
+def has_retired_source(payload: dict) -> bool:
+    """Check provenance, not diagnostics that may describe a disabled provider."""
+    fields = {"source_id", "subject_key", "scope", "sources", "source_url", "evidence_url"}
+
+    def contains(value):
+        if isinstance(value, str):
+            return any(marker in value.lower() for marker in
+                       ("eastmoney", "emdata", "push2his", "datacenter-web", "东方财富"))
+        if isinstance(value, dict):
+            return any(contains(item) for item in value.values())
+        if isinstance(value, list):
+            return any(contains(item) for item in value)
+        return False
+
+    def inspect(value):
+        if isinstance(value, dict):
+            return any(contains(item) if key in fields else inspect(item)
+                       for key, item in value.items())
+        if isinstance(value, list):
+            return any(inspect(item) for item in value)
+        return False
+
+    return inspect(payload)
+
+
 def membership_identity(board: dict) -> dict:
     membership = board.get("membership", {})
     members = membership.get("members", [])
@@ -70,7 +95,8 @@ def known_observations(connection, subjects: list[str], cutoff: str) -> dict[str
         key = row["subject_key"]
         result[key] = {**payload, "observation_id": row["id"], "observed_at": row["observed_at"]}
         valuation = payload.get("valuation", {})
-        if valuation.get("status") == "available" and valuation.get("median_pe_ttm") is not None:
+        if (not has_retired_source(payload) and valuation.get("status") == "available"
+                and valuation.get("median_pe_ttm") is not None):
             # One actual observation per date; no backfilling today's members into old years.
             basis = (payload.get("membership_hash"), tuple(valuation.get("positive_codes", [])))
             histories.setdefault(key, {})[(basis, valuation["as_of"])] = {

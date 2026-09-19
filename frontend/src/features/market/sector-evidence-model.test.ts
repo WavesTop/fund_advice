@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evidenceStatus, parseSectorFundamentals } from './sector-evidence-model';
+import { evidenceStatus, hasRetiredSectorSource, parseSectorFundamentals } from './sector-evidence-model';
 import { evidenceFixture } from './sector-evidence-fixtures';
 
 describe('collected sector evidence contract', () => {
@@ -29,5 +29,18 @@ describe('collected sector evidence contract', () => {
   });
   it('rejects unknown collection status instead of silently displaying available', () => {
     expect(() => parseSectorFundamentals({ ...evidenceFixture(), status: 'success-guessed' })).toThrow();
+  });
+  it('recognizes retired scope and source hosts without relabelling the payload', () => {
+    const evidence = evidenceFixture();
+    evidence.scope = '当前东方财富成分样本';
+    expect(hasRetiredSectorSource(evidence)).toBe(true);
+    expect(evidence.scope).toBe('当前东方财富成分样本');
+    evidence.scope = '当前同花顺成分样本';
+    evidence.sources = [{ url: 'https://push2.eastmoney.com/api/qt', asset_id: 'old-source' }];
+    expect(hasRetiredSectorSource(evidence)).toBe(true);
+    evidence.sources[0].url = 'https://q.10jqka.com.cn/thshy/detail/code/881121/';
+    expect(hasRetiredSectorSource(evidence)).toBe(false);
+    evidence.sources[0].url = 'https://example.test/?archive=eastmoney.com';
+    expect(hasRetiredSectorSource(evidence)).toBe(false);
   });
 });

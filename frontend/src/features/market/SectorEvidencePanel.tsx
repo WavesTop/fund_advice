@@ -1,4 +1,4 @@
-import { evidenceStatus, type EvidenceMetric, type SectorFundamentals } from './sector-evidence-model';
+import { evidenceStatus, hasRetiredSectorSource, type EvidenceMetric, type SectorFundamentals } from './sector-evidence-model';
 import { sourceHref } from '../advice/research-model';
 import './sector-evidence.css';
 
@@ -18,7 +18,12 @@ function Metric({ metric }: { metric?: EvidenceMetric }) {
 }
 export function SectorEvidencePanel({ evidence, name }: { evidence?: SectorFundamentals; name: string }) {
   if (!evidence) return <p className="notice notice-warning">{name}：当前后端尚未返回新版成分证据，请更新并重启数据服务；不会填入演示数据。</p>;
+  if (hasRetiredSectorSource(evidence)) return <section className="sector-evidence-panel" aria-label={`${name}资料采集与覆盖`}>
+    <h3>{name} · 资料采集与覆盖</h3>
+    <p className="notice notice-warning">当前数据服务返回的来源声明与同花顺配置不一致，已暂停展示这份资料。请更新并重启数据服务后重新评估，核验来源与采集状态。</p>
+  </section>;
   const v = evidence.valuation;
+  const isThsScope = evidence.scope.startsWith('当前同花顺');
   return <section className="sector-evidence-panel" aria-label={`${name}资料采集与覆盖`}>
     <h3>{name} · 资料采集与覆盖</h3>
     <p><strong>{evidenceStatus(evidence.status)}</strong> · 系统观察时间 {evidence.observed_at || '尚无记录'} · 成分快照 {dateText(evidence.membership_as_of)}</p>
@@ -31,8 +36,11 @@ export function SectorEvidencePanel({ evidence, name }: { evidence?: SectorFunda
       <tbody>{evidence.operating.periods.map((period) => <tr key={period.report_date}>
         <th>{period.report_date}<small>对照 {period.base_report_date || '原事实注明的同比基期'}</small></th>
         {Object.keys(names).map((key) => <td key={key}><Metric metric={period.metrics[key]} /></td>)}
-      </tr>)}</tbody></table></div> : <p>未取得可比经营样本。重新评估会尝试获取当前成分的报表，而不再只更新行情。</p>}
+      </tr>)}</tbody></table></div> : <p>未取得可比经营样本。{isThsScope && '当前同花顺采集链路尚未接入成分股财报，重新评估暂不能补齐这项资料。'}</p>}
     <h4>同日估值 · {evidenceStatus(v.status)}</h4>
+    {v.index_pe_ttm == null && v.median_pe_ttm == null && <p>{isThsScope
+      ? '当前同花顺采集链路尚未接入带业务日期和明确口径的估值，重新评估暂不能补齐这项资料。'
+      : '未取得带业务日期和明确口径的估值资料。'}</p>}
     <dl className="sector-evidence-values">
       <div><dt>估值业务日期</dt><dd>{dateText(v.as_of)}</dd></div>
       <div><dt>{v.index_pe_ttm !== undefined ? '已核验指数PE' : '正PE成分中位数（非板块PE）'}</dt><dd>{v.index_pe_ttm != null || v.median_pe_ttm != null ? `${Number(v.index_pe_ttm ?? v.median_pe_ttm).toFixed(2)} 倍` : '未取得'}</dd></div>

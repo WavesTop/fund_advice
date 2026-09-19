@@ -25,7 +25,11 @@ function localDataService() {
       }
       child = spawn(
         'uv',
-        ['run', '--locked', '--offline', 'uvicorn', 'backend.api.main:app', '--host', '127.0.0.1', '--port', '8000'],
+        [
+          'run', '--locked', '--offline', 'uvicorn', 'backend.api.main:app', '--host', '127.0.0.1', '--port', '8000',
+          '--reload', '--reload-dir', resolve(import.meta.dirname, '../backend'),
+          '--reload-dir', resolve(import.meta.dirname, '../scripts'),
+        ],
         { cwd: resolve(import.meta.dirname, '..'), stdio: 'inherit' },
       );
       const stop = () => {

@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from backend.core.trading_calendar import SHANGHAI, day, get_calendar
-from backend.storage.sector_fundamentals import membership_identity
+from backend.storage.sector_fundamentals import has_retired_source, membership_identity
 
 VERSION = "sector-horizons-v1"
 MAX_REPORT_AGE_DAYS = 185
@@ -40,11 +40,22 @@ def context_from_bundle(bundle: dict | None, now: datetime, *, board: dict | Non
              "specialist_financial": any(word in name for word in SPECIALIST_FINANCIAL_NAMES)}
     if not bundle:
         return empty
+    if has_retired_source(bundle):
+        return {**empty, "scope": "旧来源证据已停用", "status": "blocked", "usable": False,
+                "observation_id": bundle.get("observation_id"), "observed_at": bundle.get("observed_at"),
+                "operating": {"status": "blocked", "periods": []},
+                "valuation": {**empty["valuation"], "status": "blocked"},
+                "errors": ["这份证据的来源声明与当前同花顺行业范围不一致，未用于经营、估值或趋势判断。"]}
     import copy
     context = {**empty, **copy.deepcopy({key: bundle[key] for key in
         ("status", "observed_at", "membership_as_of", "total_members", "operating", "valuation", "sources", "errors", "limitations") if key in bundle})}
     context["observation_id"] = bundle.get("observation_id")
     context["membership_hash"] = bundle.get("membership_hash")
+    # Presentation-only migration of a known capability notice. Stored source facts
+    # and append-only audit records remain unchanged; provenance is checked above.
+    old_notice = "尚未接入同花顺公开个股报表与带明确口径、日期的估值适配器；不使用已移除的东方财富接口替代。"
+    context["errors"] = ["尚未接入同花顺公开个股报表与带明确口径、日期的估值适配器。"
+                         if error == old_notice else error for error in context["errors"]]
     problem = None
     if context["status"] == "collecting":
         problem = "本轮经营估值采集尚未完成（服务中断后也不会自动改为成功）"

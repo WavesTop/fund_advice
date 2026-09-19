@@ -17,6 +17,8 @@ def main() -> int:
             [
                 "uv", "run", "--locked", "--offline", "uvicorn",
                 "backend.api.main:app", "--host", "127.0.0.1", "--port", "8000",
+                "--reload", "--reload-dir", str(ROOT / "backend"),
+                "--reload-dir", str(ROOT / "scripts"),
             ],
             cwd=ROOT,
         ),
