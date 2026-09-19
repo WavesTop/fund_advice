@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 from backend.core.trading_calendar import SHANGHAI, get_calendar
 
 NOW = datetime(2026, 9, 17, 10, 0, tzinfo=SHANGHAI)
-SUBJECT = "hot_board:sector_daily.eastmoney:BK0732"
+SUBJECT = "hot_board:sector_daily.ths:BK0732"
 CODES = ("600547", "600489")
 
 
@@ -25,10 +25,10 @@ def board():
         price = Decimal(100) + Decimal(index) / 10
         rows.append({"date": session.isoformat(), "open": str(price), "close": str(price),
                      "high": str(price + 1), "low": str(price - 1), "volume": "10000", "amount": "1000000"})
-    return {"code": "BK0732", "name": "贵金属", "kind": "行业", "source_id": "sector_daily.eastmoney",
+    return {"code": "BK0732", "name": "贵金属", "kind": "行业", "source_id": "sector_daily.ths",
             "heat_rank": 1, "heat_value": "1000000", "heat_updated_at": "2026-09-16T08:00:00Z",
             "updated_at": "2026-09-16T08:10:00Z", "collection_error": None, "universe_type": "hot_board",
-            "history_source_id": "sector_daily.eastmoney", "history_source_code": "90.BK0732", "rows": rows,
+            "history_source_id": "sector_daily.ths", "history_source_code": "bk_BK0732", "rows": rows,
             "membership": {"status": "ready", "as_of": "2026-09-16", "fetched_at": "2026-09-16T08:10:00Z",
                            "member_count": 2, "error": None, "members": [
                                {"stock_code": code, "stock_name": f"合成公司{index}", "market": 1, "source_order": index}

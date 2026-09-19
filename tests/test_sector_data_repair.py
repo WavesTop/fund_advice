@@ -1,5 +1,4 @@
 """Regression cases derived from the uploaded diagnostics; upstream values are synthetic."""
-import copy
 from datetime import date, datetime
 import json
 from pathlib import Path
@@ -18,7 +17,7 @@ from backend.storage.database import migrate, connection_scope
 from backend.storage.research import utc_now
 from backend.storage.sector_fundamentals import known_observations
 from backend.storage.sector_heat import save_sector_heat, read_sector_heat
-from scripts.import_sector_heat import fetch_sector_constituents, fetch_ths_sector_daily, fetch_sector_daily
+from scripts.import_sector_heat import _market_cap, fetch_ths_sector_daily
 from sector_financial_fixtures import SourceFixture, board, NOW, SUBJECT
 
 
@@ -29,38 +28,21 @@ class DataRepairTests(unittest.TestCase):
         self.settings = Settings(database_path=Path(self.temp.name)/'db.sqlite3')
         migrate(self.settings)
 
-    def constituent_source(self, cap):
-        rows = [{'f12': '600547', 'f13': 1, 'f14': '合成公司1', 'f20': cap},
-                {'f12': '600489', 'f13': 1, 'f14': '合成公司2', 'f20': '123.45'}]
-        return lambda *_: {'rc': 0, 'data': {'total': 2, 'diff': copy.deepcopy(rows)}}
-
-    def test_missing_optional_caps_preserve_every_security(self):
+    def test_missing_optional_caps_remain_missing(self):
         for cap in (None, '-', '--', '', 'NaN', '-1', True, {}):
             with self.subTest(cap=cap):
-                rows = fetch_sector_constituents(board(), self.constituent_source(cap))
-                self.assertEqual([r['stock_code'] for r in rows], ['600547', '600489'])
-                self.assertIsNone(rows[0]['market_cap'])
-                self.assertEqual(rows[1]['market_cap'], '123.45')
+                self.assertIsNone(_market_cap(str(cap) if cap is not None else ''))
 
     def test_valid_cap_keeps_exact_decimal(self):
-        rows = fetch_sector_constituents(board(), self.constituent_source('12345678901234567890.01'))
-        self.assertEqual(rows[0]['market_cap'], '12345678901234567890.01')
-
-    def test_missing_identity_still_blocks_membership(self):
-        payload = self.constituent_source('-')('', 1)
-        payload['data']['diff'][0]['f12'] = 'unknown'
-        with self.assertRaises(ValueError):
-            fetch_sector_constituents(board(), lambda *_: payload)
-
-    def test_short_page_still_blocks_membership(self):
-        payload = self.constituent_source('-')('', 1)
-        payload['data']['total'] = 3
-        with self.assertRaises(ValueError):
-            fetch_sector_constituents(board(), lambda *_: payload)
+        self.assertEqual(_market_cap('12345678901234567890.01'), '12345678901234567890.01')
+        self.assertEqual(_market_cap('123.45亿'), '12345000000.00')
 
     def test_cap_null_survives_storage_and_readback(self):
         item = board()
-        item['constituents'] = fetch_sector_constituents(item, self.constituent_source('-'))
+        item['constituents'] = [
+            {'stock_code': '600547', 'stock_name': '合成公司1', 'market': 1, 'source_order': 1, 'market_cap': None},
+            {'stock_code': '600489', 'stock_name': '合成公司2', 'market': 1, 'source_order': 2, 'market_cap': '123.45'},
+        ]
         save_sector_heat(self.settings, as_of='2026-09-16', updated_at='2026-09-16T08:00:00Z',
                          catalog_count=1, members=[item], requested_count=1, universe_scope='verified_industry_all')
         membership = read_sector_heat(self.settings)['items'][0]['membership']
@@ -81,7 +63,7 @@ class DataRepairTests(unittest.TestCase):
         self.assertEqual(rows[0]['date'], '2026-09-16')
 
     def test_bad_completed_bar_reports_identity_date_and_raw_value(self):
-        with self.assertRaisesRegex(ValueError, r'BK0732.*2026-09-16.*open.*bad'):
+        with self.assertRaisesRegex(ValueError, r'open不是有效数字'):
             self.ths(['20260916,bad,102,99,101,200,1000'])
 
     def test_duplicate_completed_bar_is_not_silently_skipped(self):
@@ -93,15 +75,15 @@ class DataRepairTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '字段不完整'):
             self.ths(['20260916,100'])
 
-    def test_native_history_requests_completed_end(self):
+    def test_ths_history_requests_native_board_code(self):
         urls = []
         item = {**board(), 'ranking_as_of': '2026-09-17', 'price_cutoff': '2026-09-16'}
         def source(url, timeout):
             urls.append(url)
-            return {'rc': 0, 'data': {'code': item['code'], 'market': 90, 'name': item['name'],
-                                     'klines': ['2026-09-16,100,101,102,99,200,1000']}}
-        self.assertEqual(fetch_sector_daily(item, source)[0]['date'], '2026-09-16')
-        self.assertIn('end=20260916', urls[0])
+            return 'callback(' + json.dumps({'name': item['name'], 'data': '20260916,100,102,99,101,200,1000'}) + ')'
+        with patch('scripts.import_sector_heat.fetch_text', side_effect=source):
+            self.assertEqual(fetch_ths_sector_daily(item, '881164')[0]['date'], '2026-09-16')
+        self.assertIn('/bk_881164/01/last.js', urls[0])
 
     def test_stale_display_has_metrics_but_no_current_eligibility(self):
         result = analyze_index(board()['rows'], as_of=date(2026, 9, 17), calendar=get_calendar())

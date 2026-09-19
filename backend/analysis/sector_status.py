@@ -29,10 +29,32 @@ MOVE_THRESHOLD = Decimal("0.01")
 RISK_DRAWDOWN = Decimal("-0.10")
 STALE_DAYS = 10
 MAX_GAP_DAYS = 14
+LEGACY_SECTOR_SOURCE_MARKERS = ("east" + "money", "em" + "data", "push2" + "his", "datacenter" + "-web")
 
 
 def _percent(value: Decimal) -> float:
     return float((value * 100).quantize(Decimal("0.01")))
+
+
+def _contains_legacy_sector_source(value: object) -> bool:
+    if isinstance(value, str):
+        lowered = value.lower()
+        return any(marker in lowered for marker in LEGACY_SECTOR_SOURCE_MARKERS) or ("东方" + "财富") in value
+    if isinstance(value, Mapping):
+        return any(_contains_legacy_sector_source(item) for item in value.values())
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return any(_contains_legacy_sector_source(item) for item in value)
+    return False
+
+
+def _current_collection_status(settings: Settings) -> dict[str, object]:
+    from backend.storage.collection_runs import latest_sector_status
+
+    status = latest_sector_status(settings)
+    if _contains_legacy_sector_source(status.get("result")):
+        return {**status, "state": "stale",
+                "result": {"message": "最近一次持久化刷新状态来自已停用的板块来源，已从当前同花顺机会结果中忽略；请以当前同花顺快照和重新评估结果为准。"}}
+    return status
 
 
 def analyze_index(rows: Sequence[Mapping[str, object]], *, as_of: date, calendar: TradingCalendar | None = None) -> dict[str, object]:
@@ -230,8 +252,7 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
                          "valuation_observations": sum(item["fundamentals"]["valuation"].get("median_pe_ttm") is not None or item["fundamentals"]["valuation"].get("index_pe_ttm") is not None for item in group),
                          "valuation_dated_current": sum(item["fundamentals"]["valuation"]["status"] == "available" and bool(item["fundamentals"]["valuation"].get("as_of")) for item in group),
                          "formal_recommendation_ready": False})
-    from backend.storage.collection_runs import latest_sector_status
-    return {"collection_status": latest_sector_status(settings),
+    return {"collection_status": _current_collection_status(settings),
             "method_version": "sector-horizons-v1", "price_method_version": METHOD_VERSION,
             "strength_method_version": "common-grid-quartile-v3", "coverage": coverage,
             "price_cutoff": price_cutoff.isoformat(),

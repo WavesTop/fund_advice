@@ -40,7 +40,7 @@ def capture_current_inputs(settings: Settings, subjects: list[str] | None = None
             if semantics != "verified":
                 gaps.append({"subject_key": key, "reason": "跨来源参考行情或本轮采集失败，不作为投资输入核验通过"})
             groups.append((key, history_source, "price", json.loads(item["rows_json"]), semantics,
-                           "https://d.10jqka.com.cn/" if history_source == "sector_daily.ths" else "https://push2his.eastmoney.com/"))
+                           "https://d.10jqka.com.cn/" if history_source == "sector_daily.ths" else ""))
         for item in connection.execute("SELECT * FROM fund_timeseries_projection"):
             table = "fund_price_daily" if item["kind"] == "price" else "fund_nav_daily"
             rows = [dict(row) for row in connection.execute(f"SELECT * FROM {table} WHERE code=? ORDER BY date", (item["code"],))]

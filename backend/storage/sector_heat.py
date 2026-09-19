@@ -1,4 +1,4 @@
-"""Current Eastmoney board snapshot, isolated from verified fund/index relations.
+"""Current Tonghuashun sector snapshot, isolated from verified fund/index relations.
 
 Only market context is supported. Turnover ranks measure traded amount, not
 popularity, investment merit, fund exposure, or a recommendation score.
@@ -12,19 +12,19 @@ from typing import Any
 from backend.core.config import Settings
 from backend.storage.database import connection_scope, migrate
 
-DIRECTORY_URL = "https://emdatah5.eastmoney.com/dc/ZJLX/getZDYLBData"
-HISTORY_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+DIRECTORY_URL = "https://q.10jqka.com.cn/thshy/"
+HISTORY_URL = "https://d.10jqka.com.cn/v4/line/"
 CONSTITUENT_URL = DIRECTORY_URL
-SOURCE_ID = "sector_daily.eastmoney"
+SOURCE_ID = "sector_daily.ths"
 SOURCE_POLICY = {
     "usage": "market_context_only",
-    "provider": "东方财富",
-    "classification": "按来源平台的行业与概念分类，排除地区；概念可包含融资融券等资格集合，板块存在重叠。",
-    "heat_definition": "完整读取行业和概念目录后，按来源成交额（元）降序选前100名；同额按代码排序，不是人气或涨幅榜。",
-    "timing": "排名日期取来源更新时间；分页按同一交易日核对，不声称各页构成同一瞬时的市场快照。",
-    "price_basis": "优先读取东方财富板块日线；不可用时，仅对分类一致、名称严格一致且标准代码已解析的板块采用同花顺日线。不复权；成交额为元，成交量保留来源单位。",
+    "provider": "同花顺",
+    "classification": "同花顺原生行业分类；行业与后续主题观察池分开展示，不与概念板块混排。",
+    "heat_definition": "完整读取同花顺行业目录；优先使用行业摘要成交额，摘要不可用时使用最新日线成交额排序；同额按代码排序，不是涨幅榜。",
+    "timing": "排名日期取本地交易日历最新完整交易日；行业摘要和日线请求不是同一瞬时快照。",
+    "price_basis": "按同花顺原生行业代码读取日线。不复权；成交额为元，成交量保留来源单位。",
     "limitations": "仅供本地市场背景观察；成分股来自来源当前板块定义，来源未提供官方权重；不作为国证或中证指数，不推定基金映射，不晋升正式基金推荐。",
-    "refresh": "人工运行采集命令刷新；榜单和成分来自东方财富移动资金页，只有当前快照，不是历史时点数据库。",
+    "refresh": "通过页面重新评估或采集命令刷新；当前版本以同花顺90个行业为主分析池，主题观察池另行扩展。",
 }
 
 
@@ -36,24 +36,26 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
             connection.execute("BEGIN")
             snapshot = connection.execute("SELECT * FROM sector_heat_snapshot WHERE id=1").fetchone()
             members = connection.execute("SELECT * FROM sector_heat_member ORDER BY heat_rank").fetchall()
+            source_ids = sorted({row["source_id"] for row in members}) or [SOURCE_ID]
+            placeholders = ",".join("?" for _ in source_ids)
             membership_snapshots = connection.execute(
-                """SELECT * FROM sector_membership_snapshot
-                   WHERE board_source_id=? AND as_of=?""",
-                (SOURCE_ID, snapshot["as_of"] if snapshot else None),
+                f"""SELECT * FROM sector_membership_snapshot
+                    WHERE board_source_id IN ({placeholders}) AND as_of=?""",
+                (*source_ids, snapshot["as_of"] if snapshot else None),
             ).fetchall()
             memberships = connection.execute(
-                """SELECT * FROM sector_membership
-                   WHERE board_source_id=? AND as_of=?
-                   ORDER BY board_code, source_order""",
-                (SOURCE_ID, snapshot["as_of"] if snapshot else None),
+                f"""SELECT * FROM sector_membership
+                    WHERE board_source_id IN ({placeholders}) AND as_of=?
+                    ORDER BY board_source_id, board_code, source_order""",
+                (*source_ids, snapshot["as_of"] if snapshot else None),
             ).fetchall()
             connection.execute("COMMIT")
         except Exception:
             connection.execute("ROLLBACK")
             raise
     state = dict(snapshot) if snapshot else {}
-    membership_state = {row["board_code"]: dict(row) for row in membership_snapshots}
-    membership_rows: dict[str, list[dict[str, Any]]] = {}
+    membership_state = {(row["board_source_id"], row["board_code"]): dict(row) for row in membership_snapshots}
+    membership_rows: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in memberships:
         component = dict(row)
         for key in ("board_source_id", "board_code", "as_of"):
@@ -61,7 +63,7 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
         component["market_cap"] = float(Decimal(component["market_cap"])) if component["market_cap"] is not None else None
         component["weight"] = float(Decimal(component["weight"])) if component["weight"] is not None else None
         component["market_cap_status"] = "available" if component["market_cap"] is not None else "unavailable"
-        membership_rows.setdefault(row["board_code"], []).append(component)
+        membership_rows.setdefault((row["board_source_id"], row["board_code"]), []).append(component)
     items = []
     for member in members:
         item = dict(member)
@@ -69,13 +71,18 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
         item["rows"] = json.loads(item.pop("rows_json"))
         # Decimal text remains authoritative in storage; floats are display only.
         item["heat_value"] = float(Decimal(item["heat_value"]))
-        item["history_relation"] = ("proxy_not_equivalent" if item.get("history_source_id") == "sector_daily.ths"
+        item["history_relation"] = ("proxy_not_equivalent" if item.get("history_source_id")
+                                    and item.get("history_source_id") != item.get("source_id")
                                     else "native_source")
+        if item["history_relation"] == "proxy_not_equivalent":
+            item["collection_error"] = item.get("collection_error") or (
+                "已有日线为跨源参考序列，不等同当前原生板块；重新评估后核验原生行情。")
         item.update(universe_type="hot_board", funds=[], use_scope="market_context_only",
                     amount_unit="CNY", volume_unit="source_native",
-                    history_source_url=(HISTORY_URL if item.get("history_source_id") != "sector_daily.ths"
-                                        else "https://d.10jqka.com.cn/v4/line/"))
-        membership = membership_state.get(item["code"])
+                    history_source_url=HISTORY_URL)
+        membership_key = (item["source_id"], item["code"])
+        membership = membership_state.get(membership_key)
+        member_rows = membership_rows.get(membership_key, [])
         item["membership"] = {
             "status": membership["status"] if membership else "missing",
             "as_of": membership["as_of"] if membership else None,
@@ -83,18 +90,19 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
             "member_count": membership["member_count"] if membership else 0,
             "error": membership["error"] if membership else "尚未采集成分股快照。",
             "weight_basis": "not_provided",
-            "members": membership_rows.get(item["code"], []),
-            "market_cap_missing_count": sum(row["market_cap"] is None for row in membership_rows.get(item["code"], [])),
+            "members": member_rows,
+            "market_cap_missing_count": sum(row["market_cap"] is None for row in member_rows),
             "quality_note": "市值为可选资料；缺失不删除证券，也不等于权重为零。",
         }
         items.append(item)
+    identity_blocked = sum(item["history_relation"] == "proxy_not_equivalent" for item in items)
     status = "empty" if not items else (
         "ready" if len(items) == state.get("requested_count") and not state.get("failed_count")
-        and not state.get("last_error") else "partial"
+        and not state.get("last_error") and not identity_blocked else "partial"
     )
     industry_only = state.get("universe_scope") == "verified_industry_all"
     universe = {
-        "label": ("可核验日线的全部行业板块" if industry_only else "东方财富行业与概念成交额前100"),
+        "label": ("同花顺完整行业目录" if industry_only else "同花顺行业成交额前100"),
         "heat_basis": "turnover_amount",
         "as_of": state.get("as_of"),
         "ranking_as_of": state.get("as_of"),
@@ -102,8 +110,9 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
         "requested_count": state.get("requested_count", 100),
         "member_count": len(items),
         "catalog_count": state.get("catalog_count", 0),
-        "collected_count": state.get("collected_count", 0),
-        "failed_count": state.get("failed_count", 0),
+        "collected_count": sum(not item.get("collection_error") for item in items),
+        "failed_count": sum(bool(item.get("collection_error")) for item in items),
+        "identity_blocked_count": identity_blocked,
         "source_url": DIRECTORY_URL,
         "status": status,
         "scope": state.get("universe_scope", "hot_board_top100"),
@@ -113,8 +122,8 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
     }
     if industry_only:
         universe["source_policy"].update(
-            classification="完整读取东方财富行业层级目录，只纳入能与同花顺标准行业严格同名并取得日线的行业；不含概念、风格、地区和资格集合。",
-            heat_definition="行业按东方财富完整行业目录中的当日成交额排序；热度名次保留其在完整行业目录中的原始位置。",
+            classification="完整读取同花顺90个原生行业；不含概念、风格、地区和资格集合。",
+            heat_definition="行业按同花顺行业摘要中的总成交额降序排序；热度名次保留本次采集计算位置。",
         )
     return {"universe": universe, "items": items}
 
@@ -165,7 +174,7 @@ def save_sector_heat(settings: Settings, *, as_of: str, updated_at: str,
                     history_source_id,history_source_code,history_identity_match)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 [(item["code"], item["name"], item["kind"], item["heat_rank"], item["heat_value"],
-                  item["heat_updated_at"], SOURCE_ID, item["updated_at"], item["collection_error"],
+                  item["heat_updated_at"], item.get("source_id", SOURCE_ID), item["updated_at"], item["collection_error"],
                   json.dumps(item["rows"], ensure_ascii=False, separators=(",", ":")),
                   item.get("history_source_id"), item.get("history_source_code"),
                   item.get("history_identity_match")) for item in members],
@@ -177,22 +186,23 @@ def save_sector_heat(settings: Settings, *, as_of: str, updated_at: str,
                    ON CONFLICT(source_id,source_code) DO UPDATE SET
                    name=excluded.name,kind=excluded.kind,taxonomy_revision=excluded.taxonomy_revision,
                    observed_at=excluded.observed_at""",
-                [(SOURCE_ID, item["code"], item["name"], item["kind"], "eastmoney_board",
+                [(item.get("source_id", SOURCE_ID), item["code"], item["name"], item["kind"], "industry_board",
                   as_of, updated_at) for item in members],
             )
             connection.execute(
                 """INSERT OR IGNORE INTO sector_taxonomy_revision
                    (taxonomy_id,revision,provider,as_of,observed_at) VALUES (?,?,?,?,?)""",
-                ("eastmoney_board", as_of, "东方财富", as_of, updated_at),
+                ("industry_board", as_of, SOURCE_POLICY["provider"], as_of, updated_at),
             )
             connection.executemany(
                 """INSERT OR IGNORE INTO sector_identity_revision
                    (source_id,source_code,taxonomy_id,taxonomy_revision,name,kind)
                    VALUES (?,?,?,?,?,?)""",
-                [(SOURCE_ID, item["code"], "eastmoney_board", as_of, item["name"], item["kind"])
+                [(item.get("source_id", SOURCE_ID), item["code"], "industry_board", as_of, item["name"], item["kind"])
                  for item in members],
             )
             for item in members:
+                source_id = item.get("source_id", SOURCE_ID)
                 component_error = item.get("constituent_error")
                 components = item.get("constituents", [])
                 connection.execute(
@@ -202,18 +212,18 @@ def save_sector_heat(settings: Settings, *, as_of: str, updated_at: str,
                        ON CONFLICT(board_source_id,board_code,as_of) DO UPDATE SET
                        fetched_at=excluded.fetched_at,member_count=excluded.member_count,
                        status=excluded.status,error=excluded.error""",
-                    (SOURCE_ID, item["code"], as_of, item.get("constituent_updated_at") if component_error else updated_at,
+                    (source_id, item["code"], as_of, item.get("constituent_updated_at") if component_error else updated_at,
                      len(components), "failed" if component_error else "ready", component_error),
                 )
                 connection.execute(
                     "DELETE FROM sector_membership WHERE board_source_id=? AND board_code=? AND as_of=?",
-                    (SOURCE_ID, item["code"], as_of),
+                    (source_id, item["code"], as_of),
                 )
                 connection.executemany(
                     """INSERT INTO sector_membership
                        (board_source_id,board_code,as_of,stock_code,stock_name,market,source_order,market_cap,weight)
                        VALUES (?,?,?,?,?,?,?,?,NULL)""",
-                    [(SOURCE_ID, item["code"], as_of, row["stock_code"], row["stock_name"],
+                    [(source_id, item["code"], as_of, row["stock_code"], row["stock_name"],
                       row["market"], row["source_order"], row.get("market_cap")) for row in components],
                 )
             connection.execute("COMMIT")

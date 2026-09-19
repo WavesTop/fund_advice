@@ -12,6 +12,7 @@ from backend.core.config import Settings
 from scripts.import_fund_catalog import refresh_fund_catalog
 from scripts.import_sector_heat import refresh_sector_heat
 from backend.integrations.sector_financials import collect_sector_fundamentals
+from scripts.import_sector_heat import COLLECTOR_VERSION
 
 
 def now() -> str:
@@ -50,15 +51,21 @@ def collect(settings: Settings, target: str, *, progress=None) -> dict:
         progress({"stage": "financials", "state": financials["status"]})
     if status == "success" and financials["status"] != "success":
         status = "partial"
+    window_coverage = result.get("price_window_coverage")
+    if status == "success" and window_coverage is not None and any(
+            window_coverage.get(key) != requested for key in ("short", "medium", "long")):
+        status = "partial"
     errors = [{"code": item["code"], "message": item.get("collection_error") or item.get("membership", {}).get("error")}
               for item in items if item.get("collection_error") or item.get("membership", {}).get("error")]
     return {"target": target, "status": status, "started_at": started, "completed_at": now(),
             "ranking_as_of": universe["ranking_as_of"], "requested_count": requested,
             "catalog_count": catalog_count, "identity_excluded_count": catalog_count - requested,
+            "collector_version": COLLECTOR_VERSION, "source_attempts": result.get("source_attempts", []),
+            "price_cutoff": result.get("price_cutoff"), "price_window_coverage": window_coverage,
             "price_updated": price_ok, "price_failed": requested - price_ok,
             "membership_updated": members_ok, "membership_failed": requested - members_ok,
             "errors": errors, "manual_evidence_refreshed": False, "fundamentals": financials,
-            "message": f"目录 {catalog_count} 个，纳入可核验行业 {requested} 个；日线成功 {price_ok}/{requested}，成分成功 {members_ok}/{requested}。"
+            "message": f"目录 {catalog_count} 个，纳入行业 {requested} 个（失败项不剔除）；日线成功 {price_ok}/{requested}，成分成功 {members_ok}/{requested}。"
                        f"成分经营与同日估值：{financials['message']}。"
                        "旧人工背景及已有参考指数未由本按钮更新；失败项不计作本轮完整研究。"}
 
@@ -83,6 +90,7 @@ def main(argv=None) -> int:
     except Exception as exc:
         result = {"target": args.target, "status": "failed", "started_at": started,
                   "completed_at": now(), "message": f"采集未完成：{type(exc).__name__}: {str(exc)[:1000]}"}
+    result["collector_version"] = COLLECTOR_VERSION
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
     return 2 if result["status"] == "failed" else 0
 

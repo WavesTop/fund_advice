@@ -1,9 +1,8 @@
-"""Collect public issuer statements and dated valuations once, then join exact members.
+"""Collect sector constituent fundamentals only when current members are verified.
 
-These are *current Eastmoney membership samples*, not official index earnings or
-historical index constituents. No macro-industry name matching or synthetic PE.
-Provider fields follow the published data-centre tables; live schema/availability
-is checked on every request and must be verified separately from fixture tests.
+Live sector refresh now uses the Tonghuashun sector universe. Until the current
+Tonghuashun constituent list is available, do not request stock financials or
+derive an industry valuation from an unknown membership denominator.
 """
 from __future__ import annotations
 
@@ -13,17 +12,17 @@ import json
 import re
 import time
 from urllib.parse import urlencode
-from urllib.request import Request
 
 from backend.core.config import Settings
 from backend.core.trading_calendar import SHANGHAI, get_calendar, day
-from backend.integrations.http_transport import get_bytes
+from backend.integrations.http_transport import get_bytes  # compatibility seam for no-network read tests
+from backend.integrations.sector_dataset_runner import run_datasets
 from backend.storage.database import migrate
 from backend.storage.research import number, utc_now
 from backend.storage.sector_fundamentals import VERSION, archive_response, membership_identity, save_observation
 
-API_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
-SOURCE_ID = "financials.eastmoney_datacenter"
+API_URL = "internal://sector-financials"
+SOURCE_ID = "financials.ths_constituent_sample"
 TABLES = {
     "income": ("RPT_DMSK_FN_INCOME", ("TOTAL_OPERATE_INCOME", "PARENT_NETPROFIT")),
     "cashflow": ("RPT_DMSK_FN_CASHFLOW", ("NETCASH_OPERATE",)),
@@ -31,14 +30,15 @@ TABLES = {
 }
 PAGE_SIZE = 500
 MAX_PAGES = 30
-BUDGET_SECONDS = 180
+BUDGET_SECONDS = 240
 LIMITATIONS = [
-    "经营数据为当前东方财富成分公司同口径样本的累计报告期比较，不是单季环比或官方指数加权盈利。",
-    "来源为东方财富财务数据转录，未逐份审计发行人原报告；原响应、报告期和公告日期均留存。",
+    "经营数据必须绑定当前同花顺行业成分股；成分股未取得时不请求个股财务，也不聚合行业估值。",
+    "同花顺普通成分页可读取前5页；超过100只成分的行业会在第6页触发访问限制，系统保留缺项状态。",
     "成分公司之间可能存在关联交易或母子公司交叉纳入，简单合计不是行业合并财务报表。",
-    "PE为有正PE成分的中位数，不是官方板块PE；亏损、缺失和样本变化单独披露。",
+    "PE只有在当前成分股、同日估值和正PE样本齐备后才计算中位数；不是官方板块PE。",
     "估值历史只累计系统实际观察过的相同成分样本，不把今天的成分倒推成历史行业。",
 ]
+LIVE_BLOCKED_DATASETS = ("stock_financials", "industry_valuation")
 
 
 def report_periods(today: date) -> list[str]:
@@ -133,39 +133,46 @@ def fetch_table(settings: Settings, kind: str, business_date: str, now: datetime
     if kind != "valuation":
         params["filter"] += '(SECURITY_TYPE_CODE in ("058001001","058001008"))(TRADE_MARKET_CODE!="069001017")'
     all_rows, sources, totals = [], [], None
-    for page in range(1, MAX_PAGES + 1):
-        remaining = deadline - clock()
-        if remaining <= 0:
-            raise TimeoutError("经营估值采集时间预算耗尽，未完成部分不能算作成功")
-        params["pageNumber"] = page
-        url = API_URL + "?" + urlencode(params)
-        body = fetcher(url, min(8.0, remaining))
-        if not isinstance(body, bytes):
-            raise ValueError("财务来源响应必须为原始字节")
-        asset_id = archive_response(settings, url, body)
-        sources.append({"url": url, "asset_id": asset_id})
-        root = json.loads(body, parse_float=str)
-        if not isinstance(root, dict) or root.get("success") is not True or not isinstance(root.get("result"), dict):
-            code = root.get("code") if isinstance(root, dict) else None
-            message = root.get("message") if isinstance(root, dict) else "响应不是对象"
-            raise ValueError(f"财务来源{report}/{business_date}未返回成功结果；code={code!r} message={str(message)[:300]}")
-        result = root["result"]
-        count, pages = _integer(result.get("count")), _integer(result.get("pages"))
-        if count > PAGE_SIZE * MAX_PAGES or pages > MAX_PAGES or pages != ((count + PAGE_SIZE - 1) // PAGE_SIZE):
-            raise ValueError("财务来源分页不完整或超过采集上限")
-        if totals is not None and totals != (count, pages):
-            raise ValueError("财务数据采集中总数变化，不能发布拼接快照")
-        totals = count, pages
-        rows = result.get("data")
-        expected = min(PAGE_SIZE, count - len(all_rows))
-        if not isinstance(rows, list) or len(rows) != expected:
-            raise ValueError("财务来源截断页，不能将部分公司当作全行业")
-        all_rows.extend(rows)
-        if page >= pages:
-            break
-    parsed, excluded = parse_rows(all_rows, kind, business_date, now)
-    return {"status": "available", "rows": parsed, "excluded": excluded, "sources": sources,
-            "source_count": len(all_rows), "error": None}
+    try:
+        for page in range(1, MAX_PAGES + 1):
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise TimeoutError("经营估值采集时间预算耗尽，未完成部分不能算作成功")
+            params["pageNumber"] = page
+            url = API_URL + "?" + urlencode(params)
+            body = fetcher(url, min(8.0, remaining))
+            if not isinstance(body, bytes):
+                raise ValueError("财务来源响应必须为原始字节")
+            asset_id = archive_response(settings, url, body)
+            sources.append({"url": url, "asset_id": asset_id})
+            root = json.loads(body, parse_float=str)
+            if not isinstance(root, dict) or root.get("success") is not True or not isinstance(root.get("result"), dict):
+                code = root.get("code") if isinstance(root, dict) else None
+                message = root.get("message") if isinstance(root, dict) else "响应不是对象"
+                raise ValueError(f"财务来源{report}/{business_date}未返回成功结果；code={code!r} message={str(message)[:300]}")
+            result = root["result"]
+            count, pages = _integer(result.get("count")), _integer(result.get("pages"))
+            if count > PAGE_SIZE * MAX_PAGES or pages > MAX_PAGES or pages != ((count + PAGE_SIZE - 1) // PAGE_SIZE):
+                raise ValueError("财务来源分页不完整或超过采集上限")
+            if totals is not None and totals != (count, pages):
+                raise ValueError("财务数据采集中总数变化，不能发布拼接快照")
+            totals = count, pages
+            rows = result.get("data")
+            expected = min(PAGE_SIZE, count - len(all_rows))
+            if not isinstance(rows, list) or len(rows) != expected:
+                raise ValueError("财务来源截断页，不能将部分公司当作全行业")
+            all_rows.extend(rows)
+            if page >= pages:
+                break
+        parsed, excluded = parse_rows(all_rows, kind, business_date, now)
+        return {"status": "available" if parsed else "missing", "rows": parsed, "excluded": excluded, "sources": sources,
+                "source_count": len(all_rows), "error": None}
+    except Exception as exc:
+        # Preserve the original exception class (notably TimeoutError) for callers.
+        # Empty the usable dataset upstream, but never lose its archived evidence.
+        exc.sources = sources
+        exc.received_row_count = len(all_rows)
+        raise
 
 
 def _supported(member: dict) -> bool:
@@ -255,13 +262,67 @@ def collect_sector_fundamentals(settings: Settings, boards: list[dict], *, fetch
     now = now.astimezone(SHANGHAI)
     cutoff = get_calendar().latest_completed(now).isoformat()
     reports = report_periods(now.date())
-    keys = [(kind, report) for kind in ("income", "cashflow")
-            for report in sorted(set(reports + [previous_year(p) for p in reports]), reverse=True)]
-    keys.append(("valuation", cutoff))
     if fetcher is None:
-        def fetcher(url, timeout):
-            request = Request(url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://data.eastmoney.com/", "Accept": "application/json"})
-            return get_bytes(request, timeout=timeout)
+        outcomes = []
+        ready_count = 0
+        for board in boards:
+            identity = membership_identity(board)
+            membership = board.get("membership", {})
+            current_members = (identity["valid"] and identity["as_of"] == cutoff)
+            ready_count += int(current_members)
+            if current_members:
+                errors = [
+                    f"当前同花顺行业成分股已取得（{identity['count']}只）。",
+                    "尚未接入同花顺公开个股报表与带明确口径、日期的估值适配器；不使用已移除的东方财富接口替代。",
+                ]
+                datasets = [
+                    {"dataset": "constituents", "business_date": cutoff, "state": "available",
+                     "row_count": identity["count"], "error": None},
+                    *[{"dataset": dataset, "business_date": cutoff, "state": "not_requested",
+                       "row_count": 0, "error": "同花顺财务与估值适配器尚未接入"}
+                      for dataset in LIVE_BLOCKED_DATASETS],
+                ]
+            else:
+                membership_error = membership.get("error") or "当前同花顺成分股未取得"
+                errors = [
+                    f"当前同花顺行业成分股不可用：{membership_error}",
+                    "未取得当前成分股前，不采集个股财务或聚合行业估值。",
+                ]
+                datasets = [
+                    {"dataset": "constituents", "business_date": cutoff, "state": "failed",
+                     "row_count": 0, "error": membership_error},
+                    *[{"dataset": dataset, "business_date": cutoff, "state": "not_requested",
+                       "row_count": 0, "error": "当前同花顺成分股未通过，未采集股票财务和行业估值"}
+                      for dataset in LIVE_BLOCKED_DATASETS],
+                ]
+            payload = {"version": VERSION, "subject_key": f"hot_board:{board['source_id']}:{board['code']}",
+                       "membership_hash": identity["hash"], "membership_as_of": identity["as_of"],
+                       "total_members": identity["count"], "name": board["name"], "status": "blocked",
+                       "operating": {"status": "not_collected", "periods": []},
+                       "valuation": {"status": "not_collected"},
+                       "sources": [], "errors": errors, "limitations": LIMITATIONS,
+                       "valuation_history": [], "datasets": datasets}
+            save_observation(settings, payload)
+            outcomes.append({"code": board["code"], "status": "blocked",
+                             "membership_status": "available" if current_members else "failed"})
+        return {"status": "not_collected", "total": len(boards), "available": 0, "items": outcomes,
+                "errors": ["同花顺个股报表与估值适配器尚未接入"] if boards else [],
+                "datasets": [
+                    {"dataset": "constituents", "business_date": cutoff,
+                     "state": "partial" if ready_count < len(boards) else "available",
+                     "row_count": ready_count, "error": None if ready_count == len(boards)
+                     else f"完整成分板块{ready_count}/{len(boards)}"},
+                    *[{"dataset": dataset, "business_date": cutoff, "state": "not_requested",
+                       "row_count": 0, "error": "同花顺财务与估值适配器尚未接入"}
+                      for dataset in LIVE_BLOCKED_DATASETS],
+                ],
+                "message": f"同花顺当前成分完整 {ready_count}/{len(boards)}；股票财务与行业估值尚未采集。"}
+    # Request valuation early. Each job starts its own bounded budget; no table
+    # can prevent the remaining report periods from being attempted.
+    keys = [("valuation", cutoff)] + [
+        (kind, report) for kind in ("income", "cashflow")
+        for current_report in reports for report in (current_report, previous_year(current_report))
+    ]
     valid, outcomes = [], []
     for board in boards:
         identity = membership_identity(board)
@@ -281,22 +342,16 @@ def collect_sector_fundamentals(settings: Settings, boards: list[dict], *, fetch
             outcomes.append({"code": board["code"], "status": "blocked"})
     if not valid:
         return {"status": "not_collected", "total": len(boards), "available": 0, "items": outcomes,
-                "message": "没有当前可核对的沪深A股成分，未请求财务来源"}
-    datasets, errors, deadline = {}, [], clock() + BUDGET_SECONDS
-    for kind, report in keys:
-        if progress:
-            progress({"stage": "financials", "dataset": kind, "business_date": report, "state": "running"})
-        try:
-            dataset = fetch_table(settings, kind, report, now, fetcher=fetcher, deadline=deadline, clock=clock)
-        except Exception as exc:
-            message = f"{kind}/{report}: {type(exc).__name__}: {str(exc)[:300]}"
-            dataset = {"status": "failed", "rows": {}, "excluded": {}, "sources": [], "error": message}
-            errors.append(message)
-        datasets[(kind, report)] = dataset
-        if progress:
-            progress({"stage": "financials", "dataset": kind, "business_date": report,
-                      "state": dataset["status"], "row_count": len(dataset["rows"]),
-                      "error": dataset.get("error")})
+                "message": "没有当前可核对的沪深A股成分，未请求财务来源",
+                "datasets": [{"dataset": kind, "business_date": report, "state": "not_requested",
+                              "row_count": 0, "error": "成分身份或日期未通过，未向财务来源发起请求"}
+                             for kind, report in keys]}
+    datasets, diagnostics = run_datasets(
+        keys, lambda kind, report, deadline: fetch_table(
+            settings, kind, report, now, fetcher=fetcher, deadline=deadline, clock=clock),
+        budget_seconds=BUDGET_SECONDS, clock=clock, progress=progress,
+    )
+    errors = [dataset["error"] for dataset in datasets.values() if dataset.get("error")]
     for board, initial in valid:
         members = board["membership"]["members"]
         operating = operating_sample(members, reports, datasets)
@@ -306,10 +361,10 @@ def collect_sector_fundamentals(settings: Settings, boards: list[dict], *, fetch
         status = "available" if full else "partial" if any_data else "failed" if errors else "missing"
         payload = {**initial, "status": status, "operating": operating, "valuation": valuation,
                    "sources": [source for dataset in datasets.values() for source in dataset["sources"]],
-                   "errors": errors, "valuation_history": []}
+                   "errors": errors, "valuation_history": [], "datasets": diagnostics}
         save_observation(settings, payload)
         outcomes.append({"code": board["code"], "status": status})
     available = sum(item["status"] == "available" for item in outcomes)
     return {"status": "success" if available == len(boards) else "partial" if any(item["status"] in ("available", "partial") for item in outcomes) else "failed",
-            "total": len(boards), "available": available, "items": outcomes, "errors": errors,
+            "total": len(boards), "available": available, "items": outcomes, "errors": errors, "datasets": diagnostics,
             "message": f"经营与同日估值样本完整 {available}/{len(boards)}；历史估值积累、行业催化与正式投资验证另行判断"}

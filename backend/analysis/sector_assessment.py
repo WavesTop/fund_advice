@@ -31,11 +31,11 @@ def _value(metric: dict, field: str = "value") -> Decimal | None:
 def context_from_bundle(bundle: dict | None, now: datetime, *, board: dict | None = None, calendar=None) -> dict:
     name = board.get("name", "") if board else bundle.get("name", "") if bundle else ""
     catalysts = CATALYST_REQUIREMENTS.get(name, ["可核对日期的行业需求、价格、订单及重要公告"])
-    empty = {"version": VERSION, "scope": "当前东方财富成分样本（非官方指数加权）", "status": "not_collected",
+    empty = {"version": VERSION, "scope": "当前同花顺行业成分样本（非官方指数加权）", "status": "not_collected",
              "observed_at": None, "membership_as_of": None, "total_members": 0,
              "operating": {"status": "not_collected", "periods": []},
              "valuation": {"status": "not_collected", "percentile": None, "history_count": 0, "history_span_days": 0},
-             "sources": [], "errors": ["尚未采集该板块的成分报表及同日估值；点击重新评估启动采集"],
+             "sources": [], "errors": ["尚未取得当前同花顺行业成分股；股票财务和行业估值暂不采集"],
              "limitations": [], "catalysts": {"status": "not_collected", "required": catalysts},
              "specialist_financial": any(word in name for word in SPECIALIST_FINANCIAL_NAMES)}
     if not bundle:

@@ -15,7 +15,7 @@ from backend.storage.collection_runs import start_run, finish_run, latest_sector
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
-TIMEOUTS = {"catalog": 90, "sectors": 600}
+TIMEOUTS = {"catalog": 90, "sectors": 900}
 _locks: dict[tuple[str, str], Lock] = {}
 _guard = Lock()
 

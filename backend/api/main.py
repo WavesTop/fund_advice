@@ -74,8 +74,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/sectors/collection-status")
     def sector_collection_status() -> dict[str, object]:
-        from backend.storage.collection_runs import latest_sector_status
-        return latest_sector_status(resolved)
+        from backend.analysis.sector_status import _current_collection_status
+        return _current_collection_status(resolved)
 
     @app.get("/api/sectors/{code}/series")
     def sector_series(code: str, source_id: str, universe_type: Literal["hot_board", "tracked_index"],

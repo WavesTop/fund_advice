@@ -15,6 +15,7 @@ import { sectorDetailHref } from './sector-detail-model';
 import './fund-directory.css';
 import { priceDisplay, type HistoricalPrice } from './sector-history-display';
 import { readSectorCache, writeSectorCache, sectorCacheRevision } from './sector-request-state';
+import { sectorSortNotice } from './sector-ranking-state';
 
 type PeriodStatus = 'strong' | 'neutral' | 'weak' | 'insufficient' | 'stale';
 type PeriodRisk = 'elevated' | 'normal' | 'unknown';
@@ -372,12 +373,7 @@ function PeriodCard({ period }: { period: SectorOpportunityPeriod }) {
 
 export function OpportunityCard({ item, heatBasis, from }: { item: SectorOpportunity; heatBasis?: string; from?: string }) {
   const historySource = item.history_source_id ?? item.source_id;
-  const historySourceLabel =
-    historySource === 'sector_daily.ths'
-      ? '同花顺日线'
-      : historySource === 'sector_daily.eastmoney'
-        ? '东方财富日线'
-        : historySource;
+  const historySourceLabel = historySource === 'sector_daily.ths' ? '同花顺日线' : historySource;
   const periods = periodOrder
     .map((id) => item.periods.find((period) => period.id === id))
     .filter(Boolean) as SectorOpportunityPeriod[];
@@ -646,6 +642,7 @@ export function SectorOpportunities() {
       item.code.toLowerCase().includes(normalized)
     );
   });
+  const sortNotice = sectorSortNotice(filteredItems, sortKey);
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const visibleItems = filteredItems.slice((page - 1) * pageSize, page * pageSize);
@@ -842,7 +839,7 @@ export function SectorOpportunities() {
           onChange={(event) => setScope(event.target.value as typeof scope)}
         >
           <option value="hot">
-            {data?.universe?.scope === 'verified_industry_all' ? '全部可核验行业' : '热门前100'}
+            {data?.universe?.scope === 'verified_industry_all' ? '完整行业目录' : '热门前100'}
           </option>
           <option value="all">全部已采集</option>
           <option value="tracked">已有指数观察</option>
@@ -866,6 +863,11 @@ export function SectorOpportunities() {
           <option value="asc">从弱到强</option>
         </select>
       </div>
+      {state === 'ready' && sortNotice && (
+        <p className="sector-scope-note" role="status" aria-label="板块排序状态">
+          {sortNotice}
+        </p>
+      )}
       <p className="sector-scope-note">
         排序依据：同一实际区间的价格涨跌幅；数值越大，历史走势越强。
         短期回看20、中期60、长期120个交易日，约为1、3、6个月。

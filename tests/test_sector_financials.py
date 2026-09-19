@@ -335,41 +335,33 @@ class SectorFinancialTests(unittest.TestCase):
         with patch('backend.integrations.sector_financials.get_bytes',side_effect=AssertionError('GET cannot scrape')):
             with ASGITestClient(create_app(self.settings)) as client:
                 data=client.get('/api/sectors/opportunities').json()
-                detail=client.get('/api/sectors/BK0732?source_id=sector_daily.eastmoney&universe_type=hot_board').json()
+                detail=client.get('/api/sectors/BK0732?source_id=sector_daily.ths&universe_type=hot_board').json()
         item=data['items'][0]
         self.assertEqual(item['fundamentals']['operating']['status'],'available')
         self.assertEqual(item['periods'][1]['opportunity']['label'],'经营增长与走势相符')
         self.assertEqual(detail['item']['periods'],item['periods'])
         self.assertEqual(data['coverage'][0]['industry_current'],1)
 
-    def test_seven_post_calls_recompute_from_each_collected_response_and_persist_snapshot(self):
+    def test_post_refresh_blocks_financials_until_tonghuashun_membership_is_current(self):
         self.publish_prices()
-        modes=['ok','income_fail','ok','all_fail','valuation_fail','wrong_date','ok']
-        for index,mode in enumerate(modes):
-            def mutate(report,d,rows):
-                if mode=='all_fail' or mode=='income_fail' and report=='RPT_DMSK_FN_INCOME' or mode=='valuation_fail' and report=='RPT_VALUEANALYSIS_DET':
-                    raise OSError('fixture source failure')
-                if mode=='wrong_date' and report=='RPT_DMSK_FN_INCOME': rows[0]['REPORT_DATE']='2025-01-01'
-                if mode=='ok' and report=='RPT_DMSK_FN_INCOME' and d.startswith('2026'):
-                    for row in rows: row['PARENT_NETPROFIT']=str(15+index)
-                return rows
-            source=SourceFixture(mutate)
-            def worker(*args,**kwargs):
-                with patch('scripts.refresh_market_data.refresh_sector_heat',side_effect=lambda *_a,**_kw:self.publish_prices()), \
-                     patch('backend.integrations.sector_financials.get_bytes',side_effect=lambda request,**kw:source(request.full_url,kw['timeout'])):
-                    result=collect(self.settings,'sectors')
-                return subprocess.CompletedProcess([],0,json.dumps(result),'')
-            with self.subTest(mode=mode),patch('backend.integrations.market_refresh.subprocess.run',side_effect=worker),ASGITestClient(create_app(self.settings)) as client:
-                response=client.post('/api/sectors/refresh')
-                self.assertEqual(response.status_code,200)
-                payload=response.json();item=payload['evaluation']['items'][0]
-                self.assertEqual(payload['refresh']['status'],'success' if mode=='ok' else 'partial')
-                self.assertEqual(payload['research']['status'],'recorded_unvalidated')
-                fixed=get_run(self.settings,payload['research']['run_id'])
-                self.assertEqual(fixed['output']['subjects'][0]['evidence_context']['observation_id'],item['fundamentals']['observation_id'])
-                if mode=='ok': self.assertEqual(Decimal(item['fundamentals']['operating']['periods'][0]['metrics']['profit_yoy']['value']),Decimal(50+index*10))
-                elif mode!='valuation_fail': self.assertNotEqual(item['periods'][1]['opportunity']['status'],'watch')
-                self.assertEqual(len(source.calls),9)
+        source = SourceFixture()
+        def worker(*args, **kwargs):
+            with patch('scripts.refresh_market_data.refresh_sector_heat', side_effect=lambda *_a, **_kw: self.publish_prices()), \
+                 patch('backend.integrations.sector_financials.get_bytes', side_effect=lambda request, **kw: source(request.full_url, kw['timeout'])):
+                result = collect(self.settings, 'sectors')
+            return subprocess.CompletedProcess([], 0, json.dumps(result), '')
+        with patch('backend.integrations.market_refresh.subprocess.run', side_effect=worker), ASGITestClient(create_app(self.settings)) as client:
+            response = client.post('/api/sectors/refresh')
+            self.assertEqual(response.status_code, 200)
+            payload = response.json(); item = payload['evaluation']['items'][0]
+            self.assertEqual(payload['refresh']['status'], 'partial')
+            self.assertEqual(payload['refresh']['fundamentals']['status'], 'not_collected')
+            self.assertEqual(payload['research']['status'], 'recorded_unvalidated')
+            fixed = get_run(self.settings, payload['research']['run_id'])
+            self.assertEqual(fixed['output']['subjects'][0]['evidence_context']['observation_id'], item['fundamentals']['observation_id'])
+            self.assertEqual(item['fundamentals']['valuation']['status'], 'blocked')
+            self.assertIn('当前同花顺行业成分股', json.dumps(item['fundamentals'], ensure_ascii=False))
+            self.assertEqual(len(source.calls), 0)
 
 
 if __name__ == '__main__':

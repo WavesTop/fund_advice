@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""Refresh the top 100 Eastmoney industry/concept boards for market context only."""
+"""Refresh Tonghuashun sector boards for market context only."""
 from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 import json
 from html.parser import HTMLParser
 from pathlib import Path
 import re
 import sys
-from threading import Lock
 import time
 from typing import Any, Callable
-from urllib.parse import urlencode
 import urllib.request
 from zoneinfo import ZoneInfo
 
@@ -25,167 +24,78 @@ if str(ROOT) not in sys.path:
 from backend.core.config import Settings
 from backend.core.trading_calendar import get_calendar
 from backend.integrations.http_transport import get_bytes
-from backend.storage.sector_heat import (
-    CONSTITUENT_URL, DIRECTORY_URL, HISTORY_URL, read_sector_heat, record_sector_heat_failure,
-    save_sector_heat,
-)
+from backend.storage.sector_heat import read_sector_heat, record_sector_heat_failure, save_sector_heat
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 Fetcher = Callable[[str, float], dict[str, Any]]
-THS_VERIFIED_ALIAS_CANDIDATES = {
-    "5G概念": "5G",
-    "PCB": "PCB概念",
-    "新能源车": "新能源汽车",
-    "央国企改革": "央企国企改革",
-    "长江三角": "长三角一体化",
-}
-ALIAS_VISIBLE_MIN_MEMBERS = 8
-ALIAS_VISIBLE_OVERLAP = Decimal("0.70")
+COLLECTOR_VERSION = "sector-ths-only-v3"
 
 
-class _ThsLinkParser(HTMLParser):
+class _ThsConstituentParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
-        self.links: list[tuple[str, str]] = []
-        self.stock_codes: set[str] = set()
-        self.clid: str | None = None
-        self._code: str | None = None
-        self._text: list[str] = []
+        self.rows: list[list[str]] = []
+        self.page_position: tuple[int, int] | None = None
+        self._in_body = False
+        self._row: list[str] | None = None
+        self._cell: list[str] | None = None
+        self._page_info: list[str] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        values = dict(attrs)
-        if tag == "a":
-            href = values.get("href") or ""
-            stock = re.search(r"(?:stockpage|basic|quote)[^>]*/(\d{6})/?", href, re.I)
-            if stock:
-                self.stock_codes.add(stock.group(1))
-            match = re.search(r"/gn/detail/code/(\d+)/", href)
-            if match:
-                self._code, self._text = match.group(1), []
-        if tag == "input" and values.get("id") == "clid" and re.fullmatch(r"\d+", values.get("value") or ""):
-            self.clid = values["value"]
+        attributes = dict(attrs)
+        if tag == "tbody":
+            self._in_body = True
+        elif self._in_body and tag == "tr":
+            self._row = []
+        elif self._row is not None and tag == "td":
+            self._cell = []
+        elif tag == "span" and "page_info" in (attributes.get("class") or "").split():
+            self._page_info = []
 
     def handle_data(self, data: str) -> None:
-        if self._code:
-            self._text.append(data)
+        if self._cell is not None:
+            self._cell.append(data)
+        if self._page_info is not None:
+            self._page_info.append(data)
 
     def handle_endtag(self, tag: str) -> None:
-        if tag == "a" and self._code:
-            name = "".join(self._text).strip()
-            if name:
-                self.links.append((name, self._code))
-            self._code, self._text = None, []
+        if tag == "td" and self._cell is not None and self._row is not None:
+            self._row.append(" ".join("".join(self._cell).split()))
+            self._cell = None
+        elif tag == "tr" and self._row is not None:
+            if self._row:
+                self.rows.append(self._row)
+            self._row = None
+        elif tag == "tbody":
+            self._in_body = False
+        elif tag == "span" and self._page_info is not None:
+            match = re.fullmatch(r"\s*(\d+)\s*/\s*(\d+)\s*", "".join(self._page_info))
+            if match:
+                self.page_position = int(match.group(1)), int(match.group(2))
+            self._page_info = None
 
 
-def fetch_json(url: str, timeout: float) -> dict[str, Any]:
-    referer = ("https://emdatah5.eastmoney.com/dc/zjlx/block"
-               if "emdatah5.eastmoney.com" in url else "https://quote.eastmoney.com/")
-    request = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0", "Accept": "*/*", "Referer": referer,
-    })
-    payload = json.loads(get_bytes(request, timeout=timeout), parse_float=str, parse_int=str)
-    if not isinstance(payload, dict):
-        raise ValueError("来源响应不是对象")
-    return payload
-
-
-def fetch_text(url: str, timeout: float, referer: str = "https://q.10jqka.com.cn/") -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "*/*", "Referer": referer})
+def fetch_text(url: str, timeout: float, referer: str = "https://q.10jqka.com.cn/",
+               headers: dict[str, str] | None = None) -> str:
+    request_headers = {"User-Agent": "Mozilla/5.0", "Accept": "*/*", "Referer": referer}
+    request_headers.update(headers or {})
+    request = urllib.request.Request(url, headers=request_headers)
     return get_bytes(request, timeout=timeout).decode("gb18030", "strict")
 
 
-def build_ths_history_crosswalk(members: list[dict[str, Any]], *, timeout: float = 12.0) -> dict[str, str]:
-    """Return only category-consistent exact-name THS identities; never fuzzy-match boards."""
-    crosswalk: dict[str, str] = {}
-    try:
-        import akshare as ak
-        industries = {str(row[0]).strip(): str(row[1]).strip()
-                      for row in ak.stock_board_industry_name_ths()[["name", "code"]].itertuples(index=False, name=None)}
-        for member in members:
-            if member["kind"] == "行业" and member["name"] in industries:
-                crosswalk[member["code"]] = industries[member["name"]]
-    except Exception:
-        pass
-    try:
-        parser = _ThsLinkParser()
-        parser.feed(fetch_text("https://q.10jqka.com.cn/gn/detail/code/307822/", timeout))
-        concept_pages = dict(parser.links)
-        wanted = []
-        for member in members:
-            if member["kind"] != "概念":
-                continue
-            ths_name = member["name"] if member["name"] in concept_pages else THS_VERIFIED_ALIAS_CANDIDATES.get(member["name"])
-            if ths_name in concept_pages:
-                wanted.append((member, ths_name))
+@lru_cache(maxsize=1)
+def _ths_cookie() -> str:
+    """Generate the visitor cookie used by Tonghuashun's ordinary HTML pages."""
+    from akshare.datasets import get_ths_js
+    import py_mini_racer
 
-        def resolve_concept(item: tuple[dict[str, Any], str]) -> tuple[str, str] | None:
-            member, ths_name = item
-            for attempt in range(3):
-                try:
-                    detail = _ThsLinkParser()
-                    detail.feed(fetch_text(f"https://q.10jqka.com.cn/gn/detail/code/{concept_pages[ths_name]}/", timeout))
-                    if detail.clid:
-                        if ths_name != member["name"]:
-                            eastmoney_members = {str(row["stock_code"]) for row in member.get("membership", {}).get("members", [])}
-                            overlap = eastmoney_members & detail.stock_codes
-                            if (len(detail.stock_codes) < ALIAS_VISIBLE_MIN_MEMBERS
-                                    or Decimal(len(overlap)) / Decimal(len(detail.stock_codes)) < ALIAS_VISIBLE_OVERLAP):
-                                return None
-                        return member["code"], detail.clid
-                except Exception:
-                    if attempt < 2:
-                        time.sleep(0.1 * (attempt + 1))
-            return None
-
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            for resolved in executor.map(resolve_concept, wanted):
-                if resolved:
-                    crosswalk[resolved[0]] = resolved[1]
-    except Exception:
-        pass
-    return crosswalk
-
-
-def fetch_ths_sector_daily(member: dict[str, Any], ths_code: str, *, timeout: float = 12.0) -> list[dict[str, str]]:
-    payload = fetch_text(f"https://d.10jqka.com.cn/v4/line/bk_{ths_code}/01/last.js", timeout)
-    left, right = payload.find("{"), payload.rfind("}")
-    if left < 0 or right <= left:
-        raise ValueError("同花顺日线JSONP无效")
-    root = json.loads(payload[left:right + 1], parse_float=str, parse_int=str)
-    expected_name = THS_VERIFIED_ALIAS_CANDIDATES.get(member["name"], member["name"])
-    if str(root.get("name", "")).strip() != expected_name:
-        raise ValueError("同花顺日线名称与东方财富板块严格同名校验失败")
-    rows, seen = [], set()
-    cutoff = min(date.fromisoformat(member["ranking_as_of"]),
-                 date.fromisoformat(member["price_cutoff"]) if member.get("price_cutoff")
-                 else get_calendar().latest_completed(datetime.now(SHANGHAI)))
-    for value in str(root.get("data", "")).split(";"):
-        fields = value.split(",")
-        if not value.strip():
-            continue
-        if not re.fullmatch(r"\d{8}", fields[0]):
-            raise ValueError(f"{member['code']} 同花顺日线日期无效：{fields[0]!r}")
-        day = datetime.strptime(fields[0], "%Y%m%d").date().isoformat()
-        if day > cutoff.isoformat():
-            continue
-        if len(fields) < 7 or day in seen:
-            raise ValueError(f"{member['code']} {day} 同花顺日线字段不完整或日期重复")
-        seen.add(day)
-        row = {"date": day}
-        for field, raw in zip(("open", "high", "low", "close", "volume", "amount"), fields[1:7]):
-            try:
-                row[field] = _number(raw, field, positive=field in ("open", "close", "high", "low"))
-            except ValueError as exc:
-                raise ValueError(f"{member['code']} {day} {field} 原始值={raw!r}：{exc}") from exc
-        if Decimal(row["high"]) < max(Decimal(row["open"]), Decimal(row["close"])) or Decimal(row["low"]) > min(Decimal(row["open"]), Decimal(row["close"])):
-            raise ValueError("同花顺板块日线OHLC关系无效")
-        rows.append(row)
-    if not rows:
-        raise ValueError("同花顺未返回可用板块日线")
-    rows.sort(key=lambda row: row["date"])
-    if not rows:
-        raise ValueError("剔除盘中未结算日线后没有可用数据")
-    return rows
+    script = Path(get_ths_js("ths.js")).read_text(encoding="utf-8")
+    runtime = py_mini_racer.MiniRacer()
+    runtime.eval(script)
+    value = str(runtime.call("v")).strip()
+    if not value:
+        raise ValueError("同花顺访问Cookie生成失败")
+    return f"v={value}"
 
 
 def _number(value: object, field: str, *, positive: bool = False) -> str:
@@ -200,288 +110,256 @@ def _number(value: object, field: str, *, positive: bool = False) -> str:
     return format(number, "f")
 
 
-def _integer(value: object, field: str) -> int:
-    text = _number(value, field)
-    number = Decimal(text)
-    if number != number.to_integral_value():
-        raise ValueError(f"{field}必须为整数")
-    return int(number)
-
-
-def _data(payload: dict[str, Any]) -> dict[str, Any]:
-    if str(payload.get("rc")) != "0" or not isinstance(payload.get("data"), dict):
-        raise ValueError("来源返回错误或缺少data")
-    return payload["data"]
-
-
-def fetch_sector_directory(fetcher: Fetcher, *, timeout: float = 12.0,
-                           now: datetime | None = None,
-                           source_groups: tuple[tuple[str, int], ...] = (("行业", 2), ("概念", 3))) -> list[dict[str, Any]]:
-    """Read every page before any ranking; reject truncated or drifting catalogs."""
-    current = now or datetime.now(timezone.utc)
-    all_members: dict[str, dict[str, Any]] = {}
-    source_dates: set[str] = set()
-    for kind, source_type in source_groups:
-        total, page, seen = None, 1, set()
-        while total is None or len(seen) < total:
-            params = {"pn": page, "pz": 100, "po": 1,
-                      "fid": "f6", "fs": f"m:90+t:{source_type}",
-                      "fields": "f12,f13,f14,f6,f124"}
-            data = _data(fetcher(DIRECTORY_URL + "?" + urlencode(params), timeout))
-            page_total = _integer(data.get("total"), "目录总数")
-            if not 0 < page_total <= 20000 or (total is not None and page_total != total):
-                raise ValueError(f"{kind}目录总数无效或采集中发生变化")
-            total = page_total
-            rows = data.get("diff")
-            if not isinstance(rows, list) or len(rows) != min(100, total - len(seen)):
-                raise ValueError(f"{kind}目录第{page}页缺失，未取得完整目录")
-            for raw in rows:
-                if not isinstance(raw, dict):
-                    raise ValueError("板块目录行不是对象")
-                code, name = raw.get("f12"), raw.get("f14")
-                if not isinstance(code, str) or not re.fullmatch(r"BK\d{4,}", code) or str(raw.get("f13")) != "90":
-                    raise ValueError("板块代码或市场身份不匹配")
-                if not isinstance(name, str) or not name.strip():
-                    raise ValueError(f"{code}板块名称缺失")
-                if code in seen:
-                    raise ValueError(f"{kind}目录出现重复代码{code}，分页可能漂移")
-                seen.add(code)
-                timestamp = _integer(raw.get("f124"), "来源更新时间")
-                try:
-                    updated = datetime.fromtimestamp(timestamp, SHANGHAI)
-                except (ValueError, OverflowError, OSError) as exc:
-                    raise ValueError("来源更新时间无效") from exc
-                if timestamp <= 0 or updated > current + timedelta(minutes=5):
-                    raise ValueError("来源更新时间缺失或晚于采集时间")
-                source_dates.add(updated.date().isoformat())
-                if len(source_dates) != 1:
-                    raise ValueError("完整目录中的成交额日期不一致，不能合并排名")
-                member = {"code": code, "name": name.strip(), "kind": kind,
-                          "heat_value": _number(raw.get("f6"), "成交额"),
-                          "heat_updated_at": updated.isoformat(), "ranking_as_of": updated.date().isoformat()}
-                previous = all_members.get(code)
-                if previous is not None:
-                    if any(previous[key] != member[key] for key in ("name", "ranking_as_of")) or Decimal(previous["heat_value"]) != Decimal(member["heat_value"]):
-                        raise ValueError(f"{code}跨分类重复记录的身份或成交额不一致")
-                    continue
-                all_members[code] = member
-            page += 1
-    return sorted(all_members.values(), key=lambda item: (-Decimal(item["heat_value"]), item["code"]))
-
-
-def fetch_sector_daily(member: dict[str, Any], fetcher: Fetcher, *, timeout: float = 12.0) -> list[dict[str, str]]:
-    end = min(date.fromisoformat(member["ranking_as_of"]),
-              date.fromisoformat(member["price_cutoff"]) if member.get("price_cutoff")
-              else get_calendar().latest_completed(datetime.now(SHANGHAI)))
-    start = end - timedelta(days=365)
-    params = {"secid": "90." + member["code"], "fields1": "f1,f2,f3,f4,f5,f6",
-              "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
-              "klt": 101, "fqt": 0, "beg": start.strftime("%Y%m%d"), "end": end.strftime("%Y%m%d"),
-              "smplmt": 10000, "lmt": 260}
-    data = _data(fetcher(HISTORY_URL + "?" + urlencode(params), timeout))
-    if data.get("code") != member["code"] or str(data.get("market")) != "90" or data.get("name") != member["name"]:
-        raise ValueError("日线返回的板块代码、市场或名称与目录不一致")
-    values = data.get("klines")
-    if not isinstance(values, list) or not values:
-        raise ValueError("来源未返回板块日线")
+def fetch_ths_sector_daily(member: dict[str, Any], ths_code: str, *, timeout: float = 12.0) -> list[dict[str, str]]:
+    payload = fetch_text(f"https://d.10jqka.com.cn/v4/line/bk_{ths_code}/01/last.js", timeout)
+    left, right = payload.find("{"), payload.rfind("}")
+    if left < 0 or right <= left:
+        raise ValueError("同花顺日线JSONP无效")
+    root = json.loads(payload[left:right + 1], parse_float=str, parse_int=str)
+    if str(root.get("name", "")).strip() != member["name"]:
+        raise ValueError("同花顺日线名称与行业目录不一致")
+    cutoff = min(date.fromisoformat(member["ranking_as_of"]),
+                 date.fromisoformat(member["price_cutoff"]) if member.get("price_cutoff")
+                 else get_calendar().latest_completed(datetime.now(SHANGHAI)))
     rows, seen = [], set()
-    for value in values:
-        fields = value.split(",") if isinstance(value, str) else []
-        if len(fields) < 7:
-            raise ValueError("板块日线字段不完整")
-        day = date.fromisoformat(fields[0])
-        if day.isoformat() != fields[0] or not start <= day <= end or day in seen:
-            raise ValueError("板块日线日期重复或超出请求范围")
+    for value in str(root.get("data", "")).split(";"):
+        fields = value.split(",")
+        if not value.strip():
+            continue
+        if len(fields) < 7 or not re.fullmatch(r"\d{8}", fields[0]):
+            raise ValueError(f"{member['code']} 同花顺日线字段不完整或日期无效")
+        day = datetime.strptime(fields[0], "%Y%m%d").date().isoformat()
+        if day > cutoff.isoformat():
+            continue
+        if day in seen:
+            raise ValueError(f"{member['code']} {day} 同花顺日线日期重复")
         seen.add(day)
-        row = {"date": fields[0]}
-        for field, raw in zip(("open", "close", "high", "low", "volume", "amount"), fields[1:7]):
-            try:
-                row[field] = _number(raw, field, positive=field in ("open", "close", "high", "low"))
-            except ValueError as exc:
-                raise ValueError(f"{member['code']} {day} {field} 原始值={raw!r}：{exc}") from exc
-        opening, closing, high, low = (Decimal(row[key]) for key in ("open", "close", "high", "low"))
-        if high < max(opening, closing) or low > min(opening, closing) or high < low:
-            raise ValueError("板块日线OHLC关系无效")
+        row = {"date": day}
+        for field, raw in zip(("open", "high", "low", "close", "volume", "amount"), fields[1:7]):
+            row[field] = _number(raw, field, positive=field in ("open", "close", "high", "low"))
+        if Decimal(row["high"]) < max(Decimal(row["open"]), Decimal(row["close"])) or Decimal(row["low"]) > min(Decimal(row["open"]), Decimal(row["close"])):
+            raise ValueError("同花顺板块日线OHLC关系无效")
         rows.append(row)
-    return sorted(rows, key=lambda row: row["date"])
+    if not rows:
+        raise ValueError("同花顺未返回可用板块日线")
+    rows.sort(key=lambda row: row["date"])
+    return rows
 
 
-def fetch_sector_constituents(member: dict[str, Any], fetcher: Fetcher, *, timeout: float = 12.0) -> list[dict[str, Any]]:
-    """Read the complete current membership; the source does not publish board weights."""
-    total, page, seen, result = None, 1, set(), []
-    while total is None or len(seen) < total:
-        params = {"pn": page, "pz": 100, "po": 1,
-                  "fid": "f20", "fs": f"b:{member['code']}",
-                  "fields": "f12,f13,f14,f20"}
-        data = _data(fetcher(CONSTITUENT_URL + "?" + urlencode(params), timeout))
-        page_total = _integer(data.get("total"), "成分总数")
-        if page_total <= 0 or page_total > 10000 or (total is not None and page_total != total):
-            raise ValueError("成分总数无效或采集中发生变化")
-        total = page_total
-        rows = data.get("diff")
-        if not isinstance(rows, list) or len(rows) != min(100, total - len(seen)):
-            raise ValueError(f"{member['code']}成分第{page}页缺失")
-        for raw in rows:
-            if not isinstance(raw, dict):
-                raise ValueError("成分行不是对象")
-            code, name = raw.get("f12"), raw.get("f14")
-            market = _integer(raw.get("f13"), "成分市场")
-            if not isinstance(code, str) or not re.fullmatch(r"\d{6}", code) or market not in (0, 1, 116):
-                raise ValueError("成分证券代码或市场无效")
-            if not isinstance(name, str) or not name.strip() or code in seen:
-                raise ValueError("成分证券名称缺失或代码重复")
-            seen.add(code)
-            # Market cap is optional metadata, not the membership identity or an index weight.
-            # Keep the security and denominator even if this field is unavailable.
+def fetch_ths_industry_directory(*, now: datetime | None = None) -> list[dict[str, Any]]:
+    current = now or datetime.now(timezone.utc)
+    cutoff = get_calendar().latest_completed(current.astimezone(SHANGHAI)).isoformat()
+    seed_path = ROOT / "config" / "ths-industry-boards.json"
+    try:
+        import akshare as ak
+        names = ak.stock_board_industry_name_ths()
+        name_rows = [{"name": str(row["name"]).strip(), "code": str(row["code"]).strip()} for _, row in names.iterrows()]
+    except Exception as exc:
+        try:
+            name_rows = json.loads(seed_path.read_text(encoding="utf-8"))
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                f"同花顺行业目录读取失败：{type(exc).__name__}: {exc}；"
+                f"本地种子目录也不可用：{type(fallback_exc).__name__}: {fallback_exc}"
+            ) from exc
+    turnover_by_name: dict[str, Decimal] = {}
+    try:
+        import akshare as ak
+        summary = ak.stock_board_industry_summary_ths()
+        for _, row in summary.iterrows():
+            name = str(row["板块"]).strip()
             try:
-                market_cap = _number(raw.get("f20"), "成分总市值")
-            except ValueError:
-                market_cap = None
-            result.append({"stock_code": code, "stock_name": name.strip(), "market": market,
-                           "source_order": len(result) + 1, "market_cap": market_cap})
-        page += 1
-    return result
+                turnover_by_name[name] = Decimal(str(row["总成交额"])) * Decimal("100000000")
+            except (InvalidOperation, ValueError):
+                turnover_by_name[name] = Decimal(0)
+    except Exception:
+        turnover_by_name = {}
+    rows = []
+    for raw in name_rows:
+        name, code = str(raw["name"]).strip(), str(raw["code"]).strip()
+        if not re.fullmatch(r"\d{6}", code):
+            raise ValueError(f"同花顺行业代码无效：{name} {code}")
+        rows.append({"code": code, "name": name, "kind": "行业", "source_id": "sector_daily.ths",
+                     "heat_value": format(turnover_by_name.get(name, Decimal(0)), "f"),
+                     "heat_updated_at": current.astimezone(SHANGHAI).isoformat(timespec="seconds"),
+                     "ranking_as_of": cutoff})
+    return [dict(row, heat_rank=rank) for rank, row in enumerate(
+        sorted(rows, key=lambda item: (-Decimal(item["heat_value"]), item["code"])), 1)]
 
 
-class _Throttle:
-    def __init__(self, fetcher: Fetcher, interval: float):
-        self.fetcher, self.interval = fetcher, interval
-        self.lock, self.last_start = Lock(), 0.0
+def _stock_market(code: str) -> int:
+    return 1 if code.startswith("6") else 0
 
-    def __call__(self, url: str, timeout: float) -> dict[str, Any]:
-        with self.lock:
-            remaining = self.interval - (time.monotonic() - self.last_start)
-            if remaining > 0:
-                time.sleep(remaining)
-            self.last_start = time.monotonic()
-        return self.fetcher(url, timeout)
+
+def _market_cap(value: str) -> str | None:
+    cleaned = value.replace(",", "").replace(" ", "")
+    if cleaned in ("", "-", "--"):
+        return None
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)(万|亿)?(?:元)?", cleaned)
+    if not match:
+        return None
+    scale = {None: Decimal(1), "万": Decimal(10_000), "亿": Decimal(100_000_000)}[match.group(2)]
+    return format(Decimal(match.group(1)) * scale, "f")
+
+
+def _parse_ths_constituent_page(html: str, *, expected_page: int) -> tuple[int, list[dict[str, Any]]]:
+    parser = _ThsConstituentParser()
+    parser.feed(html)
+    rows = []
+    for cells in parser.rows:
+        if len(cells) < 14 or not cells[0].isdigit():
+            continue
+        order, code, name = int(cells[0]), cells[1], cells[2].strip()
+        if not re.fullmatch(r"\d{6}", code) or not name:
+            raise ValueError(f"同花顺普通分页第{expected_page}页成分身份无效")
+        rows.append({"stock_code": code, "stock_name": name, "market": _stock_market(code),
+                     "source_order": order, "market_cap": _market_cap(cells[12])})
+    # Tonghuashun omits the pager entirely for industries that fit on one page.
+    if parser.page_position is None:
+        if expected_page == 1 and rows:
+            return 1, rows
+        if "chameleon" in html.lower():
+            raise ValueError(f"同花顺普通分页第{expected_page}页触发访问限制")
+        raise ValueError(f"同花顺普通分页第{expected_page}页缺少页数标记")
+    current_page, page_count = parser.page_position
+    if current_page != expected_page or not expected_page <= page_count <= 100:
+        raise ValueError(
+            f"同花顺普通分页位置无效：请求第{expected_page}页，响应{current_page}/{page_count}"
+        )
+    return page_count, rows
+
+
+def fetch_ths_visible_constituents(member: dict[str, Any], *, timeout: float = 12.0,
+                                   throttle_seconds: float = 0.5) -> list[dict[str, Any]]:
+    """Read every ordinary HTML page; never use the blocked ``ajax/1`` route."""
+    code = str(member["code"])
+    if not re.fullmatch(r"\d{6}", code):
+        raise ValueError("同花顺行业代码无效")
+    headers = {"Cookie": _ths_cookie()}
+    rows: list[dict[str, Any]] = []
+    page_count: int | None = None
+    for page in range(1, 101):
+        if page > 1 and throttle_seconds:
+            time.sleep(throttle_seconds)
+        url = f"https://q.10jqka.com.cn/thshy/detail/page/{page}/code/{code}/"
+        parsed_count, page_rows = _parse_ths_constituent_page(
+            fetch_text(url, timeout, headers=headers), expected_page=page,
+        )
+        if page_count is None:
+            page_count = parsed_count
+        elif parsed_count != page_count:
+            raise ValueError(f"同花顺普通分页总页数在采集中变化：{page_count}→{parsed_count}")
+        if not page_rows:
+            raise ValueError(f"同花顺普通分页声明{page_count}页，但第{page}页为空；已取得{len(rows)}只")
+        rows.extend(page_rows)
+        if page == page_count:
+            break
+    if page_count is None or len(rows) == 0:
+        raise ValueError("同花顺普通分页未返回成分")
+    expected_orders = list(range(1, len(rows) + 1))
+    actual_orders = [row["source_order"] for row in rows]
+    if actual_orders != expected_orders:
+        raise ValueError("同花顺普通分页成分序号不连续，拒绝将截断结果当作完整名单")
+    codes = [row["stock_code"] for row in rows]
+    if len(set(codes)) != len(codes):
+        raise ValueError("同花顺普通分页包含重复证券代码")
+    return rows
 
 
 def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, timeout: float = 12.0,
-                        workers: int = 3, throttle_seconds: float = 0.2,
+                        workers: int = 2, throttle_seconds: float = 0.5,
+                        budget_seconds: float | None = None,
                         progress: Callable[[str], None] | None = None,
                         now: datetime | None = None, industry_only: bool = False) -> dict[str, Any]:
-    """Freeze a full top-100 ranking, collect history, and publish one snapshot.
-
-    A failed directory refresh only records the error, preserving old rankings.
-    History errors preserve existing real rows and their original fetch time.
-    """
-    if not 0 < timeout <= 12 or not 1 <= workers <= 3 or throttle_seconds < 0:
-        raise ValueError("超时须在(0,12]秒，并发须在1–3，节流间隔不能为负")
+    """Collect the Tonghuashun industry universe, daily prices and visible constituents."""
+    budget = budget_seconds if budget_seconds is not None else 620
+    if not 0 < timeout <= 12 or not 1 <= workers <= 3 or throttle_seconds < 0 or not 60 <= budget <= 840:
+        raise ValueError("超时须在(0,12]秒，并发须在1–3，节流间隔不能为负，预算须在60–840秒")
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
         raise ValueError("采集时间必须包含时区")
     attempted_at = current.isoformat(timespec="seconds")
-    request = _Throttle(fetcher or fetch_json, max(0.2, throttle_seconds) if fetcher is None else throttle_seconds)
+    source_outcomes: list[dict] = []
     previous_snapshot = read_sector_heat(settings)
     try:
-        directory = fetch_sector_directory(request, timeout=timeout, now=current,
-                                           source_groups=(("行业", 2),) if industry_only else (("行业", 2), ("概念", 3)))
+        directory = fetch_ths_industry_directory(now=current)
+        source_outcomes.append({"dataset": "directory", "subject": "ths_industry",
+                                "endpoint": "akshare.stock_board_industry_name_ths",
+                                "status": "available", "row_count": len(directory), "error": None})
         old_ranking_date = previous_snapshot["universe"]["ranking_as_of"]
         if old_ranking_date and directory[0]["ranking_as_of"] < old_ranking_date:
             raise ValueError("来源排名日期早于已保存排名，不能用旧榜覆盖新榜")
     except Exception as exc:
         record_sector_heat_failure(settings, attempted_at=attempted_at,
-                                   error=f"热度榜刷新失败，保留上次快照：{type(exc).__name__}: {exc}")
-        raise RuntimeError(f"热度榜刷新失败，未替换原排名：{exc}") from exc
+                                   error=f"同花顺行业目录刷新失败，保留上次快照：{type(exc).__name__}: {exc}")
+        raise RuntimeError(f"同花顺行业目录刷新失败，未替换原排名：{exc}") from exc
     previous = {item["code"]: item for item in previous_snapshot["items"]}
-    if industry_only and fetcher is None:
-        candidates = [dict(item, heat_rank=rank) for rank, item in enumerate(directory, 1)]
-        ths_crosswalk = build_ths_history_crosswalk(candidates, timeout=timeout)
-        selected = [item for item in candidates if item["code"] in ths_crosswalk]
-        members = selected
-    else:
-        members = [dict(item, heat_rank=rank) for rank, item in enumerate(directory if industry_only else directory[:100], 1)]
-        ths_crosswalk = {}
-    identity_candidates = [dict(member, membership=previous.get(member["code"], {}).get("membership", {}))
-                           for member in members]
-    if fetcher is None and not ths_crosswalk:
-        ths_crosswalk = build_ths_history_crosswalk(identity_candidates, timeout=timeout)
-    if not members:
-        message = "本次未取得可核对的行业行情身份，保留旧快照；不视为空行业池。"
-        record_sector_heat_failure(settings, attempted_at=attempted_at, error=message)
-        raise RuntimeError(message)
+    members = [dict(item, heat_rank=rank) for rank, item in enumerate(directory, 1)]
     if progress:
-        progress(f"完整目录 {len(directory)} 个板块；纳入 {len(members)} 个可核验板块，开始采集日线。")
+        progress(f"同花顺行业目录 {len(directory)} 个板块，开始采集日线。")
 
     def collect(member: dict[str, Any]) -> dict[str, Any]:
         member = {**member, "price_cutoff": get_calendar().latest_completed(current).isoformat()}
         old = previous.get(member["code"], {})
-        # A changed identity cannot inherit another board's stored history.
         if old.get("name") != member["name"]:
             old = {}
         rows, updated_at, error = old.get("rows", []), old.get("updated_at"), None
-        history_source_id = old.get("history_source_id")
-        history_source_code = old.get("history_source_code")
-        history_identity_match = old.get("history_identity_match")
         old_membership = old.get("membership", {})
         components = old_membership.get("members", []) if old_membership.get("as_of") == member["ranking_as_of"] else []
         component_updated_at = old_membership.get("fetched_at") if components else None
+        attempts: list[dict] = []
+        native_source_id, native_source_code = "sector_daily.ths", "bk_" + member["code"]
+        native = old.get("history_source_id") == native_source_id and old.get("history_source_code") == native_source_code
         try:
-            ths_code = ths_crosswalk.get(member["code"])
-            fetched = (fetch_ths_sector_daily(member, ths_code, timeout=timeout)
-                       if industry_only and ths_code else fetch_sector_daily(member, request, timeout=timeout))
-            completed = get_calendar().latest_completed(current)
-            fetched = [row for row in fetched if date.fromisoformat(row["date"]) <= completed]
-            quality = get_calendar().validate_grid([row["date"] for row in fetched],
-                                                      end=date.fromisoformat(fetched[-1]["date"]) if fetched else completed)
+            fetched = fetch_ths_sector_daily(member, member["code"], timeout=timeout)
+            quality = get_calendar().validate_grid(
+                [row["date"] for row in fetched[-121:]],
+                end=date.fromisoformat(member["price_cutoff"]), minimum=121,
+            )
+            attempts.append({"dataset": "daily", "subject": member["code"],
+                             "endpoint": "https://d.10jqka.com.cn/v4/line/",
+                             "status": "available" if quality["status"] == "ready" else "failed",
+                             "row_count": len(fetched), "first_date": fetched[0]["date"],
+                             "last_date": fetched[-1]["date"],
+                             "error": None if quality["status"] == "ready" else str(quality["errors"])})
             if quality["status"] != "ready":
-                raise ValueError(f"日线交易日校验失败：{quality['errors']}；缺失{quality['missing_sessions'][:5]}")
-            error = (f"日线仅到{fetched[-1]['date']}，期望完整交易日为{completed}"
-                     if fetched[-1]["date"] != completed.isoformat() else None)
+                raise ValueError(f"同花顺日线交易日校验失败：{quality['errors']}")
             if rows and fetched[-1]["date"] < rows[-1]["date"]:
                 raise ValueError("返回行情早于已保存行情，拒绝回退当前序列")
-            if not rows or fetched[-1]["date"] >= rows[-1]["date"]:
-                next_source = "sector_daily.ths" if industry_only and ths_code else "sector_daily.eastmoney"
-                next_code = "bk_" + ths_code if industry_only and ths_code else "90." + member["code"]
-                prefix = [row for row in rows if row["date"] < fetched[0]["date"]] if (
-                    history_source_id == next_source and history_source_code == next_code) else []
-                rows = prefix + fetched
-                updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
-                if industry_only and ths_code:
-                    history_source_id, history_source_code = "sector_daily.ths", "bk_" + ths_code
-                    history_identity_match = "category_and_exact_name"
-                else:
-                    history_source_id, history_source_code = "sector_daily.eastmoney", "90." + member["code"]
-                    history_identity_match = "native_source_code"
+            prefix = [row for row in rows if row["date"] < fetched[0]["date"]] if native else []
+            rows = prefix + fetched
+            updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
-            ths_code = ths_crosswalk.get(member["code"])
-            if ths_code and not industry_only:
-                try:
-                    fetched = fetch_ths_sector_daily(member, ths_code, timeout=timeout)
-                    completed = get_calendar().latest_completed(current)
-                    fetched = [row for row in fetched if date.fromisoformat(row["date"]) <= completed]
-                    quality = get_calendar().validate_grid([row["date"] for row in fetched],
-                                                      end=date.fromisoformat(fetched[-1]["date"]) if fetched else completed)
-                    if quality["status"] != "ready":
-                        raise ValueError(f"备用日线交易日校验失败：{quality['errors']}")
-                    if rows and fetched[-1]["date"] < rows[-1]["date"]:
-                        raise ValueError("备用源返回旧行情，保留已保存的新行情")
-                    rows = fetched
-                    updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
-                    history_source_id, history_source_code = "sector_daily.ths", "bk_" + ths_code
-                    history_identity_match = ("category_name_alias_and_constituent_overlap"
-                                              if member["name"] in THS_VERIFIED_ALIAS_CANDIDATES
-                                              else "category_and_exact_name")
-                    error = (f"日线仅到{fetched[-1]['date']}，期望完整交易日为{completed}"
-                             if fetched[-1]["date"] != completed.isoformat() else None)
-                except Exception as fallback_exc:
-                    error += f"；同花顺严格同名备用源失败：{type(fallback_exc).__name__}: {fallback_exc}"
-        if error:
-            error += f"；当前保留旧行情至{rows[-1]['date']}" if rows else "；暂无可用日线"
+            if native and rows:
+                quality = get_calendar().validate_grid(
+                    [row["date"] for row in rows[-121:]],
+                    end=date.fromisoformat(member["price_cutoff"]), minimum=121,
+                )
+                if quality["status"] == "ready":
+                    error = None
+            if error:
+                error += f"；当前保留旧同花顺行情至{rows[-1]['date']}" if rows else "；暂无可用日线"
         component_error = None
         try:
-            components = fetch_sector_constituents(member, request, timeout=timeout)
+            components = fetch_ths_visible_constituents(
+                member, timeout=timeout, throttle_seconds=throttle_seconds,
+            )
+            attempts.append({"dataset": "constituents", "subject": member["code"],
+                             "endpoint": "https://q.10jqka.com.cn/thshy/detail/page/{page}/code/",
+                             "status": "available", "row_count": len(components), "error": None})
             component_updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
         except Exception as exc:
             component_error = f"{type(exc).__name__}: {exc}"
-            component_error += f"；当前保留{len(components)}个旧成分" if components else "；暂无可用成分"
+            component_error += f"；当前保留{len(components)}个旧同花顺成分" if components else "；暂无可用成分"
+            attempts.append({"dataset": "constituents", "subject": member["code"],
+                             "endpoint": "https://q.10jqka.com.cn/thshy/detail/page/{page}/code/",
+                             "status": "failed", "row_count": 0, "error": component_error})
         return {**member, "rows": rows, "updated_at": updated_at, "collection_error": error,
-                "history_source_id": history_source_id, "history_source_code": history_source_code,
-                "history_identity_match": history_identity_match,
+                "history_source_id": native_source_id, "history_source_code": native_source_code,
+                "history_identity_match": "native_source_code",
                 "constituents": components, "constituent_error": component_error,
-                "constituent_updated_at": component_updated_at}
+                "constituent_updated_at": component_updated_at, "source_attempts": attempts}
 
     results = []
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -489,14 +367,35 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
         for future in as_completed(futures):
             results.append(future.result())
             if progress and (len(results) % 10 == 0 or len(results) == len(members)):
-                failures = sum(item["collection_error"] is not None for item in results)
-                progress(f"日线采集 {len(results)}/{len(members)}，失败或旧行情 {failures}。")
-    results.sort(key=lambda item: item["heat_rank"])
+                price_failures = sum(item["collection_error"] is not None for item in results)
+                member_failures = sum(item["constituent_error"] is not None for item in results)
+                progress(
+                    f"同花顺板块采集 {len(results)}/{len(members)}，"
+                    f"失败或旧行情 {price_failures}，成分不完整 {member_failures}。"
+                )
+    for item in results:
+        if item.get("rows"):
+            item["heat_value"] = item["rows"][-1].get("amount", item.get("heat_value", "0"))
+            item["heat_updated_at"] = item["rows"][-1]["date"]
+    results.sort(key=lambda item: (-Decimal(item["heat_value"]), item["code"]))
+    for rank, item in enumerate(results, 1):
+        item["heat_rank"] = rank
     completed_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if now is None else attempted_at
     save_sector_heat(settings, as_of=members[0]["ranking_as_of"], updated_at=completed_at,
                      catalog_count=len(directory), members=results, requested_count=len(members),
-                     universe_scope="verified_industry_all" if industry_only else "hot_board_top100")
-    return read_sector_heat(settings)
+                     universe_scope="verified_industry_all")
+    saved = read_sector_heat(settings)
+    saved["collector_version"] = COLLECTOR_VERSION
+    completed = get_calendar().latest_completed(current)
+    saved["price_cutoff"] = completed.isoformat()
+    saved["price_window_coverage"] = {
+        key: sum(not item.get("collection_error") and bool(item.get("rows"))
+                 and get_calendar().validate_grid([row["date"] for row in item["rows"][-window - 1:]],
+                     end=completed, minimum=window + 1)["status"] == "ready" for item in saved["items"])
+        for key, window in (("short", 20), ("medium", 60), ("long", 120))
+    }
+    saved["source_attempts"] = source_outcomes + [attempt for item in results for attempt in item["source_attempts"]]
+    return saved
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -504,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database")
     parser.add_argument("--timeout", type=float, default=12.0)
     parser.add_argument("--workers", type=int, default=3)
-    parser.add_argument("--industry-only", action="store_true", help="只纳入能严格映射到标准日线的全部行业板块")
+    parser.add_argument("--industry-only", action="store_true", help="兼容旧命令参数；当前始终采集同花顺完整行业目录")
     args = parser.parse_args(argv)
     settings = Settings(database_path=Path(args.database)) if args.database else Settings.from_env()
     from backend.storage.collection_runs import start_run, finish_run, record_attempt
@@ -523,7 +422,8 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         set_observer(None)
     universe = result["universe"]
-    finish_run(settings, run_id, "success" if universe["status"] == "ready" else "partial", {"universe": universe})
+    finish_run(settings, run_id, "success" if universe["status"] == "ready" else "partial", {"universe": universe,
+        "collector_version": COLLECTOR_VERSION, "source_attempts": result.get("source_attempts", [])})
     print(f"排名日期 {universe['as_of']}；热门 {universe['member_count']}；"
           f"采集完成 {universe['collected_count']}；失败或旧行情 {universe['failed_count']}。", flush=True)
     return 0 if universe["status"] == "ready" else 1

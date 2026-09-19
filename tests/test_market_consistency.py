@@ -116,13 +116,13 @@ class MarketConsistencyTests(unittest.TestCase):
 
     def test_source_exact_market_query_and_range(self):
         self.save(1)
-        result = market_series(self.settings, "BK0000", source_id="sector_daily.eastmoney", universe_type="hot_board")
+        result = market_series(self.settings, "BK0000", source_id="sector_daily.ths", universe_type="hot_board")
         self.assertEqual(result["rows"], [PRICE])
         with self.assertRaises(AppError) as caught:
             market_series(self.settings, "BK0000", source_id="wrong-source", universe_type="hot_board")
         self.assertEqual(caught.exception.status_code, 404)
         with self.assertRaises(AppError):
-            market_series(self.settings, "BK0000", source_id="sector_daily.eastmoney", universe_type="hot_board", start="2026-10-01", end="2026-09-01")
+            market_series(self.settings, "BK0000", source_id="sector_daily.ths", universe_type="hot_board", start="2026-10-01", end="2026-09-01")
 
     def test_universes_choose_independent_comparison_dates(self):
         def item(code, universe, day):
