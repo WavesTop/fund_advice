@@ -1,0 +1,20 @@
+{
+  "version": "sector-price-validation-v1",
+  "hypothesis": "现有优势榜选出的行业，在随后固定观察期内的等权价格表现是否超过同日完整行业池",
+  "signal_rule": "existing_analyze_index_attach_strength_build_advantage_summary",
+  "horizons": {"short": 20, "medium": 60, "long": 120},
+  "entry_policy": "next_session_close",
+  "exit_policy": "entry_plus_horizon_sessions_close",
+  "primary_schedule": "first_possible_signal_then_stride_horizon_plus_one",
+  "secondary_schedule": "every_session_overlapping_descriptive_only",
+  "universe_policy": "frozen_current_ths_industry_pool_not_historical_universe",
+  "coverage_policy": "full_frozen_pool_required_for_signal_and_outcome",
+  "control": "same_date_equal_weight_all_frozen_industries",
+  "selected_weighting": "equal_at_entry_hold_units_no_rebalance",
+  "no_selection_policy": "record_without_zero_return_or_cash_simulation",
+  "cost_stress_bps_of_initial_value": [0, 20, 50, 100],
+  "parameter_search": "none",
+  "return_basis": "unadjusted_index_price_not_fund_total_return",
+  "interpretation": "retrospective_diagnostic_not_unseen_oos",
+  "investment_operations_enabled": false
+}

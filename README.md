@@ -70,6 +70,18 @@ uv run --locked --offline python -m scripts.research_pipeline --database runtime
 
 协议JSON固定 name、hypothesis、subjects、benchmark_key、signal_rule（price_strong／evidence_watch）、period（short／medium／long）、horizon_sessions（20／60／120）、development／validation／test（各含start、end）、embargo_sessions、minimum_observations。对象必须采用来源精确的 subject_key，不能按名称猜；时间区间须在已核验日历范围内且互不重叠。协议必须在观察之前登记，不能为了补旧报告填写假时间。history 始终是有明确标识的回顾性时间切分诊断，不称“未见样本外”；score 也不会因夹具通过或达到最小样本数自动判投资有效。
 
+现有板块优势榜另有[历史价格初步验证](docs/sector-price-validation.md)，直接复用页面的前25%及最多5行业规则；不降低上述严格历史时点／总收益契约。只读导出当前行情并验证：
+
+```bash
+uv run --locked --offline python -m scripts.validate_sector_prices --output runtime/validation/sector-price-base
+# 在线补采2025、2026年度普通日线；原响应留在独立目录，不写生产库
+uv run --locked --offline python -m scripts.collect_sector_validation_history --input runtime/validation/sector-price-base/input.json --output runtime/validation/sector-price-annual
+# 使用冻结数据离线回放，不会重新联网
+uv run --locked --offline python -m scripts.validate_sector_prices --input runtime/validation/sector-price-annual/input.json --output runtime/validation/sector-price-result
+```
+
+每个输出目录必须是新目录，以保留旧结果。生成的 `report.md` 与 `report.json` 分别供阅读和逐批复算，`input.json` 和 `protocol.json` 固定输入、规则及代码摘要。收益是行业价格标签；当前行业池、历史修订、基金实际成本和未见样本外验证仍有限制，不能作为投资认证。
+
 接口总入口为 `/api/research/status`；集合及详情可通过 `/collections`、`/snapshots`、`/runs/{id}`、`/trials/{id}` 读取。完整请求在 FastAPI 的 `/docs` 查看。服务仍只应监听本机，不提供公网鉴权或多用户隔离，不应直接暴露到互联网。
 
 升级前先按现有 SQLite 一致备份方式保存源库。升级后的有界原文、事实和快照可一并备份到**不存在的新文件**：
