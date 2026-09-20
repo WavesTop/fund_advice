@@ -912,12 +912,12 @@ export function SectorOpportunities() {
       )}
       {state === 'loading' && (
         <div className="sector-state" role="status">
-          正在读取真实指数观察…
+          正在读取本地板块快照…
         </div>
       )}
       {state === 'error' && (
         <EmptyState
-          title="真实指数观察暂时无法加载"
+          title="本地板块快照暂时无法加载"
           description="请确认本地数据服务已启动后重试。"
           action={
             <button className="button primary" type="button" onClick={() => load()}>
@@ -928,8 +928,8 @@ export function SectorOpportunities() {
       )}
       {state === 'ready' && data && !data.items.length && (
         <EmptyState
-          title="暂时没有真实指数观察"
-          description="本地数据服务尚未返回可展示的指数周期资料。"
+          title="暂时没有板块快照"
+          description="本地数据服务尚未返回可展示的板块周期资料。"
         />
       )}
       {state === 'ready' &&

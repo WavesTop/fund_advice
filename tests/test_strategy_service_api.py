@@ -216,6 +216,12 @@ class StrategyRecommendationTests(unittest.TestCase):
         self.assertEqual(output["status"], "blocked")
         self.assertIn("strategy_not_investment_validated", output["blockers"])
         self.assertEqual({item["action"] for item in output["items"]}, {"WAIT"})
+        self.assertEqual(output["guidance"]["summary"], "本次已生成研究建议，但正式交易动作暂缓。")
+        self.assertIn("补齐总收益、历史时点和样本外验证", "；".join(output["guidance"]["next_steps"]))
+        self.assertEqual(output["research_action_summary"]["BUY"], 1)
+        by_code = {item["fund_code"]: item for item in output["items"]}
+        self.assertEqual(by_code["510001"]["research_action"]["action"], "BUY")
+        self.assertEqual(by_code["510001"]["research_action"]["formal_execution"], "blocked")
         self.assertEqual(output["investment_eligibility"], blocked)
 
     def test_blocked_exit_signal_remains_wait_but_exposes_non_executable_risk_alert(self):

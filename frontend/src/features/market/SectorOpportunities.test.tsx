@@ -293,9 +293,9 @@ describe('SectorOpportunities', () => {
       );
     vi.stubGlobal('fetch', fetchMock);
     renderPage();
-    await waitFor(() => expect(screen.getByText('真实指数观察暂时无法加载')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('本地板块快照暂时无法加载')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
-    await waitFor(() => expect(screen.getByText('暂时没有真实指数观察')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('暂时没有板块快照')).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

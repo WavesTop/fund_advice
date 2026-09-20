@@ -331,6 +331,40 @@
   color: var(--muted);
   font-size: 11px;
 }
+.strategy-guidance .panel-body {
+  display: grid;
+  gap: 14px;
+}
+.strategy-guidance p {
+  margin: 0;
+  line-height: 1.8;
+}
+.strategy-mini-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.strategy-mini-counts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: #f4f7fb;
+  border: 1px solid #e4ebf2;
+  border-radius: 7px;
+  color: #53677f;
+  font-size: 12px;
+}
+.strategy-mini-counts b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.strategy-next-steps {
+  margin: 0;
+  padding-left: 20px;
+  color: #41556d;
+  line-height: 1.75;
+}
 .strategy-recommendation-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -348,6 +382,23 @@
 .strategy-reason {
   min-height: 48px;
   line-height: 1.8;
+}
+.strategy-research-signal {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 12px;
+  background: #f7fafc;
+  border: 1px solid #e4ecf3;
+  border-radius: 8px;
+}
+.strategy-research-signal p {
+  margin: 0;
+  line-height: 1.7;
+}
+.strategy-research-signal small {
+  color: var(--muted);
+  line-height: 1.6;
 }
 .strategy-weight-grid,
 .strategy-metrics {

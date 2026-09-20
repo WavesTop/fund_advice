@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date
-from decimal import Decimal, localcontext
+from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any
 
 from backend.analysis.strategy import StrategyPolicy, evaluate_strategy, policy_document
@@ -18,7 +18,46 @@ from backend.storage.strategy_runs import save_recommendation
 from backend.storage.timeseries import get_timeseries
 
 
-SERVICE_VERSION = "portfolio-strategy-service-v3"
+SERVICE_VERSION = "portfolio-strategy-service-v4"
+
+ACTION_LABELS = {
+    "BUY": "买入",
+    "ADD": "加仓",
+    "HOLD": "持有",
+    "REDUCE": "减仓",
+    "EXIT": "清仓",
+    "WAIT": "等待",
+}
+
+BLOCKER_REASONS = {
+    "eligible_universe_empty": "当前没有关系和真实序列均通过核验的基金，暂不交易。",
+    "strategy_source_not_execution_grade": "当前策略序列还没有取得正式交易用途资格，本次只输出研究级建议。",
+    "strategy_not_investment_validated": "历史时点、总收益、产品执行规则或样本外验证尚未全部通过，当前策略不能生成真实资金操作。",
+    "portfolio_condition_missing": "尚未确认风险等级、单只上限和投资期限，暂不交易。",
+    "confirmed_assets_not_positive": "账户没有可用于计算金额的已确认资产，暂不交易。",
+    "portfolio_valuation_incomplete": "存在无法以真实序列估值的持仓，组合权重不完整，暂不交易。",
+    "portfolio_valuation_stale": "至少一项当前持仓缺少应有交易日的价格或净值，不能用过期市值计算交易金额。",
+    "pending_ledger_events_present": "账户仍有待确认事件，持仓或现金可能变化，确认完成前暂不重复交易。",
+    "unknown_ledger_events_present": "账户仍有待核对事件，当前持仓与现金不能视为完整，暂不交易。",
+    "ledger_balance_coverage_incomplete": "历史账本缺少确认日期，无法完整重建当前现金与份额，暂不交易。",
+    "settlement_history_incomplete": "卖出、入金或分红记录缺少结算日期，无法确认可用现金，暂不交易。",
+    "empty_holdings_not_confirmed": "账本当前没有基金份额，但尚未确认账户确实无其他持仓，暂不建仓。",
+}
+
+BLOCKER_NEXT_STEPS = {
+    "eligible_universe_empty": "先刷新并核验基金净值、跟踪指数关系和可用历史序列，再重新生成建议。",
+    "strategy_source_not_execution_grade": "把候选行情升级为主证据来源，或继续把本次结果仅作为观察清单。",
+    "strategy_not_investment_validated": "补齐总收益、历史时点和样本外验证；通过后再开放真实资金动作。",
+    "portfolio_condition_missing": "在持仓页补充风险等级、单只上限、投资期限和是否确认空仓。",
+    "confirmed_assets_not_positive": "录入已确认现金或真实持仓，确认日期和结算状态必须完整。",
+    "portfolio_valuation_incomplete": "先刷新无法估值基金的净值或价格，再重新生成建议。",
+    "portfolio_valuation_stale": "补齐持仓基金截至应有交易日的净值或价格。",
+    "pending_ledger_events_present": "等待待确认买入、卖出、入金或分红确认后再重算。",
+    "unknown_ledger_events_present": "把待核对账本记录更正为确认或删除后再重算。",
+    "ledger_balance_coverage_incomplete": "补全账本确认日期，使现金和份额可被重建。",
+    "settlement_history_incomplete": "补全卖出、入金或分红的结算日期。",
+    "empty_holdings_not_confirmed": "如果账户确实没有其他持仓，在账户条件中确认空仓后再生成建议。",
+}
 
 
 def _number(value: Decimal) -> str:
@@ -27,6 +66,93 @@ def _number(value: Decimal) -> str:
     rendered = format(value, "f")
     rendered = rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
     return rendered if rendered and rendered != "-0" else "0"
+
+
+def _metric_summary(metrics: dict[str, Any] | None) -> str:
+    if not metrics:
+        return "暂无可展示的趋势指标。"
+    parts = []
+    labels = (
+        ("short_return_pct", "短期"),
+        ("medium_return_pct", "中期"),
+        ("long_return_pct", "长期"),
+        ("peak_drawdown_pct", "近期高点回撤"),
+    )
+    for key, label in labels:
+        value = metrics.get(key)
+        if value is not None:
+            try:
+                rendered = Decimal(str(value)).quantize(Decimal("0.01"))
+                sign = "+" if rendered > 0 and key != "peak_drawdown_pct" else ""
+                parts.append(f"{label}{sign}{rendered}%")
+            except (InvalidOperation, ValueError):
+                continue
+    if metrics.get("used_through"):
+        parts.append(f"数据截至{metrics['used_through']}")
+    return "；".join(parts) if parts else "暂无可展示的趋势指标。"
+
+
+def _research_action(decision: dict[str, Any], raw_target: Decimal, *, blocked: bool) -> dict[str, Any]:
+    action = str(decision["action"])
+    label = ACTION_LABELS.get(action, action)
+    reason = str(decision["reason"])
+    metrics = decision.get("metrics") if isinstance(decision.get("metrics"), dict) else None
+    if action == "WAIT":
+        summary = f"研究信号为等待：{reason}"
+    else:
+        summary = f"研究信号为{label}：{reason}"
+    if blocked:
+        summary += " 正式交易前仍需补齐下方条件。"
+    return {
+        "action": action,
+        "label": label,
+        "target_weight_pct": _number(raw_target * 100),
+        "reason_code": decision["reason_code"],
+        "reason": reason,
+        "summary": summary,
+        "metric_summary": _metric_summary(metrics),
+        "formal_execution": "blocked" if blocked else "available",
+    }
+
+
+def _guidance(blockers: list[str], items: list[dict[str, Any]]) -> dict[str, Any]:
+    research_counts = Counter(
+        str(action.get("action"))
+        for item in items
+        for action in (item.get("research_action"),)
+        if isinstance(action, dict)
+    )
+    trade_signals = [
+        item for item in items
+        if isinstance(item.get("research_action"), dict)
+        and item["research_action"].get("action") in {"BUY", "ADD", "REDUCE", "EXIT"}
+    ]
+    if trade_signals:
+        names = "、".join(
+            f"{item.get('fund_name') or item.get('fund_code')}（{item['research_action']['label']}）"
+            for item in trade_signals[:5]
+        )
+        research_summary = f"研究层面已有可观察动作：{names}。"
+    elif research_counts:
+        research_summary = "研究层面当前没有触发买入、加仓、减仓或清仓；结论是继续等待并观察触发条件。"
+    else:
+        research_summary = "当前没有足够研究对象形成基金层面的动作。"
+    if blockers:
+        next_steps = [BLOCKER_NEXT_STEPS[value] for value in blockers if value in BLOCKER_NEXT_STEPS]
+        summary = "本次已生成研究建议，但正式交易动作暂缓。"
+    else:
+        next_steps = ["若采纳买入、加仓、减仓或清仓，请先保存个人决定；真实成交后再回填账本。"]
+        summary = "本次建议已可进入个人决策记录。"
+    return {
+        "summary": summary,
+        "research_summary": research_summary,
+        "formal_action_available": not blockers,
+        "next_steps": list(dict.fromkeys(next_steps)),
+        "research_action_summary": {
+            action: research_counts[action]
+            for action in ("BUY", "ADD", "HOLD", "REDUCE", "EXIT", "WAIT")
+        },
+    }
 
 
 def _cutoff(value: str) -> date:
@@ -290,6 +416,7 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
         action = str(decision["action"])
         reason_code = str(decision["reason_code"])
         reason = str(decision["reason"])
+        research_action = _research_action(decision, raw_target, blocked=bool(blockers))
         proposed_amount: str | None = None
         proposed_units: str | None = None
         risk_alert: dict[str, Any] | None = None
@@ -313,20 +440,7 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
             action = "WAIT"
             target_weight = current_weight
             reason_code = blockers[0].upper()
-            reason = {
-                "eligible_universe_empty": "当前没有关系和真实序列均通过核验的基金，暂不交易。",
-                "strategy_source_not_execution_grade": "当前策略序列没有取得主证据用途资格，只能用于资料诊断，不能生成真实资金操作。",
-                "strategy_not_investment_validated": "历史时点、总收益、产品执行规则或样本外验证尚未全部通过，当前策略不能生成真实资金操作。",
-                "portfolio_condition_missing": "尚未确认风险等级、单只上限和投资期限，暂不交易。",
-                "confirmed_assets_not_positive": "账户没有可用于计算金额的已确认资产，暂不交易。",
-                "portfolio_valuation_incomplete": "存在无法以真实序列估值的持仓，组合权重不完整，暂不交易。",
-                "portfolio_valuation_stale": "至少一项当前持仓缺少应有交易日的价格或净值，不能用过期市值计算交易金额。",
-                "pending_ledger_events_present": "账户仍有待确认事件，持仓或现金可能变化，确认完成前暂不重复交易。",
-                "unknown_ledger_events_present": "账户仍有待核对事件，当前持仓与现金不能视为完整，暂不交易。",
-                "ledger_balance_coverage_incomplete": "历史账本缺少确认日期，无法完整重建当前现金与份额，暂不交易。",
-                "settlement_history_incomplete": "卖出、入金或分红记录缺少结算日期，无法确认可用现金，暂不交易。",
-                "empty_holdings_not_confirmed": "账本当前没有基金份额，但尚未确认账户确实无其他持仓，暂不建仓。",
-            }[blockers[0]]
+            reason = BLOCKER_REASONS[blockers[0]]
         elif action != "WAIT":
             difference = target_weight - current_weight
             if current_weight == 0 and target_weight == 0:
@@ -380,6 +494,7 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
             "deferred_target_weight_pct": None,
             "reason_code": reason_code,
             "reason": reason,
+            "research_action": research_action,
             "strategy_signal_action": decision["action"],
             "strategy_signal_target_weight_pct": _number(raw_target * 100),
             "strategy_reason_code": decision["reason_code"],
@@ -448,6 +563,7 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
             "deferred_target_weight_pct": None,
             "reason_code": "UNSUPPORTED_HOLDING",
             "reason": "该真实持仓不在当前关系与历史序列均通过核验的策略池中，不按名称猜测操作。",
+            "research_action": None,
             "strategy_signal_action": None,
             "strategy_signal_target_weight_pct": None,
             "strategy_reason_code": None,
@@ -479,6 +595,7 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
             "deferred_target_weight_pct": None,
             "reason_code": "ELIGIBLE_UNIVERSE_EMPTY",
             "reason": "当前没有关系与真实历史序列均通过核验的基金，账户保持现金并等待数据补齐。",
+            "research_action": None,
             "strategy_signal_action": None,
             "strategy_signal_target_weight_pct": None,
             "strategy_reason_code": None,
@@ -493,6 +610,7 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
         warnings.append("one_or_more_series_not_ready")
     status = "blocked" if blockers else "partial" if warnings else "actionable"
     action_counts = Counter(str(item["action"]) for item in items)
+    guidance = _guidance(blockers, items)
     actual_as_of = max(evaluated_dates) if evaluated_dates else expected_as_of
     try:
         next_session = calendar.next_session(date.fromisoformat(expected_as_of)).isoformat()
@@ -584,6 +702,8 @@ def _build_recommendation(settings: Settings, *, account_id: str, cutoff: str) -
         },
         "items": items,
         "action_summary": {action: action_counts[action] for action in ("BUY", "ADD", "HOLD", "REDUCE", "EXIT", "WAIT")},
+        "research_action_summary": guidance["research_action_summary"],
+        "guidance": guidance,
         "blockers": blockers,
         "warnings": list(dict.fromkeys(warnings)),
         "excluded_universe": universe["excluded"],

@@ -37,6 +37,20 @@ type RecommendationItem = {
   deferred_target_weight_pct?: string | null;
   reason_code: string;
   reason: string;
+  research_action?: {
+    action: Action;
+    label: string;
+    target_weight_pct: string;
+    reason_code: string;
+    reason: string;
+    summary: string;
+    metric_summary: string;
+    formal_execution: 'available' | 'blocked';
+  } | null;
+  strategy_signal_action?: Action | null;
+  strategy_signal_target_weight_pct?: string | null;
+  strategy_reason_code?: string | null;
+  strategy_reason?: string | null;
   risk_alert?: RiskAlert | null;
   metrics?: Record<string, string | number | null>;
   data_quality?: string | Record<string, unknown>;
@@ -76,6 +90,14 @@ type Recommendation = {
       ordering?: string;
       automatic_ordering?: boolean;
     };
+    guidance?: {
+      summary: string;
+      research_summary: string;
+      formal_action_available: boolean;
+      next_steps: string[];
+      research_action_summary: Record<Action, number>;
+    };
+    research_action_summary?: Record<Action, number>;
     portfolio?: Record<string, unknown>;
   };
 };
@@ -179,8 +201,34 @@ function blockerText(value: string) {
 function dataQualityText(value: RecommendationItem['data_quality']) {
   if (!value) return '未提供';
   if (typeof value === 'string') return value;
-  const entries = Object.entries(value);
+  const status = typeof value.status === 'string' ? value.status : '';
+  const errors = Array.isArray(value.errors) ? value.errors.map(String) : [];
+  if (status === 'ready') return '可用于本次研究计算。';
+  if (errors.length) return `待补齐：${errors.join('、')}`;
+  const entries = Object.entries(value).filter(([key]) => key !== 'status');
   return entries.length ? entries.map(([key, item]) => `${key}: ${String(item)}`).join('；') : '未提供';
+}
+
+const metricNames: Record<string, string> = {
+  close: '最新价格/净值',
+  short_return_pct: '短期涨跌',
+  medium_return_pct: '中期涨跌',
+  long_return_pct: '长期涨跌',
+  peak_drawdown_pct: '近期高点回撤',
+  short_moving_average: '短期均线',
+  observations: '样本数',
+  used_through: '数据截至',
+};
+
+function metricText(key: string, value: string | number | null) {
+  if (value == null || value === '') return '—';
+  if (key.endsWith('_pct')) return formatPlainPercent(value);
+  if (key === 'observations') return Number(value).toLocaleString('zh-CN');
+  if (key === 'used_through') return String(value);
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? number.toLocaleString('zh-CN', { maximumFractionDigits: 4 })
+    : String(value);
 }
 
 export function StrategyAdvicePage() {
@@ -376,6 +424,34 @@ export function StrategyAdvicePage() {
                   <Notice tone={recommendation.status === 'blocked' ? 'warning' : 'info'} title={`本次状态：${statusNames[recommendation.status]}`}>
                     建议生成于 {formatDateTime(recommendation.created_at)}。行情应截至 {recommendation.output.expected_market_session || recommendation.input_cutoff}，实际最新资料截至 {recommendation.output.latest_available_data_date || recommendation.data_as_of}。建议本身不会下单；只有另行记录的真实成交才会改变持仓。
                   </Notice>
+                  {recommendation.output.guidance && (
+                    <Panel
+                      className="strategy-guidance"
+                      title="本次结论"
+                      subtitle={recommendation.output.guidance.summary}
+                    >
+                      <p>{recommendation.output.guidance.research_summary}</p>
+                      {!!recommendation.output.blockers?.length && (
+                        <p>
+                          <strong>正式交易暂缓：</strong>
+                          {recommendation.output.blockers.map(blockerText).join('；')}。
+                        </p>
+                      )}
+                      <div className="strategy-mini-counts" aria-label="研究动作统计">
+                        {(Object.keys(actionMeta) as Action[]).map((action) => (
+                          <span key={action}>
+                            {actionMeta[action].label}
+                            <b>{recommendation.output.guidance?.research_action_summary[action] ?? 0}</b>
+                          </span>
+                        ))}
+                      </div>
+                      {!!recommendation.output.guidance.next_steps.length && (
+                        <ul className="strategy-next-steps">
+                          {recommendation.output.guidance.next_steps.map((step) => <li key={step}>{step}</li>)}
+                        </ul>
+                      )}
+                    </Panel>
+                  )}
                   {freshness?.state === 'stale' && (
                     <Notice tone="warning" title="建议已过期，暂不可执行">
                       {freshness.reason} 请先点击“重新生成建议”。
@@ -386,7 +462,7 @@ export function StrategyAdvicePage() {
                     <Notice tone="warning" title="暂时无法核验建议时效">{freshness.reason} 核验完成前不能记录决定或进入成交。</Notice>
                   )}
                   {recommendation.output.expected_market_session && recommendation.output.latest_available_data_date && recommendation.output.latest_available_data_date < recommendation.output.expected_market_session && <Notice tone="warning" title="行情资料落后于应有交易日">建议已按当前可用资料生成，请补齐行情或净值后重新计算，不要沿用旧金额。</Notice>}
-                  {!!recommendation.output.blockers?.length && <Notice tone="warning" title="本次操作被阻止">{recommendation.output.blockers.map(blockerText).join('；')}</Notice>}
+                  {!!recommendation.output.blockers?.length && !recommendation.output.guidance && <Notice tone="warning" title="本次操作被阻止">{recommendation.output.blockers.map(blockerText).join('；')}</Notice>}
                   {!!riskAlerts.length && (
                     <Notice tone="error" title="风险降低信号待人工核价/复核">
                       <p><strong>不可直接执行。</strong>正式动作仍为“等待”，系统没有生成成交金额或份额。请先核对最新价格、真实持仓和主证据，再重新生成建议。</p>
@@ -403,7 +479,14 @@ export function StrategyAdvicePage() {
                   <div className="strategy-recommendation-grid">
                     {recommendation.output.items.map((item, index) => (
                       <Panel key={`${item.fund_code || 'cash'}-${index}`} className={`strategy-action-card action-${item.action.toLowerCase()}`} title={<><span>{item.fund_name || item.fund_code || '账户级建议'}</span> <Badge tone={actionMeta[item.action].tone}>{actionMeta[item.action].label}</Badge></>} subtitle={item.fund_code || '账户整体'} action={<button className="button secondary small" disabled={!recommendationIsCurrent} onClick={() => openDecision(item)}>{recommendationIsCurrent ? '记录我的决定' : '重算后再决定'}</button>}>
-                        <p className="strategy-reason">{item.reason}</p>
+                        {item.research_action && (
+                          <div className="strategy-research-signal">
+                            <Badge tone={actionMeta[item.research_action.action].tone}>研究{item.research_action.label}</Badge>
+                            <p>{item.research_action.summary}</p>
+                            <small>{item.research_action.metric_summary}</small>
+                          </div>
+                        )}
+                        <p className="strategy-reason"><strong>正式动作：</strong>{item.reason}</p>
                         {item.risk_alert && <p><Badge tone="red">不可直接执行</Badge> 底层{actionMeta[item.risk_alert.original_action].label}信号仅供人工核价和证据复核。</p>}
                         <dl className="strategy-weight-grid">
                           <div><dt>当前权重</dt><dd>{formatPlainPercent(item.current_weight_pct)}</dd></div>
@@ -413,7 +496,7 @@ export function StrategyAdvicePage() {
                           <div><dt>建议变动份额</dt><dd>{item.proposed_units == null ? '—' : Number(item.proposed_units).toLocaleString('zh-CN', { maximumFractionDigits: 6 })}</dd></div>
                           {item.deferred_target_weight_pct != null && <div><dt>结算后待重算目标</dt><dd>{formatPlainPercent(item.deferred_target_weight_pct)}</dd></div>}
                         </dl>
-                        <details><summary>指标与数据质量</summary><p className="muted">原因代码：{item.reason_code}</p><p className="muted">数据质量：{dataQualityText(item.data_quality)}</p>{item.metrics && <dl className="strategy-metrics">{Object.entries(item.metrics).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value == null ? '—' : String(value)}</dd></div>)}</dl>}</details>
+                        <details><summary>指标与数据质量</summary><p className="muted">正式原因代码：{item.reason_code}</p>{item.research_action && <p className="muted">研究原因代码：{item.research_action.reason_code}</p>}<p className="muted">数据质量：{dataQualityText(item.data_quality)}</p>{item.metrics && <dl className="strategy-metrics">{Object.entries(item.metrics).map(([key, value]) => <div key={key}><dt>{metricNames[key] ?? key}</dt><dd>{metricText(key, value)}</dd></div>)}</dl>}</details>
                         {item.fund_code && ['BUY', 'ADD', 'REDUCE', 'EXIT'].includes(item.action) && (
                           <p className="muted">先记录并采纳决定；实际成交发生后，再从“决策记录”写入账本并关联。</p>
                         )}

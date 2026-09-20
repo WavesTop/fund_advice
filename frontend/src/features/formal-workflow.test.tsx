@@ -170,6 +170,57 @@ describe('正式交易流程', () => {
     expect(posted).toMatchObject({ choice: 'deferred', planned_amount: null, fund_code: null, proposed_action: 'WAIT', cutoff: expect.any(String) });
   });
 
+  it('阻断建议仍展示研究结论、关键指标和下一步', async () => {
+    const recommendation = {
+      recommendation_id: 'rec-guidance', account_id: account.account_id,
+      strategy_version: 'strategy-v1', input_cutoff: '2026-09-18', data_as_of: '2026-09-18',
+      created_at: '2026-09-19T08:00:00Z', status: 'blocked',
+      output: {
+        expected_market_session: '2026-09-18', latest_available_data_date: '2026-09-18',
+        guidance: {
+          summary: '本次已生成研究建议，但正式交易动作暂缓。',
+          research_summary: '研究层面当前没有触发买入、加仓、减仓或清仓；结论是继续等待并观察触发条件。',
+          formal_action_available: false,
+          next_steps: ['在持仓页补充风险等级、单只上限、投资期限和是否确认空仓。'],
+          research_action_summary: { BUY: 0, ADD: 0, HOLD: 0, REDUCE: 0, EXIT: 0, WAIT: 1 },
+        },
+        items: [{
+          fund_code: '012970', fund_name: '鹏华国证半导体芯片ETF联接C', action: 'WAIT',
+          target_weight_pct: '0', current_weight_pct: '0', current_value: '0', proposed_amount: null,
+          reason_code: 'PORTFOLIO_CONDITION_MISSING', reason: '尚未确认风险等级、单只上限和投资期限，暂不交易。',
+          research_action: {
+            action: 'WAIT', label: '等待', target_weight_pct: '0', reason_code: 'NO_LONG_ENTRY',
+            reason: '价格趋势未达到首版长仓条件，继续等待。',
+            summary: '研究信号为等待：价格趋势未达到首版长仓条件，继续等待。',
+            metric_summary: '短期-0.41%；中期-24.73%；长期+35.05%；数据截至2026-09-18',
+            formal_execution: 'blocked',
+          },
+          metrics: { short_return_pct: '-0.4119', medium_return_pct: '-24.7315', long_return_pct: '35.0510', observations: 121, used_through: '2026-09-18' },
+          data_quality: { status: 'ready' },
+        }],
+        limitations: [], blockers: ['portfolio_condition_missing'], warnings: [],
+        research_action_summary: { BUY: 0, ADD: 0, HOLD: 0, REDUCE: 0, EXIT: 0, WAIT: 1 },
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/v1/portfolio/accounts') return json({ items: [account] });
+      if (url.startsWith('/api/v1/strategy/recommendations/latest')) return json({ item: recommendation, freshness: currentFreshness });
+      if (url.startsWith('/api/v1/strategy/decisions?')) return json({ account_id: account.account_id, items: [] });
+      throw new Error(`unexpected ${url}`);
+    }));
+
+    renderRoute('/advice', <StrategyAdvicePage />);
+
+    expect(await screen.findByText('本次结论')).toBeInTheDocument();
+    expect(screen.getByText('本次已生成研究建议，但正式交易动作暂缓。')).toBeInTheDocument();
+    expect(screen.getByText(/研究层面当前没有触发买入/)).toBeInTheDocument();
+    expect(screen.getByText('研究等待')).toBeInTheDocument();
+    expect(screen.getByText(/短期-0.41%/)).toBeInTheDocument();
+    expect(screen.getByText(/在持仓页补充风险等级/)).toBeInTheDocument();
+    expect(screen.queryByText('本次操作被阻止')).not.toBeInTheDocument();
+  });
+
   it('阻断状态下醒目展示不可直接执行的风险降低信号', async () => {
     const recommendation = {
       recommendation_id: 'rec-risk-alert', account_id: account.account_id,
