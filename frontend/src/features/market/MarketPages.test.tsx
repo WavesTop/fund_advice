@@ -59,7 +59,10 @@ describe('真实基金目录', () => {
     await waitFor(() => expect(screen.getByText(/已收录 27843 条/)).toBeInTheDocument());
     expect(screen.getByText(/暂无浏览记录/)).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith('/api/funds?q=&page=1&page_size=6&codes=', expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/funds?q=&page=1&page_size=6&codes=',
+      expect.anything(),
+    );
   });
   it('提交搜索后展示真实结果并链接到详情', async () => {
     const fetchMock = vi
@@ -390,5 +393,53 @@ describe('真实基金详情', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: '获取真实数据' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('本地数据服务未连接'));
+  });
+  it('采集全部失败时保留服务端当前数据并展示分阶段原因', async () => {
+    const fund = {
+      share_id: '012970',
+      code: '012970',
+      name: '鹏华国证半导体芯片ETF联接C',
+      fund_type: '指数型-股票',
+      source_id: 'catalog',
+    };
+    const preserved = {
+      kind: 'nav' as const,
+      rows: [{ date: '2026-09-16', unit_nav: '1.3689', accumulated_nav: '1.3689' }],
+      source_id: 'fund_nav.legacy',
+      policy_version: 'v1',
+      updated_at: '2026-09-16T12:08:09Z',
+    };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ fund, series: null }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: '本次更新未取得可发布数据，旧资料已保留',
+              details: {
+                refresh: {
+                  status: 'failed',
+                  stages: {
+                    fund_series: { status: 'failed', message: '净值来源暂不可用' },
+                    related_market: { status: 'failed', message: '跟踪指数尚未核验' },
+                  },
+                },
+                current: { fund, series: preserved, related_market: null, related_markets: [] },
+              },
+            },
+          }),
+          { status: 502 },
+        ),
+      );
+    browse('/funds/012970');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '获取真实数据' })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: '获取真实数据' }));
+    await waitFor(() =>
+      expect(screen.getByRole('img', { name: '012970真实净值走势' })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('基金序列：净值来源暂不可用');
+    expect(screen.getByRole('alert')).toHaveTextContent('关联指数：跟踪指数尚未核验');
   });
 });

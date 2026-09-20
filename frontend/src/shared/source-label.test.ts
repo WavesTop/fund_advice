@@ -19,4 +19,12 @@ describe('sourceLabel', () => {
   it('keeps a current source label unchanged', () => {
     expect(sourceLabel('sector_daily.ths')).toBe('sector_daily.ths');
   });
+
+  it('uses readable labels for the current fund and index chain', () => {
+    expect(sourceLabel('fund_nav.ths')).toBe('同花顺基金净值（候选事实）');
+    expect(sourceLabel('index_daily.sina')).toBe('新浪指数行情（候选事实）');
+    expect(sourceLabel('fund_profile.ths+cni_index.official')).toBe(
+      '同花顺基金资料 + 国证官方目录（当前关联）',
+    );
+  });
 });

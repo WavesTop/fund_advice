@@ -29,6 +29,17 @@ def _registry() -> dict[str, dict[str, Any]]:
     return result
 
 
+def is_primary_evidence(dataset: str, source_id: str | None) -> bool:
+    """Return whether a registered source is primary evidence for this dataset."""
+    source = _registry().get(str(source_id)) if source_id else None
+    return bool(
+        source
+        and source.get("dataset") == dataset
+        and source.get("decision") == "authoritative_evidence"
+        and "primary_evidence" in source.get("allowed_uses", [])
+    )
+
+
 def assess_strategy_series(*, kind: str | None, source_id: str | None) -> dict[str, Any]:
     """Classify one current projection for signal, performance and execution use.
 

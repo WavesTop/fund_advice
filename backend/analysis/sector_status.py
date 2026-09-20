@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from backend.core.config import Settings
 from backend.core.trading_calendar import CalendarUnavailable, TradingCalendar, get_calendar
 from backend.storage.database import connection_scope
-from backend.storage.related_market import current_associations
+from backend.storage.related_market import current_associations, market_data_state
 from backend.analysis.sector_evidence import (
     assess_opportunity, evidence_matches, industry_context, load_industry_evidence, valuation_context,
 )
@@ -284,15 +284,33 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     # while a concurrent import replaces the current projection.
     with connection_scope(settings) as connection:
         connection.execute("BEGIN")
-        indexes = connection.execute("SELECT code,name,source_id,updated_at FROM market_index_projection ORDER BY code").fetchall()
+        indexes = connection.execute(
+            """SELECT i.code,i.name,i.source_id,i.updated_at,
+                      m.outcome AS market_refresh_outcome,
+                      m.attempted_at AS market_refresh_attempted_at,
+                      (SELECT MAX(d.date) FROM market_index_daily d WHERE d.index_code=i.code) AS market_data_as_of
+                 FROM market_index_projection i
+                 LEFT JOIN index_market_refresh_state m ON m.index_code=i.code
+                ORDER BY i.code"""
+        ).fetchall()
         associations = current_associations(connection, generated_at=now.isoformat())
         items = []
         for index in indexes:
             rows = connection.execute("SELECT date,close FROM market_index_daily WHERE index_code=? ORDER BY date", (index["code"],)).fetchall()
             funds = [fund for fund in associations if fund["index_code"] == index["code"]]
-            item = {**dict(index), **analyze_index([dict(row) for row in rows], as_of=price_cutoff, calendar=calendar),
+            market_state = market_data_state(dict(index), generated_at=now.isoformat())
+            item = {**dict(index), **market_state,
+                    **analyze_index([dict(row) for row in rows], as_of=price_cutoff, calendar=calendar),
                     "funds": [dict(row) for row in funds], "universe_type": "tracked_index",
-                    "kind": "参考指数", "heat_rank": None, "heat_value": None, "collection_error": None}
+                    "kind": "参考指数", "heat_rank": None, "heat_value": None,
+                    "collection_error": None if market_state["market_status"] == "ready"
+                    else market_state["market_reason"]}
+            if item["collection_error"]:
+                for period in item["periods"]:
+                    if period["status"] in ("strong", "neutral", "weak"):
+                        period["historical"] = _historical_display(period, item["as_of"])
+                    period.update(status="stale", label="行情待更新",
+                                  reason=str(item["collection_error"]))
             items.append(item)
         subjects = [f"hot_board:{board['source_id']}:{board['code']}" for board in heat["items"]]
         subjects += [f"tracked_index:{index['source_id']}:{index['code']}" for index in indexes]

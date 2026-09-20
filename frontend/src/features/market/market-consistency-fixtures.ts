@@ -32,6 +32,8 @@ export function marketDetailFixture() {
     kind: 'index' as const,
     source_id: 'fixture.index',
     relation_status: 'linked' as const,
+    market_status: 'ready' as 'ready' | 'failed' | 'stale' | 'missing' | 'invalid',
+    market_reason: '',
     relation_source_id: 'fixture.prospectus',
     verified_at: '2026-09-15T10:00:00Z',
     evidence_url: 'https://example.test/prospectus',

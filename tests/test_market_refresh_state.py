@@ -12,6 +12,21 @@ from backend.storage.timeseries import import_timeseries
 
 
 class FailedRefreshStateTests(unittest.TestCase):
+    def test_preserved_primary_sources_are_a_successful_refresh(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Settings(database_path=Path(directory) / "app.sqlite3")
+            import_catalog(settings, [{"code": "005911", "name": "测试基金", "fund_type": "混合型"}],
+                           policy_version="fixture", source_id="fund_catalog.test_fixture")
+            app = create_app(settings)
+            refresh = next(route.endpoint for route in app.routes if route.path == "/api/funds/{code}/refresh")
+            preserved = {"preserved": True, "message": "已保留正式证据"}
+            with patch("backend.api.main.refresh_fund_timeseries", return_value=preserved), patch(
+                    "backend.api.main.refresh_related_market", return_value=preserved):
+                result = refresh("005911")
+            self.assertEqual(result["refresh"]["status"], "success")
+            self.assertEqual({stage["status"] for stage in result["refresh"]["stages"].values()},
+                             {"preserved"})
+
     def test_error_payload_includes_latest_relation_state_and_preserved_prices(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = Settings(database_path=Path(directory) / "app.sqlite3")

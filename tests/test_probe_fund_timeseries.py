@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+import pandas as pd
+
 
 from scripts import probe_fund_timeseries as probe
 
@@ -16,7 +18,27 @@ def payload(columns, rows):
     return {"columns": columns, "dtypes": {c: "object" for c in columns}, "rows": rows, "akshare_version": "1.18.94"}
 
 
+def complete_sina_directory(dataset, *extra):
+    count = probe.SINA_MIN_DIRECTORY_ROWS[dataset]
+    prefix = "sh5" if dataset == "etf-daily" else "sz16"
+    rows = [{"代码": f"{prefix}{index:05d}" if prefix == "sh5" else f"{prefix}{index:04d}",
+             "名称": f"样本{index}"} for index in range(count)]
+    known = {row["代码"] for row in rows}
+    rows.extend({"代码": code, "名称": name} for code, name in extra if code not in known)
+    return pd.DataFrame(rows)
+
+
 class NormalizeTests(unittest.TestCase):
+    def test_missing_exchange_catalog_identity_has_dedicated_error(self):
+        catalog = complete_sina_directory("lof-daily", ("sz160706", "沪深300LOF"))
+        with self.assertRaises(probe.ProbeError) as caught:
+            probe.sina_identity(catalog, "sz160724", "lof-daily")
+        self.assertEqual(caught.exception.code, "exchange_identity_not_found")
+
+        with self.assertRaises(probe.ProbeError) as caught:
+            probe.sina_identity(catalog.head(10), "sz160724", "lof-daily")
+        self.assertEqual(caught.exception.code, "truncated_response")
+
     def test_real_quote_sources_preserve_units_split_and_known_disagreement(self):
         fixture = json.loads((Path(__file__).parent / "fixtures/data_sources/fund_quote_examples.json").read_text())
         results = {}

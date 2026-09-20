@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from backend.analysis.sector_status import analyze_index, sector_opportunities
@@ -8,7 +8,7 @@ from backend.api.main import create_app
 from backend.core.config import Settings
 from backend.storage.catalog import import_catalog
 from backend.storage.database import migrate
-from backend.storage.related_market import import_related_index
+from backend.storage.related_market import import_related_index, record_index_market_failure
 
 
 TODAY = date(2026, 9, 14)
@@ -105,6 +105,21 @@ class SectorStatusTests(unittest.TestCase):
             self.assertEqual(item["funds"][0]["relation_source_id"], "official")
             self.assertEqual(item["funds"][0]["evidence_url"], "https://example.test/evidence")
             self.assertEqual(len(item["periods"]), 3)
+            self.assertIsNone(item["collection_error"])
+
+            attempted_at = datetime.now(timezone.utc).isoformat(
+                timespec="milliseconds"
+            ).replace("+00:00", "Z")
+            record_index_market_failure(
+                settings, "980017", attempted_at=attempted_at,
+                source_id="index_daily.sina", error="fixture unavailable",
+            )
+            failed = endpoint()["items"][0]
+            self.assertEqual(failed["market_status"], "failed")
+            self.assertIn("旧行情不参与当前信号", failed["collection_error"])
+            self.assertTrue(all(period["status"] == "stale" for period in failed["periods"]))
+            self.assertTrue(all(period["strength"]["eligible"] is False
+                                for period in failed["periods"]))
 
 
 if __name__ == "__main__":

@@ -4,14 +4,19 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.data_source_registry import RegistryError, load_registry, sources_for
+from scripts.data_source_registry import (
+    RegistryError,
+    load_registry,
+    replacement_preserves_quality,
+    sources_for,
+)
 
 
 class DataSourceRegistryTests(unittest.TestCase):
     def test_checked_in_registry_is_valid_and_orders_automatic_quotes(self):
         registry = load_registry()
         self.assertEqual(registry["schema_version"], 1)
-        self.assertEqual(registry["policy_version"], "d0-2026-09-20.1")
+        self.assertEqual(registry["policy_version"], "d0-2026-09-20.4")
         sources = sources_for("exchange_daily", "candidate_fact")
         self.assertEqual([source["provider"] for source in sources],
                          ["sina", "tencent", "baostock"])
@@ -48,6 +53,26 @@ class DataSourceRegistryTests(unittest.TestCase):
                          ("fund_profile", "discovery_only", False))
         self.assertEqual(profile["allowed_uses"], ["discovery", "cross_check"])
         self.assertNotIn("primary_evidence", profile["allowed_uses"])
+        nav = by_id["fund_nav.ths"]
+        self.assertEqual((nav["dataset"], nav["decision"], nav["automatic"]),
+                         ("fund_nav", "conditional", True))
+        self.assertEqual(nav["allowed_uses"], ["candidate_fact", "cross_check"])
+        self.assertEqual(nav["adapter"], "scripts.fund_nav_ths.fetch_ths_fund_nav")
+        cni_relation = by_id["fund_profile.ths+cni_index.official"]
+        self.assertEqual((cni_relation["dataset"], cni_relation["decision"], cni_relation["automatic"]),
+                         ("fund_relations", "conditional", True))
+        self.assertEqual(cni_relation["allowed_uses"], ["discovery", "candidate_fact", "cross_check"])
+        self.assertNotIn("primary_evidence", cni_relation["allowed_uses"])
+        csi_relation = by_id["fund_profile.ths+csi_index.official"]
+        self.assertEqual((csi_relation["dataset"], csi_relation["decision"], csi_relation["automatic"]),
+                         ("fund_relations", "conditional", True))
+        csi_index = by_id["index_daily.csi_official"]
+        self.assertEqual((csi_index["dataset"], csi_index["decision"], csi_index["automatic"]),
+                         ("index_daily", "authoritative_evidence", True))
+        self.assertIn("primary_evidence", csi_index["allowed_uses"])
+        sina_index = by_id["index_daily.sina"]
+        self.assertEqual((sina_index["dataset"], sina_index["decision"], sina_index["automatic"]),
+                         ("index_daily", "conditional", True))
         fundamentals = by_id["financials.ths_constituent_sample"]
         self.assertEqual(fundamentals["decision"], "not_verified")
         self.assertEqual(fundamentals["allowed_uses"], [])
@@ -103,6 +128,18 @@ class DataSourceRegistryTests(unittest.TestCase):
     def test_unknown_use_is_rejected(self):
         with self.assertRaises(RegistryError):
             sources_for("fund_nav", "production_truth")
+
+    def test_candidate_sources_cannot_downgrade_primary_evidence(self):
+        registry = load_registry()
+        self.assertFalse(replacement_preserves_quality(
+            registry, "fund_nav.manager_documents", "fund_nav.ths", dataset="fund_nav"
+        ))
+        self.assertTrue(replacement_preserves_quality(
+            registry, "fund_nav.eastmoney", "fund_nav.ths", dataset="fund_nav"
+        ))
+        self.assertFalse(replacement_preserves_quality(
+            registry, "index_daily.csi_official", "index_daily.sina", dataset="index_daily"
+        ))
 
 
 if __name__ == "__main__":

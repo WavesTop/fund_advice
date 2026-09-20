@@ -10,11 +10,12 @@ from decimal import Decimal
 import json
 from pathlib import Path
 
-from backend.analysis.strategy_readiness import assess_strategy_series
+from backend.analysis.strategy_readiness import assess_strategy_series, is_primary_evidence
 from backend.core.config import Settings
 from backend.core.source_admission import contains_retired_source_reference
 from backend.core.trading_calendar import get_calendar, day
 from backend.storage.database import connection_scope, migrate
+from backend.storage.related_market import market_data_state
 from backend.storage.research import append_facts, canonical, freeze_snapshot, utc_now
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,11 +26,21 @@ def capture_current_inputs(settings: Settings, subjects: list[str] | None = None
     """Freeze a consistent projection read, then retain versioned facts per source."""
     migrate(settings)
     calendar = get_calendar()
-    end = calendar.latest_completed(datetime.fromisoformat(utc_now().replace("Z", "+00:00")))
+    generated_at = utc_now()
+    end = calendar.latest_completed(datetime.fromisoformat(generated_at.replace("Z", "+00:00")))
     groups, gaps = [], []
     with connection_scope(settings) as connection:
         connection.execute("BEGIN")
-        indexes = [dict(row) for row in connection.execute("SELECT * FROM market_index_projection")]
+        indexes = [dict(row) for row in connection.execute(
+            """SELECT i.*,
+                      m.outcome AS market_refresh_outcome,
+                      m.attempted_at AS market_refresh_attempted_at,
+                      m.source_id AS market_refresh_source_id,
+                      (SELECT MAX(d.date) FROM market_index_daily d
+                       WHERE d.index_code=i.code) AS market_data_as_of
+                 FROM market_index_projection i
+                 LEFT JOIN index_market_refresh_state m ON m.index_code=i.code"""
+        )]
         for identity in indexes:
             key = f"tracked_index:{identity['source_id']}:{identity['code']}"
             if contains_retired_source_reference(identity["source_id"]):
@@ -39,7 +50,17 @@ def capture_current_inputs(settings: Settings, subjects: list[str] | None = None
                 continue
             rows = [dict(row) for row in connection.execute("SELECT * FROM market_index_daily WHERE index_code=? ORDER BY date", (identity["code"],))]
             url = "https://www.csindex.com.cn/" if identity["source_id"] == "index_daily.csi_official" else "https://quotes.sina.cn/"
-            groups.append((key, identity["source_id"], "price", rows, "verified", url))
+            market = market_data_state(identity, generated_at=generated_at)
+            primary = is_primary_evidence("index_daily", identity["source_id"])
+            semantics = "verified" if market["market_status"] == "ready" and primary else "unverified"
+            if semantics != "verified":
+                reason = (market["market_reason"] if market["market_status"] != "ready"
+                          else "指数行情来源未取得主证据用途资格，只归档为未核验本地投影")
+                gaps.append({
+                    "subject_key": key, "reason": reason, "source_id": identity["source_id"],
+                    "market_status": market["market_status"],
+                })
+            groups.append((key, identity["source_id"], "price", rows, semantics, url))
         for item in connection.execute("SELECT * FROM sector_heat_member"):
             key = f"hot_board:{item['source_id']}:{item['code']}"
             history_source = item["history_source_id"] or item["source_id"]

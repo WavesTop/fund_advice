@@ -11,7 +11,8 @@ from backend.analysis.strategy_readiness import (
 
 class StrategyReadinessTests(unittest.TestCase):
     def test_candidate_fact_cannot_drive_execution_or_performance(self):
-        result = assess_strategy_series(kind="nav", source_id="fund_nav.eastmoney")
+        result = assess_strategy_series(kind="nav", source_id="fund_nav.ths")
+        self.assertTrue(result["registered"])
         self.assertFalse(result["eligible_for_signal"])
         self.assertFalse(result["eligible_for_execution"])
         self.assertFalse(result["eligible_for_performance"])
@@ -27,9 +28,13 @@ class StrategyReadinessTests(unittest.TestCase):
 
     def test_relation_requires_registered_primary_evidence(self):
         legacy = assess_relation_source(source_id="fund_profile.eastmoney+csi_index.official")
+        conditional = assess_relation_source(source_id="fund_profile.ths+cni_index.official")
         primary = assess_relation_source(source_id="fund_relations.manager_documents")
         self.assertFalse(legacy["eligible_for_execution"])
         self.assertIn("relation_source_not_registered", legacy["signal_blockers"])
+        self.assertTrue(conditional["registered"])
+        self.assertFalse(conditional["eligible_for_execution"])
+        self.assertIn("relation_source_not_primary_evidence", conditional["signal_blockers"])
         self.assertTrue(primary["eligible_for_execution"])
 
     def test_primary_source_cannot_be_reused_for_the_wrong_dataset(self):

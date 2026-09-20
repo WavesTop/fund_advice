@@ -14,8 +14,9 @@ if str(ROOT) not in sys.path:
 
 from backend.core.config import Settings
 from backend.storage.catalog import list_catalog
-from backend.storage.timeseries import import_timeseries
-from scripts.data_source_registry import load_registry, sources_for
+from backend.storage.timeseries import get_timeseries, import_timeseries
+from scripts.data_source_registry import load_registry, replacement_preserves_quality, sources_for
+from scripts.fund_nav_ths import fetch_ths_fund_nav
 from scripts.probe_fund_source import ProbeError
 from scripts.probe_fund_timeseries import normalize, run_adapter
 
@@ -37,16 +38,41 @@ def _date(value: str) -> str:
 
 
 def series_dataset(fund: dict[str, object]) -> str | None:
-    """Choose the reviewed exchange adapter only when the catalog identity says ETF/LOF."""
+    """Choose an exchange candidate; the source directory still proves final identity."""
+    code = str(fund.get("code") or "")
     identity = f"{fund.get('name', '')} {fund.get('fund_type', '')}".upper()
-    # ETF linked funds are ordinary off-exchange shares with daily NAV.  Their
-    # names contain "ETF", so they must be excluded before exchange matching.
+    # The reviewed quote adapters only understand Shanghai 5xx and Shenzhen
+    # 15x/16x exchange symbols.  Many off-exchange share names contain ETF or
+    # LOF (for example a C share or an ETF-FOF); route those through NAV.
+    if not code.startswith(("5", "15", "16")):
+        return None
+    # Shenzhen 16xxxx and Shanghai 501/502/506 are LOF candidate ranges;
+    # the live exchange directory must confirm the product identity.
+    # These are candidates only: the quote adapter independently requires a
+    # unique match in a complete current LOF directory before writing prices.
+    if code.startswith(("16", "501", "502", "506")):
+        return "lof-daily"
+    # ETF linked funds outside the exchange code ranges are ordinary
+    # off-exchange shares with daily NAV.
     if "联接" in identity:
         return None
     if "ETF" in identity:
         return "etf-daily"
     if "LOF" in identity:
         return "lof-daily"
+    return None
+
+
+def unsupported_nav_reason(fund: dict[str, object]) -> str | None:
+    """Reject product types whose THS fields do not mean unit/accumulated NAV."""
+    name = str(fund.get("name") or "")
+    fund_type = str(fund.get("fund_type") or "")
+    if "货币" in fund_type and "浮动净值" not in fund_type:
+        return "货币基金需要万份收益和七日年化专用模型，不能写入单位净值/累计净值"
+    normalized_type = fund_type.strip().upper()
+    code = str(fund.get("code") or "")
+    if normalized_type == "REITS" or (code.startswith(("508", "180")) and "REIT" in name.upper()):
+        return "公募REITs需要交易所价格与分派口径，不能按普通开放式基金净值采集"
     return None
 
 
@@ -103,13 +129,54 @@ def _import_exchange(settings: Settings, code: str, dataset: str, start_date: st
     raise RuntimeError("场内日行情没有可写入的数据（" + "；".join(failures) + "）")
 
 
-def _import_nav(settings: Settings, code: str, start_date: str, end_date: str,
+def _import_nav(settings: Settings, fund: dict[str, object], start_date: str, end_date: str,
                 registry_path: str | None, timeout: float, before_request: Any = None) -> dict[str, object]:
-    # Historical rows already stored with ``fund_nav.eastmoney`` remain
-    # readable for provenance.  New NAV collection is fail-closed until an
-    # approved automatic source is implemented.
-    _automatic_sources("fund_nav", registry_path)
-    raise ValueError("场外基金净值暂无可自动采集的已核验来源")
+    del start_date, end_date  # NAV projection is a lifetime series and must never be replaced by a date slice.
+    registry, sources = _automatic_sources("fund_nav", registry_path)
+    failures = []
+    for source in sources:
+        if source["provider"] != "ths":
+            failures.append(f"{source['id']}: 尚未实现")
+            continue
+        current = get_timeseries(settings, str(fund["code"]), "nav")
+        if current["kind"] is not None and not replacement_preserves_quality(
+                registry, current["source_id"], source["id"], dataset="fund_nav"):
+            return {
+                "code": str(fund["code"]), "kind": "nav", "source_id": current["source_id"],
+                "policy_version": current["policy_version"], "row_count": len(current["rows"]),
+                "updated_at": current["updated_at"], "preserved": True,
+                "message": "已保留更高等级的正式净值来源，未用同花顺候选数据覆盖。",
+            }
+        try:
+            fetched = fetch_ths_fund_nav(
+                str(fund["code"]), str(fund["name"]),
+                "1900-01-01", dt.date.today().isoformat(),
+                timeout=timeout, expected_fund_type=str(fund.get("fund_type") or ""),
+                before_request=before_request,
+            )
+            rows, evidence = fetched["rows"], fetched["source_evidence"]
+            if (evidence.get("source_row_count") != len(rows) or not rows
+                    or evidence.get("source_min_date") != rows[0].get("date")
+                    or evidence.get("source_max_date") != rows[-1].get("date")):
+                raise ProbeError("truncated_response", "同花顺净值并非完整的成立以来序列")
+            old_rows = current["rows"]
+            if old_rows and (len(rows) < len(old_rows)
+                             or rows[0]["date"] > old_rows[0]["date"]
+                             or rows[-1]["date"] < old_rows[-1]["date"]
+                             or not {row["date"] for row in old_rows}.issubset(
+                                 {row["date"] for row in rows}
+                             )):
+                raise ProbeError("truncated_response", "本次净值覆盖范围小于本地历史，旧数据已保留")
+            stored = import_timeseries(
+                settings, str(fund["code"]), "nav", rows,
+                source_id=source["id"], policy_version=registry["policy_version"],
+            )
+            return {**stored, "identity": fetched["identity"], "source_evidence": fetched["source_evidence"]}
+        except ProbeError as exc:
+            failures.append(f"{source['id']}: {exc.code}")
+            if exc.code not in {"network_error", "network_timeout", "upstream_failure", "truncated_response"}:
+                raise
+    raise RuntimeError("场外基金净值没有可写入的数据（" + "；".join(failures) + "）")
 
 
 def refresh_fund_timeseries(settings: Settings, code: str, *, start_date: str | None = None,
@@ -123,17 +190,41 @@ def refresh_fund_timeseries(settings: Settings, code: str, *, start_date: str | 
     """
     code = _code(code)
     end_date = _date(end_date or dt.date.today().strftime("%Y%m%d"))
+    fund = _catalog_item(settings, code)
+    dataset = series_dataset(fund)
+    unsupported = unsupported_nav_reason(fund) if dataset is None else None
+    if unsupported is not None:
+        raise ValueError(unsupported)
     if start_date is None:
-        end_day = dt.datetime.strptime(end_date, "%Y%m%d").date()
-        start_date = (end_day - dt.timedelta(days=366 * 6)).strftime("%Y%m%d")
+        if dataset is None:
+            start_date = "19000101"
+        else:
+            end_day = dt.datetime.strptime(end_date, "%Y%m%d").date()
+            start_date = (end_day - dt.timedelta(days=366 * 6)).strftime("%Y%m%d")
     start_date = _date(start_date)
     if start_date > end_date or timeout <= 0:
         raise ValueError("日期范围或超时参数无效")
-    fund = _catalog_item(settings, code)
-    dataset = series_dataset(fund)
     if dataset:
-        return _import_exchange(settings, code, dataset, start_date, end_date, registry_path, timeout, before_request)
-    return _import_nav(settings, code, start_date, end_date, registry_path, timeout, before_request)
+        current_price = get_timeseries(settings, code, "price")
+        if current_price["rows"]:
+            earliest = str(current_price["rows"][0]["date"]).replace("-", "")
+            start_date = min(start_date, earliest)
+        try:
+            return _import_exchange(
+                settings, code, dataset, start_date, end_date,
+                registry_path, timeout, before_request,
+            )
+        except ProbeError as exc:
+            if exc.code != "exchange_identity_not_found":
+                raise
+            unsupported = unsupported_nav_reason(fund)
+            if unsupported is not None:
+                raise ValueError(unsupported) from exc
+            return _import_nav(
+                settings, fund, start_date, end_date,
+                registry_path, timeout, before_request,
+            )
+    return _import_nav(settings, fund, start_date, end_date, registry_path, timeout, before_request)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -150,10 +241,10 @@ def main(argv: list[str] | None = None) -> int:
         if start_date > end_date or args.timeout <= 0:
             raise ValueError("日期范围或超时参数无效")
         settings = Settings.from_env() if args.database is None else Settings(database_path=Path(args.database))
-        fund = _catalog_item(settings, code)
-        dataset = series_dataset(fund)
-        result = (_import_exchange(settings, code, dataset, start_date, end_date, args.registry, args.timeout)
-                  if dataset else _import_nav(settings, code, start_date, end_date, args.registry, args.timeout))
+        result = refresh_fund_timeseries(
+            settings, code, start_date=start_date, end_date=end_date,
+            registry_path=args.registry, timeout=args.timeout,
+        )
     except Exception as exc:
         print(f"导入失败: {exc}", file=sys.stderr)
         return 2

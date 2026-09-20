@@ -9,7 +9,7 @@ from backend.api.main import create_app
 from backend.core.config import Settings
 from backend.storage.catalog import import_catalog
 from backend.storage.database import connection_scope
-from backend.storage.related_market import import_related_index
+from backend.storage.related_market import import_related_index, record_index_market_failure
 from backend.storage.research import canonical
 from backend.storage.timeseries import import_timeseries
 from backend.integrations.research_inputs import capture_current_inputs
@@ -93,6 +93,52 @@ class ResearchAPITests(unittest.TestCase):
         with connection_scope(self.settings) as connection:
             self.assertEqual(connection.execute('SELECT COUNT(*) FROM data_revision').fetchone()[0], 0)
             self.assertEqual(connection.execute('SELECT COUNT(*) FROM raw_asset').fetchone()[0], 0)
+
+    def test_capture_marks_candidate_index_market_as_unverified(self):
+        import_catalog(self.settings,[{'code':'510001','name':'测试','fund_type':'ETF'}],
+                       policy_version='fixture', source_id='fund_catalog.test_fixture')
+        row={'date':'2026-09-16','open':'10','high':'12','low':'9','close':'11',
+             'volume':None,'amount':None}
+        with patch('backend.storage.related_market._now', return_value='2026-09-16T12:00:00.000Z'):
+            import_related_index(
+                self.settings, fund_code='510001', index_code='980017', index_name='测试指数',
+                rows=[row], source_id='index_daily.sina',
+                relation_source_id='fixture.prospectus',
+                evidence_url='https://example.test/prospectus',
+            )
+        subject='tracked_index:index_daily.sina:980017'
+        result=capture_current_inputs(self.settings,[subject])
+        snapshot=self.client.get('/api/research/snapshots/'+result['snapshot_id']).json()
+        market_facts=[fact for fact in snapshot['manifest']['facts']
+                      if fact['source_id']=='index_daily.sina']
+        self.assertTrue(market_facts)
+        self.assertTrue(all(fact['semantic_status']=='unverified' for fact in market_facts))
+        self.assertTrue(any('未取得主证据用途资格' in gap['reason'] for gap in result['gaps']))
+
+    def test_capture_never_verifies_old_index_rows_after_refresh_failure(self):
+        import_catalog(self.settings,[{'code':'510001','name':'测试','fund_type':'ETF'}],
+                       policy_version='fixture', source_id='fund_catalog.test_fixture')
+        row={'date':'2026-09-16','open':'10','high':'12','low':'9','close':'11',
+             'volume':None,'amount':None}
+        with patch('backend.storage.related_market._now', return_value='2026-09-16T12:00:00.000Z'):
+            import_related_index(
+                self.settings, fund_code='510001', index_code='000016', index_name='测试指数',
+                rows=[row], source_id='index_daily.csi_official',
+                relation_source_id='fixture.prospectus',
+                evidence_url='https://example.test/prospectus',
+            )
+        record_index_market_failure(
+            self.settings, '000016', attempted_at='2026-09-16T12:30:00.000Z',
+            source_id='index_daily.csi_official', error='upstream unavailable',
+        )
+        subject='tracked_index:index_daily.csi_official:000016'
+        result=capture_current_inputs(self.settings,[subject])
+        snapshot=self.client.get('/api/research/snapshots/'+result['snapshot_id']).json()
+        market_facts=[fact for fact in snapshot['manifest']['facts']
+                      if fact['source_id']=='index_daily.csi_official']
+        self.assertTrue(market_facts)
+        self.assertTrue(all(fact['semantic_status']=='unverified' for fact in market_facts))
+        self.assertTrue(any(gap.get('market_status')=='failed' for gap in result['gaps']))
 
     def test_actual_asgi_trial_forward_score_and_history_contract(self):
         with clock('2026-09-16T12:58:00.000000Z'):

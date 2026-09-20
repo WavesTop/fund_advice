@@ -112,13 +112,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for name, refresh in (("fund_series", refresh_fund_timeseries), ("related_market", refresh_related_market)):
                 try:
                     result = refresh(resolved, code)
-                    stages[name] = {"status": "updated" if result is not None else "unresolved",
-                                    "message": "更新成功" if result is not None else "未取得唯一的跟踪关系，旧关系待核验。"}
+                    preserved = bool(isinstance(result, dict) and result.get("preserved"))
+                    stages[name] = {
+                        "status": "preserved" if preserved else "updated" if result is not None else "unresolved",
+                        "message": (str(result.get("message") or "已保留更高等级的正式数据") if preserved else
+                                    "更新成功" if result is not None else "未取得唯一的跟踪关系，旧关系待核验。"),
+                    }
                 except Exception as exc:
                     stages[name] = {"status": "failed", "message": str(exc)[:1000] or type(exc).__name__}
-            updated = sum(stage["status"] == "updated" for stage in stages.values())
-            refresh_state = {"status": "success" if updated == 2 else "partial" if updated else "failed", "stages": stages}
-            if not updated:
+            completed = sum(stage["status"] in {"updated", "preserved"} for stage in stages.values())
+            refresh_state = {"status": "success" if completed == 2 else "partial" if completed else "failed", "stages": stages}
+            if not completed:
                 raise AppError("fund_refresh_failed", "本次更新未取得可发布数据，旧资料已保留；关系状态以最近核验为准", 502, {"refresh": refresh_state, "current": detail(code)})
             return {**detail(code), "refresh": refresh_state}
         finally:

@@ -7,7 +7,11 @@ from typing import Any
 
 from backend.core.config import Settings
 from backend.core.errors import AppError
-from backend.core.source_admission import SourceAdmissionError, writable_source_id
+from backend.core.source_admission import (
+    SourceAdmissionError,
+    contains_retired_source_reference,
+    writable_source_id,
+)
 from backend.storage.database import connection_scope, migrate
 
 
@@ -143,7 +147,11 @@ def list_catalog(settings: Settings, query: str = "", page: int = 1, page_size: 
                                        "关系待核验；进入基金详情获取或核对资料。" if known else
                                        "尚无已核验板块关联；不按基金名称推断。")
         latest = connection.execute("SELECT committed_at FROM fund_catalog_import_batch ORDER BY id DESC LIMIT 1").fetchone()
-        collected = connection.execute("SELECT COUNT(DISTINCT code) FROM fund_timeseries_projection").fetchone()[0]
+        collected = len({
+            row["code"] for row in connection.execute(
+                "SELECT code,source_id FROM fund_timeseries_projection"
+            ) if not contains_retired_source_reference(row["source_id"])
+        })
         latest_run = connection.execute(
             "SELECT run_id FROM fund_timeseries_collection_run ORDER BY created_at DESC LIMIT 1"
         ).fetchone()

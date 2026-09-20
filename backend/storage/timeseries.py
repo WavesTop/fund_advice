@@ -6,9 +6,14 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from backend.analysis.strategy_readiness import is_primary_evidence
 from backend.core.config import Settings
 from backend.core.errors import AppError
-from backend.core.source_admission import SourceAdmissionError, writable_source_id
+from backend.core.source_admission import (
+    SourceAdmissionError,
+    contains_retired_source_reference,
+    writable_source_id,
+)
 from backend.storage.database import connection_scope, migrate
 
 
@@ -110,6 +115,54 @@ def import_timeseries(settings: Settings, code: str, kind: str, rows: Iterable[M
             raise AppError("fund_not_found", "未找到该基金", 404)
         try:
             connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                "SELECT source_id FROM fund_timeseries_projection WHERE code = ? AND kind = ?",
+                (code, kind),
+            ).fetchone()
+            current_is_retired = bool(
+                current is not None and contains_retired_source_reference(current["source_id"])
+            )
+            dataset = "fund_nav" if kind == "nav" else "exchange_daily"
+            if (current is not None and is_primary_evidence(dataset, current["source_id"])
+                    and not is_primary_evidence(dataset, source_id)):
+                raise AppError(
+                    "timeseries_source_downgrade_blocked",
+                    "已保留更高等级的基金时序正式证据",
+                    409,
+                    {"current_source_id": current["source_id"], "attempted_source_id": source_id},
+                )
+            if current is not None and not current_is_retired:
+                history_table = "fund_nav_daily" if kind == "nav" else "fund_price_daily"
+                current_history = connection.execute(
+                    "SELECT COUNT(*) AS row_count,MIN(date) AS first_date,MAX(date) AS last_date "
+                    f"FROM {history_table} WHERE code=? AND kind=?",
+                    (code, kind),
+                ).fetchone()
+                current_dates = {
+                    row["date"] for row in connection.execute(
+                        f"SELECT date FROM {history_table} WHERE code=? AND kind=?",
+                        (code, kind),
+                    )
+                }
+                incoming_dates = {str(row["date"]) for row in normalized}
+                if (current_history is not None and current_history["row_count"]
+                        and (len(normalized) < current_history["row_count"]
+                             or str(normalized[0]["date"]) > current_history["first_date"]
+                             or str(normalized[-1]["date"]) < current_history["last_date"]
+                             or not current_dates.issubset(incoming_dates))):
+                    raise AppError(
+                        "timeseries_history_regression_blocked",
+                        "本次基金时序覆盖小于本地历史，旧数据已保留",
+                        409,
+                        {
+                            "current_row_count": current_history["row_count"],
+                            "attempted_row_count": len(normalized),
+                            "current_first_date": current_history["first_date"],
+                            "attempted_first_date": normalized[0]["date"],
+                            "current_last_date": current_history["last_date"],
+                            "attempted_last_date": normalized[-1]["date"],
+                        },
+                    )
             now = _now()
             batch_id = connection.execute(
                 "INSERT INTO fund_timeseries_import_batch(code, kind, source_id, policy_version, row_count, committed_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -131,6 +184,9 @@ def import_timeseries(settings: Settings, code: str, kind: str, rows: Iterable[M
                     [(code, row["date"], row["unit_nav"], row["accumulated_nav"]) for row in normalized],
                 )
             connection.execute("COMMIT")
+        except AppError:
+            connection.execute("ROLLBACK")
+            raise
         except Exception as exc:
             connection.execute("ROLLBACK")
             raise AppError("timeseries_import_failed", "基金时序导入失败，旧数据已保留", 500, {"reason": str(exc)}) from exc
@@ -159,9 +215,22 @@ def get_timeseries(settings: Settings, code: str, kind: str | None = None) -> di
         raise AppError("invalid_series_kind", "序列类型必须为price或nav", 422)
     with connection_scope(settings) as connection:
         connection.execute("BEGIN")
-        projection = connection.execute(
-            "SELECT kind, source_id, policy_version, updated_at FROM fund_timeseries_projection WHERE code = ? AND (? IS NULL OR kind = ?) ORDER BY CASE kind WHEN 'price' THEN 0 ELSE 1 END LIMIT 1", (code, kind, kind)
-        ).fetchone()
+        projections = connection.execute(
+            "SELECT kind, source_id, policy_version, updated_at FROM fund_timeseries_projection "
+            "WHERE code = ? AND (? IS NULL OR kind = ?) "
+            "ORDER BY CASE kind WHEN 'price' THEN 0 ELSE 1 END",
+            (code, kind, kind),
+        ).fetchall()
+        projection = next(
+            (row for row in projections if not contains_retired_source_reference(row["source_id"])),
+            None,
+        )
+        if projection is None and projections:
+            return {
+                "kind": None, "source_id": None, "policy_version": None, "updated_at": None, "rows": [],
+                "availability_status": "retired_source_withheld",
+                "availability_reason": "旧来源只保留数据库审计记录，不再作为当前真实行情展示。",
+            }
         if projection is None:
             return {"kind": None, "source_id": None, "policy_version": None, "updated_at": None, "rows": []}
         info = dict(projection)

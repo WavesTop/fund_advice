@@ -72,6 +72,19 @@ type RealFundDetailResponse = {
   };
 };
 
+function refreshStageSummary(
+  stages: Record<string, { status: string; message: string }> | null | undefined,
+) {
+  if (!stages) return '';
+  return Object.entries(stages)
+    .filter(([, stage]) => !['updated', 'preserved'].includes(stage.status))
+    .map(
+      ([name, stage]) =>
+        `${name === 'fund_series' ? '基金序列' : name === 'related_market' ? '关联指数' : name}：${stage.message}`,
+    )
+    .join('；');
+}
+
 type RelatedMarket = {
   name: string;
   code: string;
@@ -82,6 +95,8 @@ type RelatedMarket = {
   verified_at?: string;
   evidence_url?: string;
   relation_reason?: string;
+  market_status?: 'ready' | 'failed' | 'stale' | 'missing' | 'invalid';
+  market_reason?: string;
   updated_at?: string;
   rows: RealPriceRow[];
 };
@@ -275,8 +290,12 @@ function RelatedMarketPanel({
     );
   if (!market.rows.length)
     return (
-      <Panel title="关联指数行情">
-        <p>关系已记录，但该指数尚无可用日线。</p>
+      <Panel
+        title="关联指数行情"
+        subtitle={`${market.name} · ${market.code} · ${sourceLabel(market.source_id)}`}
+      >
+        <p>{market.market_reason || '关系已记录，但该指数尚无可用日线。'}</p>
+        <p className="muted">基金—指数关系仍可核对；旧行情不会进入当前走势或强弱信号。</p>
       </Panel>
     );
   const numberValue = (value: string | null) => (value == null ? null : Number(value));
@@ -453,6 +472,7 @@ function RealFundDetail() {
         if (!response.ok) {
           const current = data?.error?.details?.current as RealFundDetailResponse | undefined;
           if (current?.fund?.code === code) {
+            setFund(current.fund);
             setSeries(current.series ?? null);
             setSeriesOptions(
               current.series_options ?? (current.series?.kind ? [current.series] : []),
@@ -460,7 +480,9 @@ function RealFundDetail() {
             setRelatedMarket(current.related_market ?? null);
             setRelatedMarkets(current.related_markets ?? []);
           }
-          throw new Error(data?.error?.message || '真实数据采集失败，请稍后重试。');
+          const stages = refreshStageSummary(data?.error?.details?.refresh?.stages);
+          const message = data?.error?.message || '真实数据采集失败，请稍后重试。';
+          throw new Error(stages ? `${message} ${stages}` : message);
         }
         if (!data?.fund || data.fund.code !== code)
           throw new Error('返回的基金身份与请求不一致，旧数据已保留。');
@@ -473,15 +495,7 @@ function RealFundDetail() {
         setRelatedMarkets(data.related_markets ?? []);
         setSeriesOptions(data.series_options ?? (data.series?.kind ? [data.series] : []));
         if (data.refresh?.status === 'partial') {
-          setRefreshError(
-            '本次部分更新成功。' +
-              Object.entries(data.refresh.stages)
-                .map(
-                  ([name, stage]) =>
-                    `${name === 'fund_series' ? '基金序列' : '关联指数'}：${stage.message}`,
-                )
-                .join('；'),
-          );
+          setRefreshError(`本次部分更新成功。${refreshStageSummary(data.refresh.stages)}`);
         }
       })
       .catch((cause: unknown) => {
@@ -655,7 +669,9 @@ function RealFundDetail() {
       )}
       <Panel title="研究与基金推荐的资料边界">
         <p>
-          真实身份和走势已展示；基金披露持仓、行业穿透、完整费用、跟踪表现及同类择优尚未接入此页。
+          {selectedSeries?.rows.length
+            ? '基金身份和当前可用走势已展示；基金披露持仓、行业穿透、完整费用、跟踪表现及同类择优尚未接入此页。'
+            : '当前仅有基金目录身份，尚无可展示的真实走势；基金披露持仓、行业穿透、完整费用、跟踪表现及同类择优也尚未接入此页。'}
         </p>
         <p className="muted">
           缺项不表示零持仓、零费用或不值得投资。关联研究只展示当前可核验内容，不生成买入金额。

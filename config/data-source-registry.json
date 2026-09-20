@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "d0-2026-09-20.1",
+  "policy_version": "d0-2026-09-20.4",
   "verified_at": "2026-09-20",
   "purpose": "D0来源核验的机器可读结果；后续采集只能按数据集选择允许用途，不得把发现源提升为事实主证据。",
   "sources": [
@@ -57,6 +57,19 @@
       "limitations": ["尚无自动适配器", "单位净值不等于含分红再投资的总收益", "历史回放还需保存逐点首次可知时间"]
     },
     {
+      "id": "fund_nav.ths",
+      "dataset": "fund_nav",
+      "provider": "ths",
+      "adapter": "scripts.fund_nav_ths.fetch_ths_fund_nav",
+      "decision": "conditional",
+      "allowed_uses": ["candidate_fact", "cross_check"],
+      "priority": 20,
+      "automatic": true,
+      "identity_requirement": "普通基金资料页的六位份额代码和基金简称必须与本地目录完全一致；浮动净值型货币基金还须由本地目录明确标识；首条净值不得晚于成立日15天，历史须保持足够密度且末条距当前不超过10天",
+      "coverage": "同花顺普通非REIT基金及明确标识的浮动净值型货币基金页面可返回的成立以来单位净值与累计净值静态序列；按请求日期在本地筛选",
+      "limitations": ["第三方基金销售平台数据，不是基金管理人正式净值公告", "静态文件不提供逐点公告时间、历史修订或首次可知时间", "单位净值不等于含现金分红再投资的总收益", "普通货币基金的万份收益和七日年化不能写入净值序列；仅明确的浮动净值型货币基金采用净值口径", "公募REITs需要交易所价格和分派口径", "部分基金需要浏览器请求头且无服务可用性保证"]
+    },
+    {
       "id": "exchange_daily.sina",
       "dataset": "exchange_daily",
       "provider": "sina",
@@ -65,9 +78,9 @@
       "allowed_uses": ["candidate_fact", "cross_check"],
       "priority": 10,
       "automatic": true,
-      "identity_requirement": "必须在新浪ETF或LOF分类目录中唯一匹配代码和类型",
+      "identity_requirement": "必须先验证新浪ETF或LOF分类目录字段、代码唯一性和合理完整数量，再在完整目录中唯一匹配代码和类型",
       "coverage": "ETF/LOF来源可得的全部不复权日线",
-      "limitations": ["没有服务可用性保证", "部分历史OHLC与腾讯存在小额差异", "发布时间为空"]
+      "limitations": ["没有服务可用性保证", "分类目录缺失、截断或重复时不得据此回退到净值口径", "部分历史OHLC与腾讯存在小额差异", "发布时间为空"]
     },
     {
       "id": "exchange_daily.tencent",
@@ -133,6 +146,32 @@
       "identity_requirement": "未取得可验证响应",
       "coverage": "未知",
       "limitations": ["ETF/LOF样本持续返回502"]
+    },
+    {
+      "id": "index_daily.csi_official",
+      "dataset": "index_daily",
+      "provider": "csi",
+      "adapter": "scripts.import_related_market._fetch",
+      "decision": "authoritative_evidence",
+      "allowed_uses": ["primary_evidence", "cross_check"],
+      "priority": 10,
+      "automatic": true,
+      "identity_requirement": "指数代码与中文全称必须先在中证指数官方目录唯一精确匹配，行情响应中的代码和全称必须逐行一致",
+      "coverage": "中证指数官网可返回的近六年官方指数日行情",
+      "limitations": ["只证明指数行情，不证明基金跟踪关系", "历史回放仍需保存逐点首次可知时间和修订记录", "基金关系未取得管理人正式文件时不得据此驱动交易"]
+    },
+    {
+      "id": "index_daily.sina",
+      "dataset": "index_daily",
+      "provider": "sina",
+      "adapter": "scripts.import_related_market._fetch",
+      "decision": "conditional",
+      "allowed_uses": ["candidate_fact", "cross_check"],
+      "priority": 20,
+      "automatic": true,
+      "identity_requirement": "指数代码必须先在国证官方目录唯一精确匹配，新浪请求证券代码必须由该官方代码确定，并通过完整度、日期和OHLC校验",
+      "coverage": "新浪公开指数行情接口可返回的最近1023个日行情观察",
+      "limitations": ["第三方行情，不是国证指数官方日行情公告", "只证明候选行情，不证明基金跟踪关系", "没有逐点发布时间、修订历史或服务可用性保证"]
     },
     {
       "id": "sector_daily.ths",
@@ -263,6 +302,32 @@
       "identity_requirement": "合同或产品资料必须同时确认联接份额和目标ETF代码",
       "coverage": "ETF联接目标关系及合同最低投资比例",
       "limitations": ["关系必须带有效期", "合同最低比例不等于报告期实际持仓比例", "基金名称和跟踪指数不能单独建立关系"]
+    },
+    {
+      "id": "fund_profile.ths+cni_index.official",
+      "dataset": "fund_relations",
+      "provider": "ths+cni",
+      "adapter": "scripts.import_related_market.resolve_cni_relation",
+      "decision": "conditional",
+      "allowed_uses": ["discovery", "candidate_fact", "cross_check"],
+      "priority": 20,
+      "automatic": true,
+      "identity_requirement": "同花顺基金资料页的份额代码与简称必须双重一致，本地类型和名称须确认指数产品身份；业绩比较基准只能解析出一个指数且权重不低于80%，名称必须与国证官方目录的完整名或简称唯一精确匹配",
+      "coverage": "当前同花顺资料页明确披露单一指数业绩基准、且国证官方目录可按完整名或简称唯一核对的基金份额",
+      "limitations": ["同花顺资料页是第三方当前页面，不是基金合同或管理人正式产品资料", "国证官方目录只确认指数身份，不能补足基金关系的历史生效区间", "业绩比较基准关系不等于报告期实际持仓比例或目标ETF代码", "只用于当前关联展示和交叉核对，不满足正式交易的主证据门槛"]
+    },
+    {
+      "id": "fund_profile.ths+csi_index.official",
+      "dataset": "fund_relations",
+      "provider": "ths+csi",
+      "adapter": "scripts.import_related_market.resolve_related_relation",
+      "decision": "conditional",
+      "allowed_uses": ["discovery", "candidate_fact", "cross_check"],
+      "priority": 30,
+      "automatic": true,
+      "identity_requirement": "同花顺基金资料页的份额代码与简称必须双重一致，本地类型和名称须确认指数产品身份；业绩比较基准只能解析出一个指数且权重不低于80%；指数必须与中证官网收录的中证、上证等系列完整名或简称唯一精确匹配，并核对官方详情代码",
+      "coverage": "当前同花顺资料页明确披露单一指数业绩基准、且中证官网目录可按完整名或简称唯一核对的中证、上证等系列基金份额",
+      "limitations": ["同花顺资料页是第三方当前页面，不是基金合同或管理人正式产品资料", "中证官方目录只确认指数身份，不能补足基金关系的历史生效区间", "业绩比较基准关系不等于报告期实际持仓比例或目标ETF代码", "只用于当前关联展示和交叉核对，不满足正式交易的主证据门槛"]
     },
     {
       "id": "materials.official_publishers",

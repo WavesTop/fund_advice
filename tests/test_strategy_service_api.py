@@ -13,6 +13,7 @@ from backend.api.main import create_app
 from backend.core.config import Settings
 from backend.core.trading_calendar import get_calendar
 from backend.storage.catalog import import_catalog
+from backend.storage.database import connection_scope
 from backend.storage.portfolio import append_condition, append_event, create_account
 from backend.storage.related_market import import_related_index
 from backend.storage.timeseries import import_timeseries
@@ -176,10 +177,13 @@ class StrategyRecommendationTests(unittest.TestCase):
         self.assertEqual({item["reason_code"] for item in supported}, {"HORIZON_TOO_SHORT_FOR_INCREASE"})
 
     def test_candidate_fact_source_cannot_generate_formal_trade(self):
-        import_timeseries(
-            self.settings, "510001", "nav", nav_rows("2026-09-16"),
-            source_id="exchange_daily.sina", policy_version="candidate-only-v1",
-        )
+        # Simulate a legacy/corrupt projection.  The current storage gate blocks
+        # a candidate source from overwriting the manager NAV through normal writes.
+        with connection_scope(self.settings) as connection:
+            connection.execute(
+                "UPDATE fund_timeseries_projection SET source_id='exchange_daily.sina', "
+                "policy_version='candidate-only-v1' WHERE code='510001' AND kind='nav'"
+            )
         account_id = account(self.settings, "candidate-source")
         _, output, _, _ = build_recommendation(
             self.settings, account_id=account_id, cutoff="2026-09-16",

@@ -6,6 +6,7 @@ import datetime as dt
 from decimal import Decimal, InvalidOperation, localcontext
 import json
 import math
+import re
 import subprocess
 import sys
 import time
@@ -22,12 +23,17 @@ DATASETS = (
     "unit-nav", "cumulative-nav", "exchange-nav", "etf-daily", "lof-daily", "calendar"
 )
 QUOTE_DATASETS = ("etf-daily", "lof-daily")
+# Verified 2026-09-20 counts were 1,674 ETF and 382 LOF identities.  Keep a
+# conservative margin for legitimate removals while rejecting a single-page or
+# otherwise partial directory as proof that a code is absent.
+SINA_MIN_DIRECTORY_ROWS = {"etf-daily": 1400, "lof-daily": 320}
 SOURCE_ERRORS = {
     "missing_dependency": "未找到来源接口所需依赖，请先同步项目环境",
     "network_timeout": "来源网络请求超时",
     "network_error": "无法连接来源，请检查网络、代理或来源可用性",
     "upstream_failure": "来源调用或解析失败，需核验接口返回结构",
     "invalid_response": "来源返回结构、身份或字段无效",
+    "exchange_identity_not_found": "交易所基金分类目录未返回唯一的 ETF／LOF 身份",
     "truncated_response": "来源返回的历史窗口可能被截断",
     "unsupported_symbol": "行情探针不支持此代码范围",
     "duplicate_response": "来源在同一日期返回冲突数据",
@@ -71,10 +77,29 @@ def source_interface(request):
 
 
 def sina_identity(catalog, symbol, dataset):
+    if dataset not in SINA_MIN_DIRECTORY_ROWS:
+        raise ProbeError("invalid_request", "新浪基金分类目录类型无效")
     if "代码" not in catalog.columns or "名称" not in catalog.columns:
         raise ProbeError("invalid_response", "新浪基金分类目录缺少身份字段")
+    codes = list(catalog["代码"])
+    names = list(catalog["名称"])
+    if (any(not isinstance(code, str) or re.fullmatch(r"(?:sh5\d{5}|sz(?:15|16)\d{4})", code) is None
+            for code in codes)
+            or any(not isinstance(name, str) or not name.strip() for name in names)):
+        raise ProbeError("invalid_response", "新浪基金分类目录身份字段无效")
+    if len(codes) != len(set(codes)):
+        raise ProbeError("duplicate_response", "新浪基金分类目录代码重复")
+    if len(codes) < SINA_MIN_DIRECTORY_ROWS[dataset]:
+        raise ProbeError("truncated_response", "新浪基金分类目录数量不足，不能据此判断基金未上市")
     matches = catalog[catalog["代码"] == symbol]
-    if len(matches) != 1 or not isinstance(matches.iloc[0]["名称"], str) or not matches.iloc[0]["名称"].strip():
+    if len(matches) == 0:
+        raise ProbeError(
+            "exchange_identity_not_found",
+            "来源未返回与所选 ETF／LOF 类型一致的唯一身份",
+        )
+    if len(matches) != 1:
+        raise ProbeError("duplicate_response", "新浪基金分类目录返回重复证券身份")
+    if not isinstance(matches.iloc[0]["名称"], str) or not matches.iloc[0]["名称"].strip():
         raise ProbeError("invalid_response", "来源未返回与所选 ETF／LOF 类型一致的身份，需核验代码或历史身份资料")
     return {"symbol": symbol, "name": matches.iloc[0]["名称"],
             "kind": "ETF" if dataset == "etf-daily" else "LOF",
@@ -152,7 +177,7 @@ except ImportError:
 except Exception as exc:
     from probe_fund_source import ProbeError
     if isinstance(exc, ProbeError):
-        print(json.dumps({"error": exc.code if exc.code in ("invalid_response", "truncated_response", "unsupported_symbol", "duplicate_response") else "upstream_failure"}))
+        print(json.dumps({"error": exc.code if exc.code in ("invalid_response", "exchange_identity_not_found", "truncated_response", "unsupported_symbol", "duplicate_response") else "upstream_failure"}))
         raise SystemExit(0)
     module = type(exc).__module__.lower()
     name = type(exc).__name__

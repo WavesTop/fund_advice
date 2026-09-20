@@ -159,13 +159,20 @@ class ProviderSelectionTests(unittest.TestCase):
 class QuoteNormalizationTests(unittest.TestCase):
     def test_sina_identity_requires_unique_matching_category_and_code(self):
         import pandas as pd
-        etfs = pd.DataFrame([{"代码": "sh510050", "名称": "上证50ETF华夏"}])
+        etfs = pd.DataFrame([
+            {"代码": f"sh5{index:05d}", "名称": f"样本ETF{index}"}
+            for index in range(probe.SINA_MIN_DIRECTORY_ROWS["etf-daily"])
+        ])
+        etfs = pd.concat([etfs, pd.DataFrame([{"代码": "sh510050", "名称": "上证50ETF华夏"}])],
+                         ignore_index=True)
         identity = probe.sina_identity(etfs, "sh510050", "etf-daily")
         self.assertEqual((identity["symbol"], identity["kind"]), ("sh510050", "ETF"))
-        with self.assertRaises(probe.ProbeError):
+        with self.assertRaises(probe.ProbeError) as caught:
             probe.sina_identity(etfs, "sz160706", "etf-daily")
-        with self.assertRaises(probe.ProbeError):
+        self.assertEqual(caught.exception.code, "exchange_identity_not_found")
+        with self.assertRaises(probe.ProbeError) as caught:
             probe.sina_identity(pd.concat([etfs, etfs]), "sh510050", "etf-daily")
+        self.assertEqual(caught.exception.code, "duplicate_response")
         with self.assertRaises(probe.ProbeError):
             probe.sina_identity(pd.DataFrame([{"code": "sh510050"}]), "sh510050", "etf-daily")
 

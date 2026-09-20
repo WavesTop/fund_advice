@@ -9,7 +9,13 @@ from backend.core.errors import AppError
 from backend.storage.catalog import import_catalog
 from backend.storage.database import connection_scope
 from backend.storage.timeseries import _clean_rows, import_timeseries, get_timeseries
-from backend.storage.related_market import import_related_index, get_related_market, get_related_markets, record_relation_check
+from backend.storage.related_market import (
+    get_related_market,
+    get_related_markets,
+    import_related_index,
+    record_index_market_failure,
+    record_relation_check,
+)
 from backend.storage.sector_heat import save_sector_heat, read_sector_heat, record_sector_heat_failure
 from backend.storage.market_series import market_series
 from backend.analysis.research_view import fund_associations
@@ -124,6 +130,21 @@ class MarketConsistencyTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 404)
         with self.assertRaises(AppError):
             market_series(self.settings, "BK0000", source_id="sector_daily.ths", universe_type="hot_board", start="2026-10-01", end="2026-09-01")
+
+    def test_failed_index_refresh_withholds_old_rows_from_market_series(self):
+        with patch('backend.storage.related_market._now',
+                   return_value='2026-09-20T12:00:00.000Z'):
+            self.relation("000016")
+        record_index_market_failure(
+            self.settings, "000016", attempted_at="2026-09-20T13:00:00.000Z",
+            source_id="fixture.index", error="upstream unavailable",
+        )
+        result = market_series(
+            self.settings, "000016", source_id="fixture.index", universe_type="tracked_index",
+        )
+        self.assertEqual((result["market_status"], result["rows"], result["as_of"]),
+                         ("failed", [], None))
+        self.assertIn("旧行情不参与当前信号", result["collection_error"])
 
     def test_universes_choose_independent_comparison_dates(self):
         def item(code, universe, day):

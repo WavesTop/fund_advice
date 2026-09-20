@@ -109,9 +109,12 @@ describe('真实图表与关系状态的一致性', () => {
   it('明确关系但日线为空时解释缺项', async () => {
     const fixture = marketDetailFixture();
     fixture.related_market.rows = [];
+    fixture.related_market.market_status = 'failed';
+    fixture.related_market.market_reason = '本次指数行情更新失败，旧行情不参与当前信号。';
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(response(fixture));
     renderFund();
-    expect(await screen.findByText('关系已记录，但该指数尚无可用日线。')).toBeInTheDocument();
+    expect(await screen.findByText('本次指数行情更新失败，旧行情不参与当前信号。')).toBeInTheDocument();
+    expect(screen.getByText(/一致性测试指数 · 000016/)).toBeInTheDocument();
   });
   it('日线按需请求来源精确身份并说明跨源代理边界', async () => {
     const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(response(boardHistory()));

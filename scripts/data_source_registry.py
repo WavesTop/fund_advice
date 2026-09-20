@@ -85,3 +85,27 @@ def sources_for(dataset, use=None, path=DEFAULT_REGISTRY):
             raise RegistryError("请求的来源用途无效")
         selected = [source for source in selected if use in source["allowed_uses"]]
     return sorted(selected, key=lambda source: (source["priority"] is None, source["priority"] or 0, source["id"]))
+
+
+def source_by_id(registry, source_id, *, dataset=None):
+    """Return one reviewed source, optionally requiring the expected dataset."""
+    matches = [source for source in registry["sources"] if source["id"] == source_id]
+    if len(matches) != 1:
+        return None
+    source = matches[0]
+    return source if dataset is None or source["dataset"] == dataset else None
+
+
+def replacement_preserves_quality(registry, current_source_id, new_source_id, *, dataset):
+    """Prevent an automatic candidate from downgrading stronger stored evidence."""
+    current = source_by_id(registry, current_source_id, dataset=dataset)
+    new = source_by_id(registry, new_source_id, dataset=dataset)
+    if new is None:
+        return False
+    if current is None or current["decision"] in {"rejected", "not_verified", "discovery_only"}:
+        return True
+    current_primary = (current["decision"] == "authoritative_evidence"
+                       and "primary_evidence" in current["allowed_uses"])
+    new_primary = (new["decision"] == "authoritative_evidence"
+                   and "primary_evidence" in new["allowed_uses"])
+    return not current_primary or new_primary
