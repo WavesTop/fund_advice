@@ -100,6 +100,38 @@
   color: #78888f;
   font-size: 12px;
 }
+.sector-support details {
+  margin-top: 8px;
+}
+.sector-support summary {
+  cursor: pointer;
+  color: #4f6770;
+  font-weight: 600;
+}
+.sector-support-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.sector-support-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid #e4ebef;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+.sector-support-list small {
+  color: #6f8189;
+}
+@media (max-width: 900px) {
+  .sector-support-list {
+    grid-template-columns: 1fr;
+  }
+}
 .sector-pagination {
   justify-content: flex-end;
 }

@@ -151,6 +151,14 @@ type Universe = {
   last_error?: string | null;
   last_attempt_at?: string | null;
 };
+type SectorSupportDataset = {
+  id: string;
+  label: string;
+  status: 'available' | 'partial' | 'not_collected' | 'blocked';
+  coverage: Record<string, number>;
+  required_for?: string[];
+  note?: string;
+};
 export type OpportunitiesResponse = {
   collection_status?: { state: string; run_id: string | null; database_id: string;
     result?: { progress?: { stage: string; dataset?: string; business_date?: string };
@@ -164,14 +172,7 @@ export type OpportunitiesResponse = {
     formal_recommendation_ready: boolean;
     note: string;
     blocking_gaps: string[];
-    datasets: {
-      id: string;
-      label: string;
-      status: 'available' | 'partial' | 'not_collected' | 'blocked';
-      coverage: Record<string, number>;
-      required_for: string[];
-      note?: string;
-    }[];
+    datasets: SectorSupportDataset[];
   };
   method_version: string;
   generated_at: string;
@@ -221,6 +222,48 @@ function heatBasisLabel(value: string) {
 
 function supportStatusLabel(value: 'available' | 'partial' | 'not_collected' | 'blocked') {
   return value === 'available' ? '已具备' : value === 'partial' ? '部分具备' : value === 'blocked' ? '受阻' : '尚未采集';
+}
+
+const supportPurposeLabels: Record<string, string> = {
+  short: '短期判断',
+  medium: '中期判断',
+  long: '长期判断',
+  valuation: '估值判断',
+  pricing: '定价判断',
+  sample_quality: '样本质量',
+  weighted_fundamentals: '加权经营',
+  historical_replay: '历史回放',
+  valuation_percentile: '估值分位',
+  crowding: '拥挤度',
+  risk: '风险判断',
+  relative_return: '相对收益',
+  fund_selection: '基金择优',
+  formal_recommendation: '正式推荐',
+};
+
+function coverageText(item: SectorSupportDataset) {
+  const c = item.coverage || {};
+  if (item.id === 'sector_price_history') {
+    return `短/中/长期 ${c.short ?? 0}/${c.medium ?? 0}/${c.long ?? 0}，目标 ${c.total ?? 0}`;
+  }
+  if (item.id === 'current_constituents') {
+    return `板块 ${c.boards ?? 0}/${c.total_boards ?? 0}，成员 ${c.members ?? 0}`;
+  }
+  if (item.id === 'constituent_financials') {
+    return `可用板块 ${c.available_boards ?? 0}/${c.total_boards ?? 0}，部分板块 ${c.partial_boards ?? 0}`;
+  }
+  if ('members' in c || 'total_members' in c) {
+    return `成员 ${c.members ?? 0}/${c.total_members ?? 0}`;
+  }
+  if ('boards' in c || 'total_boards' in c) {
+    return `板块 ${c.boards ?? 0}/${c.total_boards ?? 0}`;
+  }
+  return Object.entries(c).map(([key, value]) => `${key} ${value}`).join('，') || '未提供分母';
+}
+
+function requiredText(item: SectorSupportDataset) {
+  const values = item.required_for?.map((key) => supportPurposeLabels[key] ?? key).filter(Boolean) ?? [];
+  return values.length ? values.join('、') : '资料核对';
 }
 
 function periodFor(item: SectorOpportunity, key: SortKey) {
@@ -725,15 +768,18 @@ export function SectorOpportunities() {
         </p>)}
         <p>尚缺同口径历史估值、成分盈利与现金流穿透、资金申赎及催化／预期快照、完整交易日历和样本外验证；本页面不生成正式投资推荐。</p>
       </section>}
-      {data?.data_support && <section className="sector-coverage" aria-label="板块底层数据支撑">
+      {data?.data_support && <section className="sector-coverage sector-support" aria-label="板块底层数据支撑">
         <strong>底层数据支撑</strong>
         <p>{data.data_support.note}</p>
-        <details>
-          <summary>查看全部数据项（缺口 {data.data_support.blocking_gaps.length} 项）</summary>
-          <ul>
+        <p>正式推荐条件：{data.data_support.formal_recommendation_ready ? '已满足' : '未满足'}；阻断缺口 {data.data_support.blocking_gaps.length} 项。缺口未补齐前，只展示观察依据，不生成买入、加仓、减仓或清仓建议。</p>
+        <details open>
+          <summary>查看全部数据项与覆盖分母</summary>
+          <ul className="sector-support-list">
             {data.data_support.datasets.map((item) => <li key={item.id}>
               <b>{item.label}</b>：{supportStatusLabel(item.status)}
-              {item.note ? `；${item.note}` : ''}
+              <small>覆盖：{coverageText(item)}</small>
+              <small>用途：{requiredText(item)}</small>
+              {item.note && <small>边界：{item.note}</small>}
             </li>)}
           </ul>
         </details>

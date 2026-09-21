@@ -139,6 +139,46 @@ describe('SectorOpportunities', () => {
     expect(input).toHaveAttribute('enterkeyhint', 'search');
   });
 
+  it('shows data support denominators and recommendation readiness', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        ...fixture(),
+        data_support: {
+          version: 'sector-data-support-v1',
+          scope: 'tonghuashun_industry_pool',
+          note: '覆盖率说明底层资料是否存在及是否完整。',
+          formal_recommendation_ready: false,
+          blocking_gaps: ['current_constituents'],
+          datasets: [
+            {
+              id: 'sector_price_history',
+              label: '板块日线与三周期窗口',
+              status: 'available',
+              coverage: { short: 90, medium: 90, long: 90, total: 90 },
+              required_for: ['short', 'medium', 'long'],
+            },
+            {
+              id: 'current_constituents',
+              label: '当前行业成分',
+              status: 'partial',
+              coverage: { boards: 75, total_boards: 90, members: 3179 },
+              required_for: ['medium', 'long', 'valuation'],
+              note: '超过 100 只成分的行业仍有分页限制。',
+            },
+          ],
+        },
+      }), { status: 200 })),
+    );
+    renderPage();
+    await screen.findByText('底层数据支撑');
+    expect(screen.getByText(/正式推荐条件：未满足/)).toBeInTheDocument();
+    expect(screen.getByText('覆盖：短/中/长期 90/90/90，目标 90')).toBeInTheDocument();
+    expect(screen.getByText('覆盖：板块 75/90，成员 3179')).toBeInTheDocument();
+    expect(screen.getByText('用途：中期判断、长期判断、估值判断')).toBeInTheDocument();
+    expect(screen.getByText('边界：超过 100 只成分的行业仍有分页限制。')).toBeInTheDocument();
+  });
+
   it('keeps unknown heat last in both directions and preserves strength ties', () => {
     const base = fixture().items[0];
     const items = [
