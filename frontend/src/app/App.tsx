@@ -34,7 +34,7 @@ import {
   ChevronRight,
   CircleHelp,
 } from 'lucide-react';
-import { EmptyState } from '../shared/ui';
+import { EmptyState, searchInputProps } from '../shared/ui';
 import './styles.css';
 
 const FundsPage = lazy(() =>
@@ -174,6 +174,7 @@ function Shell() {
           <form className="global-search" role="search" onSubmit={search}>
             <Search size={16} />
             <input
+              {...searchInputProps}
               aria-label="全局基金搜索"
               placeholder="搜索基金名称或代码"
               value={query}

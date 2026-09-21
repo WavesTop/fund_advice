@@ -92,7 +92,8 @@
   .sector-advantage-heading { align-items: flex-start; flex-direction: column; }
 }
 .sector-controls input {
-  flex: 1 1 220px;
+  flex: 1 1 280px;
+  min-width: min(100%, 280px);
 }
 .sector-scope-note {
   margin: -8px 0 0;

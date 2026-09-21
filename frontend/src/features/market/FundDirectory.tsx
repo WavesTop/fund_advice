@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
-import { Panel } from '../../shared/ui';
+import { Panel, searchInputProps } from '../../shared/ui';
 import { sourceLabel } from '../../shared/source-label';
 import { directoryLayout, directoryPage, parseDirectory, type DirectoryResult } from './fund-directory-model';
 import { MarketDataRefresh } from './MarketDataRefresh';
@@ -129,7 +129,7 @@ export function FundDirectory() {
     <div className="fund-directory-refresh"><MarketDataRefresh target="catalog" onSettled={() => setAttempt((value) => value + 1)} /></div>
     {result?.collection && <div className="catalog-progress" aria-label="真实数据采集进度"><span>已采集 <strong>{result.collection.collected}</strong></span><span>失败 <strong>{result.collection.failed}</strong></span><span>待采集 <strong>{result.collection.pending}</strong></span></div>}
     <form className="market-search-row" onSubmit={(event) => { event.preventDefault(); navigate(query); }}>
-      <label className="market-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="搜索本地真实基金" placeholder="输入基金名称或 6 位代码" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+      <label className="market-search"><Search size={18} aria-hidden="true" /><input {...searchInputProps} aria-label="搜索本地真实基金" placeholder="输入基金名称或 6 位代码" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       <button className="button primary" type="submit">搜索</button>
       <button className="button secondary" type="button" onClick={() => { setQuery(''); navigate(''); }}>清空</button>
     </form>

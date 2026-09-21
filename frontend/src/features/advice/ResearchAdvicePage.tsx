@@ -1,7 +1,7 @@
 import { priceDisplay } from '../market/sector-history-display';
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Badge, EmptyState, Notice, PageHeader, Panel } from '../../shared/ui';
+import { Badge, EmptyState, Notice, PageHeader, Panel, codeInputProps, searchInputProps } from '../../shared/ui';
 import { sourceLabel } from '../../shared/source-label';
 import { useResearchData } from './useResearchData';
 import {
@@ -104,7 +104,7 @@ export function ResearchAdvicePage() {
       if (fundInput.trim()) next.set('fund', fundInput.trim());
       setParams(next);
     }}>
-      <label className="field"><span>按真实基金代码查看关联研究</span><input aria-label="研究基金代码" inputMode="numeric" value={fundInput} onChange={(event) => setFundInput(event.target.value)} placeholder="输入六位基金代码" /></label>
+      <label className="field"><span>按真实基金代码查看关联研究</span><input {...codeInputProps} aria-label="研究基金代码" inputMode="numeric" pattern="[0-9]*" value={fundInput} onChange={(event) => setFundInput(event.target.value)} placeholder="输入六位基金代码" /></label>
       <button className="button secondary" type="submit">查看基金研究</button>
     </form>
     {error && <div className="notice notice-warning" role="alert"><strong>{result ? '本次更新失败，保留上次结果。' : notFound ? '未找到请求的基金。' : '资料暂不可用。'}</strong><p>{error}</p>
@@ -149,7 +149,7 @@ export function ResearchAdvicePage() {
             }) : <p>暂无可核验的基金关联。</p>}
         </Panel>
         <Panel title={focused ? '当前研究对象' : '全部已采集研究对象'} subtitle="可搜索和进入研究详情；资料不足不等于不看好。">
-          <label className="field"><span>搜索板块或指数</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名称或代码" /></label>
+          <label className="field"><span>搜索板块或指数</span><input {...searchInputProps} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名称或代码" /></label>
           <div className="table-wrap"><table className="data-table research-directory"><thead><tr><th>对象 / 来源</th><th>资料日期</th><th>基金关联</th><th>研究</th></tr></thead>
             <tbody>{directoryItems.slice(0, visibleCount).map((item) => <tr key={subjectKey(item)}><td>{item.name}<small>{item.code} · {sourceLabel(item.source_id)} · {item.universe_type === 'hot_board' ? '行业 / 板块' : '参考指数'}</small></td>
               <td>{dateText(item.as_of)}{item.collection_error && <small>更新失败</small>}</td>

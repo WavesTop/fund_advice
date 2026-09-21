@@ -2,6 +2,23 @@ import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { X, Inbox, Info } from 'lucide-react';
 import { useUnsavedChanges } from './store';
 
+export const searchInputProps = {
+  type: 'search',
+  autoComplete: 'off',
+  autoCorrect: 'off',
+  autoCapitalize: 'none',
+  spellCheck: false,
+  enterKeyHint: 'search',
+} as const;
+
+export const codeInputProps = {
+  autoComplete: 'off',
+  autoCorrect: 'off',
+  autoCapitalize: 'none',
+  spellCheck: false,
+  enterKeyHint: 'search',
+} as const;
+
 export function PageHeader({
   eyebrow,
   title,

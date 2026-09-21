@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
-import { Badge, EmptyState, Notice, Panel } from '../../shared/ui';
+import { Badge, EmptyState, Notice, Panel, searchInputProps } from '../../shared/ui';
 import './sector-opportunities.css';
 import { SectorSummaryTable } from './SectorSummaryTable';
 import { SectorHistory } from './SectorHistory';
@@ -860,6 +860,7 @@ export function SectorOpportunities() {
       </div>
       <div className="sector-controls">
         <input
+          {...searchInputProps}
           aria-label="搜索板块名称或代码"
           placeholder="搜索板块名称或代码"
           value={query}

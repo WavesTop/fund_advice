@@ -16,6 +16,21 @@ describe('real research page', () => {
     expect(screen.queryByRole('button', { name: '记录决定' })).not.toBeInTheDocument();
     expect(screen.getByText(/基金推荐 \/ 个人操作/)).toBeInTheDocument();
   });
+  it('uses quiet inputs for fund codes and research directory search', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(researchFixture()))));
+    renderPage();
+    await screen.findByRole('heading', { name: '短期' });
+    const codeInput = screen.getByLabelText('研究基金代码');
+    expect(codeInput).toHaveAttribute('autocomplete', 'off');
+    expect(codeInput).toHaveAttribute('autocorrect', 'off');
+    expect(codeInput).toHaveAttribute('autocapitalize', 'none');
+    expect(codeInput).toHaveAttribute('spellcheck', 'false');
+    expect(codeInput).toHaveAttribute('inputmode', 'numeric');
+    const directoryInput = screen.getByPlaceholderText('名称或代码');
+    expect(directoryInput).toHaveAttribute('type', 'search');
+    expect(directoryInput).toHaveAttribute('autocomplete', 'off');
+  });
+
   it('retains a full prior result when a refresh fails', async () => {
     const fetcher = vi.fn().mockImplementationOnce(async () => new Response(JSON.stringify(researchFixture())))
       .mockRejectedValue(new Error('test offline'));

@@ -123,6 +123,22 @@ describe('SectorOpportunities', () => {
     );
   });
 
+  it('keeps the sector filter as a quiet search input', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify(fixture()), { status: 200 })),
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText('测试指数')).toBeInTheDocument());
+    const input = screen.getByLabelText('搜索板块名称或代码');
+    expect(input).toHaveAttribute('type', 'search');
+    expect(input).toHaveAttribute('autocomplete', 'off');
+    expect(input).toHaveAttribute('autocorrect', 'off');
+    expect(input).toHaveAttribute('autocapitalize', 'none');
+    expect(input).toHaveAttribute('spellcheck', 'false');
+    expect(input).toHaveAttribute('enterkeyhint', 'search');
+  });
+
   it('keeps unknown heat last in both directions and preserves strength ties', () => {
     const base = fixture().items[0];
     const items = [

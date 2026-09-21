@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
 import { DATA_DATE, periods, signed } from '../../shared/data';
-import { Badge, EmptyState, Modal, Notice, PageHeader, Panel, Stat, Tabs } from '../../shared/ui';
+import { Badge, EmptyState, Modal, Notice, PageHeader, Panel, Stat, Tabs, searchInputProps } from '../../shared/ui';
 import { Chart } from '../../shared/Chart';
 import { useDemo } from '../../shared/store';
 import {
@@ -162,7 +162,7 @@ function RealFundCatalog() {
         <label className="market-search">
           <Search size={18} />
           <input
-            type="search"
+            {...searchInputProps}
             aria-label="搜索本地真实基金"
             placeholder="搜索名称或代码"
             value={query}
@@ -419,7 +419,7 @@ function LegacyFundsPage() {
           <label className="market-search">
             <Search size={18} />
             <input
-              type="search"
+              {...searchInputProps}
               aria-label="搜索基金名称或代码"
               placeholder="搜索基金名称、代码或曾用名"
               value={filters.query}
