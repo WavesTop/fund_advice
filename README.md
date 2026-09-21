@@ -72,7 +72,7 @@ uv run --locked --offline python -m scripts.research_pipeline --database runtime
 
 协议JSON固定 name、hypothesis、subjects、benchmark_key、signal_rule（price_strong／evidence_watch）、period（short／medium／long）、horizon_sessions（20／60／120）、development／validation／test（各含start、end）、embargo_sessions、minimum_observations。对象必须采用来源精确的 subject_key，不能按名称猜；时间区间须在已核验日历范围内且互不重叠。协议必须在观察之前登记，不能为了补旧报告填写假时间。history 始终是有明确标识的回顾性时间切分诊断，不称“未见样本外”；score 也不会因夹具通过或达到最小样本数自动判投资有效。
 
-现有板块优势榜另有[历史价格初步验证](docs/sector-price-validation.md)，直接复用页面的前25%及最多5行业规则；不降低上述严格历史时点／总收益契约。只读导出当前行情并验证：
+现有板块优势榜另有[历史价格初步验证](docs/sector-price-validation.md)，直接复用页面的前25%及最多10行业规则；不降低上述严格历史时点／总收益契约。只读导出当前行情并验证：
 
 ```bash
 uv run --locked --offline python -m scripts.validate_sector_prices --output runtime/validation/sector-price-base

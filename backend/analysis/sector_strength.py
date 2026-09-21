@@ -4,7 +4,7 @@ from collections import Counter
 from decimal import Decimal
 from collections.abc import Mapping
 
-ADVANTAGE_LIMIT = 5
+ADVANTAGE_LIMIT = 10
 
 
 def build_advantage_summary(items: list[dict]) -> list[dict]:

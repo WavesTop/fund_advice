@@ -383,5 +383,5 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
             "evidence_version": evidence["version"], "generated_at": now.isoformat(timespec="seconds"),
             "universe": heat["universe"], "advantages": advantages,
             "comparison_as_of": comparison_dates, "turnover_as_of": heat["universe"].get("ranking_as_of"),
-            "advantage_rule": "同截止日、同完整观测日期序列可比；原始收益排名前25%；趋势为上涨或可识别修复/回落；最多5个。非投资排名，仅在已核验沪深日历覆盖范围内计算。",
+            "advantage_rule": "同截止日、同完整观测日期序列可比；原始收益排名前25%；趋势为上涨或可识别修复/回落；最多10个。非投资排名，仅在已核验沪深日历覆盖范围内计算。",
             "items": items}

@@ -72,6 +72,18 @@ class SectorStrengthTests(unittest.TestCase):
         labels = [row["label"] for row in build_advantage_summary(items)[0]["items"]]
         self.assertEqual(labels, ["高波动领先", "领先后回落"])
 
+    def test_advantage_summary_keeps_top_ten_per_period(self):
+        items = [board(f"{value:03}", [value, value, value]) for value in range(48)]
+        for item in items:
+            item.update(name=item["code"], kind="行业", heat_rank=1, industry={}, valuation={})
+            for period in item["periods"]:
+                period.update(ma_bias_pct=1, max_drawdown_pct=-5, risk="normal")
+        attach_strength(items, "2026-09-14")
+        summary = build_advantage_summary(items)[0]
+        self.assertEqual(summary["candidate_count"], 10)
+        self.assertEqual(len(summary["items"]), 10)
+        self.assertEqual([row["code"] for row in summary["items"]], [f"{value:03}" for value in range(47, 37, -1)])
+
 
 if __name__ == "__main__":
     unittest.main()
