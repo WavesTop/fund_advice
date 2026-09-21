@@ -8,6 +8,7 @@ import {
   DataZoomComponent,
   AriaComponent,
   MarkLineComponent,
+  TitleComponent,
 } from 'echarts/components';
 import { SVGRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
@@ -23,6 +24,7 @@ echarts.use([
   DataZoomComponent,
   AriaComponent,
   MarkLineComponent,
+  TitleComponent,
   SVGRenderer,
 ]);
 const linkedCharts = new Map<string, number>();

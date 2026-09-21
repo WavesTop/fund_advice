@@ -55,7 +55,7 @@ const PortfolioPage = lazy(() =>
   })),
 );
 const AdvicePage = lazy(() =>
-  import('../features/advice/StrategyAdvicePage').then((module) => ({ default: module.StrategyAdvicePage })),
+  import('../features/advice/AdvicePage').then((module) => ({ default: module.AdvicePage })),
 );
 const ReviewPage = lazy(() =>
   import('../features/review/RealReviewPage').then((module) => ({ default: module.RealReviewPage })),

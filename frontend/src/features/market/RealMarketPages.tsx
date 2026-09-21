@@ -8,17 +8,22 @@ import { Chart } from '../../shared/Chart';
 import { recordFundVisit } from './fund-browse-history';
 import { FundDirectory as RealFundDirectory } from './FundDirectory';
 import { RealSectorDetail } from './RealSectorDetail';
+import { SectorLibrary } from './SectorLibrary';
 import { SectorOpportunities } from './SectorOpportunities';
 import { researchHref, safeReturnPath, sourceHref } from './real-market-support';
 import { alignRows, commonDates, rangeDates } from './series-alignment';
 import './market.css';
 
-function MarketNavigation({ selected }: { selected: 'funds' | 'sectors' }) {
+function MarketNavigation({ selected }: { selected: 'funds' | 'sectors' | 'library' }) {
   return (
     <nav className="market-subnav" aria-label="基金与板块导航">
       <Link className={selected === 'funds' ? 'active' : ''} to="/funds">
         <Database size={16} />
         基金库
+      </Link>
+      <Link className={selected === 'library' ? 'active' : ''} to="/sectors?tab=library">
+        <Database size={16} />
+        板块库
       </Link>
       <Link className={selected === 'sectors' ? 'active' : ''} to="/sectors">
         <ChartNoAxesCombined size={16} />
@@ -682,15 +687,19 @@ function RealFundDetail() {
 }
 
 export function SectorsPage() {
+  const [params] = useSearchParams();
+  const tab = params.get('tab') === 'library' ? 'library' : 'opportunities';
   return (
     <div className="market-page">
       <PageHeader
-        eyebrow="SECTOR OPPORTUNITIES"
-        title="板块机会"
-        description="结合行业经营、估值线索与真实走势，观察三个周期的支持证据和待确认条件。"
+        eyebrow={tab === 'library' ? 'SECTOR LIBRARY' : 'SECTOR OPPORTUNITIES'}
+        title={tab === 'library' ? '板块库' : '板块机会'}
+        description={tab === 'library'
+          ? '查看本地行业板块日线、MACD、KDJ、RSI、WR 指标图，并筛选常见技术阶段。'
+          : '结合行业经营、估值线索与真实走势，观察三个周期的支持证据和待确认条件。'}
       />
-      <MarketNavigation selected="sectors" />
-      <SectorOpportunities />
+      <MarketNavigation selected={tab === 'library' ? 'library' : 'sectors'} />
+      {tab === 'library' ? <SectorLibrary /> : <SectorOpportunities />}
     </div>
   );
 }
