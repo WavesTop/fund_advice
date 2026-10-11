@@ -5,7 +5,7 @@ for (const width of [1440, 768, 390]) {
   test(`real research keeps three horizons and no page overflow at ${width}px`, async ({ page }) => {
     await page.route('**/api/sectors/opportunities', (route) => route.fulfill({ json: researchFixture() }));
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto('/advice');
+    await page.goto('/advice?tab=research');
     for (const name of ['短期', '中期', '长期']) await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '记录决定', exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
@@ -19,7 +19,7 @@ for (const width of [1440, 768, 390]) {
 test('unknown real fund never becomes an example fund', async ({ page }) => {
   await page.route('**/api/sectors/opportunities', (route) => route.fulfill({ json: researchFixture() }));
   await page.route('**/api/funds/999999', (route) => route.fulfill({ status: 404, json: {} }));
-  await page.goto('/advice?fund=999999');
+  await page.goto('/advice?tab=research&fund=999999');
   await expect(page.getByText(/本地真实目录没有基金 999999/)).toBeVisible();
   await expect(page.getByRole('button', { name: '记录决定', exact: true })).toHaveCount(0);
 });

@@ -11,7 +11,7 @@ from backend.storage.database import migrate
 from backend.storage.related_market import import_related_index, record_index_market_failure
 
 
-TODAY = date(2026, 9, 14)
+TODAY = date.today()
 
 
 def history(prices, end=TODAY):
@@ -67,7 +67,7 @@ class SectorStatusTests(unittest.TestCase):
     def test_future_rows_are_excluded_and_order_is_irrelevant(self):
         rows = history(range(100, 221))
         expected = analyze_index(rows, as_of=TODAY)
-        rows.append({"date": "2026-09-15", "close": "1"})
+        rows.append({"date": (TODAY + timedelta(days=1)).isoformat(), "close": "1"})
         self.assertEqual(analyze_index(list(reversed(rows)), as_of=TODAY), expected)
 
     def test_invalid_values_dates_and_gaps_remain_unknown(self):

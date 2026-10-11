@@ -6,17 +6,23 @@ from contextlib import redirect_stdout
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import sys
 
 from backend.core.config import Settings
 from scripts.import_fund_catalog import refresh_fund_catalog
 from scripts.import_sector_heat import refresh_sector_heat
+from scripts.import_related_market import refresh_existing_indexes
 from backend.integrations.sector_financials import collect_sector_fundamentals
 from scripts.import_sector_heat import COLLECTOR_VERSION
 
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def progress_event(stage: str, state: str, percent: int, message: str, **extra) -> dict:
+    return {"stage": stage, "state": state, "percent": max(0, min(100, percent)), "message": message, **extra}
 
 
 def collect(settings: Settings, target: str, *, progress=None) -> dict:
@@ -29,13 +35,42 @@ def collect(settings: Settings, target: str, *, progress=None) -> dict:
     if target != "sectors":
         raise ValueError("不支持的采集目标")
     if progress:
-        progress({"stage": "market", "state": "running"})
-    result = refresh_sector_heat(settings, industry_only=True)
+        progress(progress_event("market", "running", 5, "正在读取板块库清单。"))
+
+    def market_progress(message: object) -> None:
+        if not progress:
+            return
+        text = str(message)
+        match = re.search(r"采集\s+(\d+)/(\d+)", text)
+        if match:
+            done, total = int(match.group(1)), int(match.group(2))
+            percent = 10 + round(50 * done / max(total, 1))
+            progress(progress_event("market", "running", percent, text, current=done, total=total))
+        else:
+            progress(progress_event("market", "running", 8, text))
+
+    result = refresh_sector_heat(settings, industry_only=True, progress=market_progress if progress else None)
     if progress:
-        progress({"stage": "market", "state": "completed"})
+        progress(progress_event("market", "running", 62, "同花顺板块/概念采集完成，正在刷新参考指数。"))
+
+    def index_progress(event: dict) -> None:
+        if not progress:
+            return
+        current = int(event.get("current") or 0)
+        total = int(event.get("total") or 0)
+        percent = 64 + round(10 * current / max(total, 1)) if total else 64
+        progress(progress_event("market", "running", percent, str(event.get("message") or "正在刷新参考指数。"),
+                                current=current, total=total))
+
+    index_result = refresh_existing_indexes(settings, progress=index_progress if progress else None)
+    if progress:
+        progress(progress_event("market", "completed", 76, "板块库行情刷新完成，正在整理证据。"))
     items = result["items"]
+    index_items = index_result.get("items", [])
     price_ok = sum(bool(item.get("rows")) and not item.get("collection_error") for item in items)
     members_ok = sum(item.get("membership", {}).get("status") == "ready" for item in items)
+    index_ok = sum(item.get("status") == "success" for item in index_items)
+    index_failed = len(index_items) - index_ok
     universe = result["universe"]
     requested = universe.get("requested_count", len(items))
     catalog_count = universe.get("catalog_count", requested)
@@ -49,12 +84,14 @@ def collect(settings: Settings, target: str, *, progress=None) -> dict:
     status = "failed" if not price_ok else "success" if (
         price_ok == members_ok == requested and not universe.get("last_error") and directory_mode == "live"
     ) else "partial"
+    if status == "success" and index_failed:
+        status = "partial"
     if progress:
-        progress({"stage": "financials", "state": "running"})
+        progress(progress_event("financials", "running", 82, "正在核对成分经营与估值资料。"))
     financials = (collect_sector_fundamentals(settings, items, progress=progress) if progress
                   else collect_sector_fundamentals(settings, items))
     if progress:
-        progress({"stage": "financials", "state": financials["status"]})
+        progress(progress_event("financials", financials["status"], 95, financials["message"]))
     if status == "success" and financials["status"] != "success":
         status = "partial"
     window_coverage = result.get("price_window_coverage")
@@ -63,18 +100,24 @@ def collect(settings: Settings, target: str, *, progress=None) -> dict:
         status = "partial"
     errors = [{"code": item["code"], "message": item.get("collection_error") or item.get("membership", {}).get("error")}
               for item in items if item.get("collection_error") or item.get("membership", {}).get("error")]
+    errors.extend({"code": str(item.get("code")), "message": str(item.get("error"))}
+                  for item in index_items if item.get("status") == "failed")
     return {"target": target, "status": status, "started_at": started, "completed_at": now(),
             "ranking_as_of": universe["ranking_as_of"], "requested_count": requested,
             "catalog_count": catalog_count, "identity_excluded_count": catalog_count - requested,
-            "collector_version": COLLECTOR_VERSION, "source_attempts": result.get("source_attempts", []),
+            "collector_version": COLLECTOR_VERSION,
+            "source_attempts": result.get("source_attempts", []) + index_result.get("source_attempts", []),
             "directory_provenance": directory_provenance,
             "price_cutoff": result.get("price_cutoff"), "price_window_coverage": window_coverage,
             "price_updated": price_ok, "price_failed": requested - price_ok,
+            "index_updated": index_ok, "index_failed": index_failed,
             "membership_updated": members_ok, "membership_failed": requested - members_ok,
-            "errors": errors, "manual_evidence_refreshed": False, "fundamentals": financials,
+            "errors": errors, "manual_evidence_refreshed": bool(index_items),
+            "reference_index_refreshed": bool(index_items), "fundamentals": financials,
             "message": f"目录 {catalog_count} 个，纳入行业 {requested} 个（失败项不剔除）；日线成功 {price_ok}/{requested}，成分成功 {members_ok}/{requested}。"
+                       f"参考指数成功 {index_ok}/{len(index_items)}。"
                        f"成分经营与同日估值：{financials['message']}。"
-                       "旧人工背景及已有参考指数未由本按钮更新；失败项不计作本轮完整研究。"}
+                       "本次以当前板块库清单为准；失败项不计作本轮完整研究。"}
 
 
 def main(argv=None) -> int:

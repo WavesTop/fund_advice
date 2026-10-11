@@ -20,10 +20,14 @@ from backend.core.errors import AppError
 from backend.storage.related_market import (
     get_related_markets,
     import_related_index,
+    import_standalone_index,
     import_related_relation,
     record_index_market_failure,
     record_relation_check,
+    upsert_index_projection,
 )
+from backend.storage.database import connection_scope, migrate
+from backend.storage.sector_heat import removed_subject_keys, restore_removed_subjects
 from backend.storage.timeseries import get_fund
 from scripts.data_source_registry import load_registry, replacement_preserves_quality, sources_for
 from scripts.probe_fund_source import ProbeError
@@ -44,6 +48,14 @@ MIN_INDEX_DENSITY_PERCENT = 40
 MAX_INDEX_LATEST_AGE_DAYS = 21
 MIN_TRACKED_BENCHMARK_WEIGHT_PERCENT = Decimal("80")
 _TRANSIENT_HTTP = {403, 429, 500, 502, 503, 504}
+CSI_LOCAL_INDEXES = [
+    {"index_code": "931248", "index_name": "中证油气资源指数", "index_short_name": "油气资源",
+     "provider": "csi", "symbol": "csi:931248"},
+]
+CNI_LOCAL_INDEXES = [
+    {"index_code": "399441", "index_name": "国证生物医药指数", "index_short_name": "生物医药",
+     "provider": "sina", "symbol": "sina:sz399441"},
+]
 
 
 def _referer(url: str) -> str:
@@ -304,6 +316,56 @@ def resolve_cni_relation(fund_code: str, timeout: float,
     return None if profile is None else _cni(profile, deadline, opener, _store(catalogue_cache))
 
 
+def _cni_catalog(deadline: float, opener: Callable[..., object],
+                 cache: MutableMapping[str, object]) -> list[dict[str, str]]:
+    container = cache.get("cni")
+    if container is None:
+        data = _payload(_read(CNI_URL, deadline, opener), "国证指数目录响应格式无效")
+        try:
+            container = data["data"]
+        except (KeyError, TypeError) as exc:
+            raise ProbeError("invalid_response", "国证指数目录响应格式无效") from exc
+        cache["cni"] = container
+    if not isinstance(container, dict):
+        raise ProbeError("invalid_response", "国证指数目录缓存格式无效")
+    rows = container.get("rows")
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ProbeError("invalid_response", "国证指数目录响应格式无效")
+    total_value = container.get("total")
+    if (not isinstance(total_value, (str, int)) or isinstance(total_value, bool)
+            or not str(total_value).isdigit()):
+        raise ProbeError("invalid_response", "国证指数目录总数无效")
+    if int(total_value) != len(rows):
+        raise ProbeError("truncated_response", "国证指数目录分页不完整")
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        code = row.get("indexcode")
+        short_name = row.get("indexname")
+        full_name = row.get("indexfullcname")
+        if (not isinstance(code, str) or not re.fullmatch(r"[A-Z0-9]{6,8}", code)
+                or not isinstance(short_name, str) or not short_name.strip()
+                or not isinstance(full_name, str) or not full_name.strip()):
+            raise ProbeError("invalid_response", "国证指数目录身份字段无效")
+        if code in seen:
+            raise ProbeError("invalid_response", "国证指数目录代码重复")
+        seen.add(code)
+        result.append({"index_code": code, "index_short_name": short_name.strip(),
+                       "index_name": full_name.strip()})
+    return result
+
+
+def _cni_candidates(search_input: str, deadline: float, opener: Callable[..., object],
+                    cache: MutableMapping[str, object]) -> list[dict[str, str]]:
+    term = search_input.strip().lower()
+    return [
+        row for row in _cni_catalog(deadline, opener, cache)
+        if (term in row["index_code"].lower()
+            or term in row["index_name"].lower()
+            or term in row["index_short_name"].lower())
+    ]
+
+
 def _csi_candidates(search_input: str, deadline: float, opener: Callable[..., object],
                     cache: MutableMapping[str, object]) -> list[dict[str, Any]]:
     key = "csi-list:" + _normal(search_input)
@@ -417,6 +479,279 @@ def _csi(profile: dict[str, str], deadline: float, opener: Callable[..., object]
             "index_short_name": info["indexShortNameCn"],
             "symbol": "csi:" + info["indexCode"], "provider": "csi",
             "relation_source_id": "fund_profile.ths+csi_index.official"}
+
+
+def search_csi_indexes(query: str, *, timeout: float = 12.0,
+                       opener: Callable[..., object] = urllib.request.urlopen,
+                       catalogue_cache: MutableMapping[str, object] | None = None) -> dict[str, object]:
+    """Search reference indexes for manual watch-list additions."""
+    term = query.strip()
+    if not term:
+        raise ValueError("请输入指数名称或代码")
+    if len(term) > 40:
+        raise ValueError("搜索词过长")
+    deadline = _deadline(timeout)
+    cache = _store(catalogue_cache)
+    candidates: list[dict[str, str]] = []
+    cni_candidates: list[dict[str, str]] = []
+    attempts: list[dict[str, object]] = []
+    errors: list[str] = []
+    try:
+        rows = _cni_candidates(term, deadline, opener, cache)
+        cni_candidates.extend({
+            "index_code": row["index_code"],
+            "index_name": row["index_name"],
+            "index_short_name": row["index_short_name"],
+            "provider": "sina",
+            "symbol": "sina:sz" + row["index_code"],
+        } for row in rows)
+        attempts.append({"dataset": "index_directory", "subject": term,
+                         "endpoint": CNI_URL, "provenance": "official",
+                         "status": "available", "row_count": len(cni_candidates), "error": None})
+    except Exception as exc:
+        errors.append(str(exc))
+        attempts.append({"dataset": "index_directory", "subject": term,
+                         "endpoint": CNI_URL, "provenance": "official",
+                         "status": "failed", "row_count": 0, "error": f"{type(exc).__name__}: {exc}"})
+    try:
+        for row in _csi_candidates(term, deadline, opener, cache):
+            code = str(row["indexCode"])
+            info_key = "csi-info:" + code
+            info = cache.get(info_key)
+            if info is None:
+                answer = _payload(_read(CSI_INFO + code, deadline, opener), "中证指数基础资料响应格式无效")
+                info = answer.get("data")
+                if (str(answer.get("code")) != "200" or answer.get("success") is not True
+                        or not isinstance(info, dict)):
+                    raise ProbeError("invalid_response", "中证指数基础资料响应格式无效")
+                cache[info_key] = info
+            if not isinstance(info, dict):
+                raise ProbeError("invalid_response", "中证指数基础资料身份字段无效")
+            full_name = info.get("indexFullNameCn")
+            short_name = info.get("indexShortNameCn")
+            if (info.get("indexCode") != code or not isinstance(full_name, str) or not full_name.strip()
+                    or not isinstance(short_name, str) or not short_name.strip()):
+                raise ProbeError("invalid_response", "中证指数基础资料身份字段无效")
+            candidates.append({"index_code": code, "index_name": full_name,
+                               "index_short_name": short_name, "provider": "csi",
+                               "symbol": "csi:" + code})
+        attempts.append({"dataset": "index_directory", "subject": term,
+                         "endpoint": CSI_LIST, "provenance": "official",
+                         "status": "available", "row_count": len(candidates), "error": None})
+    except Exception as exc:
+        errors.append(str(exc))
+        attempts.append({"dataset": "index_directory", "subject": term,
+                         "endpoint": CSI_LIST, "provenance": "official",
+                         "status": "failed", "row_count": 0, "error": f"{type(exc).__name__}: {exc}"})
+    local_matches = [
+        row for row in CSI_LOCAL_INDEXES
+        if (term.lower() in row["index_code"].lower()
+            or term.lower() in row["index_name"].lower()
+            or term.lower() in row["index_short_name"].lower())
+    ]
+    local_matches.extend(
+        row for row in CNI_LOCAL_INDEXES
+        if (term.lower() in row["index_code"].lower()
+            or term.lower() in row["index_name"].lower()
+            or term.lower() in row["index_short_name"].lower())
+    )
+    by_code = {row["index_code"]: row for row in [*cni_candidates, *candidates]}
+    for row in local_matches:
+        by_code.setdefault(row["index_code"], row)
+    items = [
+        {"code": row["index_code"], "name": row["index_short_name"], "kind": "参考指数",
+         "source_id": _source_for_provider(row["provider"]), "universe_type": "tracked_index",
+         "index_name": row["index_name"], "provider": row["provider"], "symbol": row["symbol"]}
+        for row in sorted(by_code.values(), key=lambda item: (item["index_code"] != term, item["index_code"]))[:30]
+    ]
+    return {"items": items, "source_attempts": attempts, "errors": errors}
+
+
+def _source_for_provider(provider: str) -> str:
+    if provider == "csi":
+        return "index_daily.csi_official"
+    if provider == "sina":
+        return "index_daily.sina"
+    raise ProbeError("source_not_allowed", f"暂不支持的指数行情提供方：{provider}")
+
+
+def _endpoint_for_source(source_id: str) -> str:
+    return CSI_PERF if source_id == "index_daily.csi_official" else "https://quotes.sina.cn/"
+
+
+def _provenance_for_source(source_id: str) -> str:
+    return "official" if source_id == "index_daily.csi_official" else "candidate"
+
+
+def refresh_selected_csi_indexes(settings: Settings, indexes: list[dict[str, Any]], *,
+                                 timeout: float = 30.0,
+                                 opener: Callable[..., object] = urllib.request.urlopen,
+                                 progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, object]:
+    """Refresh manually watched reference indexes without changing fund relationships."""
+    if not indexes:
+        raise ValueError("请选择至少一个指数")
+    deadline = _deadline(timeout)
+    total = len(indexes)
+    results: list[dict[str, object]] = []
+    attempts: list[dict[str, object]] = []
+    for index, item in enumerate(indexes, 1):
+        code = str(item.get("code") or "").strip()
+        name = str(item.get("index_name") or item.get("name") or "").strip()
+        display = str(item.get("name") or name).strip()
+        source_id = str(item.get("source_id") or _source_for_provider(str(item.get("provider") or "csi")))
+        if not re.fullmatch(r"[A-Z0-9]{6}", code) or not name:
+            raise ValueError("指数身份无效")
+        attempted_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        if progress:
+            progress({"stage": "market", "state": "running", "percent": 10,
+                      "message": f"正在采集 {display} 指数日线。", "current": index - 1, "total": total})
+        restore_removed_subjects(settings, [{
+            "universe_type": "tracked_index", "source_id": source_id, "code": code,
+        }])
+        upsert_index_projection(settings, index_code=code, index_name=display,
+                                source_id=source_id, updated_at=attempted_at)
+        try:
+            relation = _relation_for_standalone_index(code, display, source_id, deadline, opener, _store(None))
+            rows, fetched_source = _fetch(relation, deadline, opener)
+            if fetched_source != source_id:
+                raise ProbeError("invalid_response", "指数行情来源身份与预期不一致")
+            _validate_index_history(rows)
+            import_standalone_index(settings, index_code=code, index_name=display,
+                                    rows=rows, source_id=source_id)
+            results.append({"code": code, "name": display, "source_id": source_id,
+                            "status": "success", "row_count": len(rows)})
+            attempts.append({"dataset": "index_daily", "subject": code, "endpoint": _endpoint_for_source(source_id),
+                             "provenance": _provenance_for_source(source_id), "status": "available",
+                             "row_count": len(rows), "error": None})
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            record_index_market_failure(settings, code, attempted_at=attempted_at,
+                                        source_id=source_id, error=error)
+            results.append({"code": code, "name": display, "source_id": source_id,
+                            "status": "failed", "row_count": 0, "error": error})
+            attempts.append({"dataset": "index_daily", "subject": code, "endpoint": _endpoint_for_source(source_id),
+                             "provenance": _provenance_for_source(source_id), "status": "failed",
+                             "row_count": 0, "error": error})
+        if progress:
+            progress({"stage": "market", "state": "running",
+                      "percent": 20 + round(70 * index / total),
+                      "message": f"{display} 处理完成，正在合并板块库。", "current": index, "total": total})
+    return {"items": results, "source_attempts": attempts}
+
+
+def _csi_identity(code: str, display: str, deadline: float, opener: Callable[..., object],
+                  cache: MutableMapping[str, object]) -> dict[str, str]:
+    local = next((row for row in CSI_LOCAL_INDEXES if row["index_code"] == code), None)
+    if local is not None:
+        return {"index_name": local["index_name"], "index_short_name": local["index_short_name"]}
+    info_key = "csi-info:" + code
+    info = cache.get(info_key)
+    if info is None:
+        answer = _payload(_read(CSI_INFO + code, deadline, opener), "中证指数基础资料响应格式无效")
+        info = answer.get("data")
+        if str(answer.get("code")) != "200" or answer.get("success") is not True or not isinstance(info, dict):
+            raise ProbeError("invalid_response", "中证指数基础资料响应格式无效")
+        cache[info_key] = info
+    if not isinstance(info, dict):
+        raise ProbeError("invalid_response", "中证指数基础资料身份字段无效")
+    full_name = info.get("indexFullNameCn")
+    short_name = info.get("indexShortNameCn")
+    if (info.get("indexCode") != code
+            or not isinstance(full_name, str) or not full_name.strip()
+            or not isinstance(short_name, str) or not short_name.strip()):
+        raise ProbeError("invalid_response", "中证指数基础资料身份字段无效")
+    return {"index_name": full_name, "index_short_name": short_name or display}
+
+
+def _cni_identity(code: str, display: str, deadline: float, opener: Callable[..., object],
+                  cache: MutableMapping[str, object]) -> dict[str, str]:
+    local = next((row for row in CNI_LOCAL_INDEXES if row["index_code"] == code), None)
+    if local is not None:
+        return {"index_name": local["index_name"], "index_short_name": local["index_short_name"]}
+    matches = [row for row in _cni_catalog(deadline, opener, cache) if row["index_code"] == code]
+    if len(matches) != 1:
+        raise ProbeError("invalid_response", "国证指数目录不能唯一确认该指数代码")
+    return {"index_name": matches[0]["index_name"], "index_short_name": matches[0]["index_short_name"]}
+
+
+def _preferred_source_for_index(code: str, source_id: str) -> str:
+    if re.fullmatch(r"(?:399|980)\d{3}", code):
+        return "index_daily.sina"
+    return source_id
+
+
+def _relation_for_standalone_index(code: str, display: str, source_id: str, deadline: float,
+                                   opener: Callable[..., object],
+                                   cache: MutableMapping[str, object]) -> dict[str, str]:
+    if source_id == "index_daily.csi_official":
+        identity = _csi_identity(code, display, deadline, opener, cache)
+        return {"provider": "csi", "symbol": "csi:" + code,
+                "index_code": code, "index_name": identity["index_name"],
+                "index_short_name": identity["index_short_name"]}
+    if source_id == "index_daily.sina":
+        identity = _cni_identity(code, display, deadline, opener, cache)
+        return {"provider": "sina", "symbol": "sina:sz" + code,
+                "index_code": code, "index_name": identity["index_name"],
+                "index_short_name": identity["index_short_name"]}
+    raise ProbeError("source_not_allowed", f"暂不支持刷新指数来源：{source_id}")
+
+
+def refresh_existing_indexes(settings: Settings, *, timeout: float = 30.0,
+                             opener: Callable[..., object] = urllib.request.urlopen,
+                             catalogue_cache: MutableMapping[str, object] | None = None,
+                             progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, object]:
+    """Refresh every reference index currently visible in the local library."""
+    migrate(settings)
+    with connection_scope(settings) as connection:
+        indexes = [dict(row) for row in connection.execute(
+            "SELECT code,name,source_id FROM market_index_projection ORDER BY code"
+        )]
+    removed = removed_subject_keys(settings)
+    indexes = [
+        item for item in indexes
+        if ("tracked_index", item["source_id"], item["code"]) not in removed
+    ]
+    deadline = _deadline(timeout)
+    cache = _store(catalogue_cache)
+    results: list[dict[str, object]] = []
+    attempts: list[dict[str, object]] = []
+    total = len(indexes)
+    for index, item in enumerate(indexes, 1):
+        code = str(item["code"])
+        display = str(item["name"])
+        source_id = _preferred_source_for_index(code, str(item["source_id"]))
+        if progress:
+            progress({"stage": "market", "state": "running", "percent": 0,
+                      "message": f"正在刷新参考指数 {display}。", "current": index - 1, "total": total})
+        attempted_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        try:
+            relation = _relation_for_standalone_index(code, display, source_id, deadline, opener, cache)
+            rows, fetched_source = _fetch(relation, deadline, opener)
+            if fetched_source != source_id:
+                raise ProbeError("invalid_response", "指数行情来源身份与预期不一致")
+            _validate_index_history(rows)
+            import_standalone_index(settings, index_code=code, index_name=display,
+                                    rows=rows, source_id=source_id)
+            results.append({"code": code, "name": display, "source_id": source_id,
+                            "status": "success", "row_count": len(rows)})
+            attempts.append({"dataset": "index_daily", "subject": code,
+                             "endpoint": _endpoint_for_source(source_id),
+                             "provenance": _provenance_for_source(source_id),
+                             "status": "available", "row_count": len(rows), "error": None})
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            record_index_market_failure(settings, code, attempted_at=attempted_at,
+                                        source_id=source_id, error=error)
+            results.append({"code": code, "name": display, "source_id": source_id,
+                            "status": "failed", "row_count": 0, "error": error})
+            attempts.append({"dataset": "index_daily", "subject": code,
+                             "endpoint": _endpoint_for_source(source_id),
+                             "provenance": _provenance_for_source(source_id),
+                             "status": "failed", "row_count": 0, "error": error})
+        if progress:
+            progress({"stage": "market", "state": "running", "percent": 0,
+                      "message": f"参考指数刷新 {index}/{total}。", "current": index, "total": total})
+    return {"items": results, "source_attempts": attempts}
 
 
 def _resolve_related_relation(fund_code: str, deadline: float, opener: Callable[..., object],

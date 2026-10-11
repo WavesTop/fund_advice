@@ -562,7 +562,7 @@ function RealFundDetail() {
         actions={
           <Link
             className="button primary"
-            to={`/advice?fund=${fund.code}&from=${encodeURIComponent(`/funds/${fund.code}`)}`}
+            to={`/advice?tab=research&fund=${fund.code}&from=${encodeURIComponent(`/funds/${fund.code}`)}`}
           >
             查看该基金的关联研究
           </Link>

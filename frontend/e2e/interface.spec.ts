@@ -81,7 +81,7 @@ test('a decision does not change transactions; later linked trade persists after
   expect(tradeState.transactions[0].amount).toBe('1000.00');
   await page.reload();
   await expect(page.getByText('1 笔记录', { exact: true })).toBeVisible();
-  await page.goto('/advice?tab=history');
+  await page.goto('/advice?mode=demo&tab=history');
   await expect(page.getByRole('cell', { name: /^已关联 1 笔操作/ })).toBeVisible();
 });
 
@@ -248,10 +248,8 @@ for (const width of [1440, 768, 390]) {
       expect(layout.scrollWidth, `${route} overflows at ${width}px`).toBeLessThanOrEqual(
         layout.width + 1,
       );
-      if (route === '/advice') {
-        for (const name of ['短期', '中期', '长期'])
-          await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
-      }
+      if (route === '/advice')
+        await expect(page.getByRole('heading', { name: '建议与决策', exact: true })).toBeVisible();
       if (['/funds', '/advice', '/review'].includes(route))
         await page.screenshot({
           path: testInfo.outputPath(`${route.slice(1)}-${width}.png`),

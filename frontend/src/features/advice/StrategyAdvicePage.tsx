@@ -391,7 +391,7 @@ export function StrategyAdvicePage() {
         eyebrow="ADVICE & DECISIONS"
         title="建议与决策"
         description="用当前持仓与真实历史数据生成买入、加仓、持有、减仓、清仓或等待建议，再单独记录你的选择。"
-        actions={<button className="button primary" disabled={!accountId || generating} onClick={generate}>{generating ? '正在核算…' : '重新生成建议'}</button>}
+        actions={<><Link className="button secondary" to="/advice?tab=research">查看研究依据</Link><button className="button primary" disabled={!accountId || generating} onClick={generate}>{generating ? '正在核算…' : '重新生成建议'}</button></>}
       />
       {accounts.length > 0 && (
         <div className="advice-context strategy-account-context">

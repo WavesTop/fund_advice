@@ -35,6 +35,7 @@ import {
   CircleHelp,
 } from 'lucide-react';
 import { EmptyState, searchInputProps } from '../shared/ui';
+import { DemoProvider } from '../shared/store';
 import './styles.css';
 
 const FundsPage = lazy(() =>
@@ -269,7 +270,11 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 const router = createBrowserRouter([
   {
     path: '*',
-    element: <Shell />,
+    element: (
+      <DemoProvider>
+        <Shell />
+      </DemoProvider>
+    ),
     errorElement: (
       <div className="fatal-error">
         <h1>页面暂时无法加载</h1>

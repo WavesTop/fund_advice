@@ -189,7 +189,7 @@ export function PortfolioPage() {
         <Notice title="来自个人决定">
           {decision.choice} · {decision.adviceVersion}
           。关联记录仅用于回看，请重新核对实际发生的金额和日期。
-          <Link to={`/advice?tab=decisions&decision=${decision.id}`}>返回原决定</Link>
+          <Link to={`/advice?mode=demo&tab=decisions&decision=${decision.id}`}>返回原决定</Link>
         </Notice>
       )}
 
@@ -520,7 +520,7 @@ export function PortfolioPage() {
             {detail.decisionIds.length ? (
               detail.decisionIds.map((id) => (
                 <p key={id}>
-                  <Link to={`/advice?tab=decisions&decision=${id}`}>
+                  <Link to={`/advice?mode=demo&tab=decisions&decision=${id}`}>
                     查看决定 · {state.decisions.find((item) => item.id === id)?.choice ?? id}
                   </Link>
                 </p>

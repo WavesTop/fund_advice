@@ -1076,7 +1076,7 @@ function LegacyFundDetailPage() {
         actions={
           <>
             {!fund.historical && (
-              <Link className="button secondary" to={`/advice?fund=${fund.code}`}>
+              <Link className="button secondary" to={`/advice?tab=research&fund=${fund.code}`}>
                 查看相关建议
               </Link>
             )}
@@ -1282,7 +1282,7 @@ function DemoSectorDetailPage() {
         title={sector.name}
         description={`${sector.kind}　/　演示分类 v1　/　资料反映日期 ${DATA_DATE}`}
         actions={
-          <Link className="button primary" to={`/advice?sector=${encodeURIComponent(sector.name)}`}>
+          <Link className="button primary" to={`/advice?tab=research&sector=${encodeURIComponent(sector.name)}`}>
             查看三个周期建议
             <ArrowRight size={16} />
           </Link>

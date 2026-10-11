@@ -74,12 +74,12 @@ describe('real research identity and display contracts', () => {
     expect(sourceHref('https://东财.example/source')).toBeUndefined();
     expect(sourceHref('https://example.org/source')).toBe('https://example.org/source');
   });
-  it('uses real research by default and preserves explicitly selected legacy demonstrations', () => {
+  it('keeps demonstrations explicitly selected', () => {
     expect(isDemoAdvice(new URLSearchParams())).toBe(false);
     expect(isDemoAdvice(new URLSearchParams('fund=000001'))).toBe(false);
     expect(isDemoAdvice(new URLSearchParams('mode=demo'))).toBe(true);
-    expect(isDemoAdvice(new URLSearchParams('tab=decisions'))).toBe(true);
-    expect(isDemoAdvice(new URLSearchParams('tab=history'))).toBe(true);
+    expect(isDemoAdvice(new URLSearchParams('tab=decisions'))).toBe(false);
+    expect(isDemoAdvice(new URLSearchParams('tab=history'))).toBe(false);
   });
   it('does not turn unknown metrics into zero', () => {
     expect(percent(null)).toBe('—');

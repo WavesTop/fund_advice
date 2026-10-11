@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from threading import Lock
 from typing import Literal
 
-from fastapi import FastAPI, Query
+from fastapi import Body, FastAPI, Query
 
 from backend.core.config import Settings
 from backend.integrations.market_refresh import refresh_market_data
@@ -91,6 +91,126 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/sectors/refresh")
     def refresh_sectors() -> dict[str, object]:
         return refresh_market_data(resolved, "sectors")
+
+    def run_sector_search(q: str) -> dict[str, object]:
+        from scripts.import_sector_heat import search_ths_boards
+        try:
+            ths = search_ths_boards(q)
+        except ValueError as exc:
+            raise AppError("sector_search_invalid", str(exc), 422) from exc
+        except Exception as exc:
+            return {"items": [], "source_attempts": [], "errors": [str(exc)]}
+        items = ths.get("items", [])
+        attempts = ths.get("source_attempts", [])
+        errors = ths.get("errors", [])
+        seen: set[tuple[str, str, str]] = set()
+        deduped = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            key = (str(item.get("universe_type") or "hot_board"),
+                   str(item.get("source_id") or ""), str(item.get("code") or ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        if not deduped and errors and not attempts:
+            raise AppError("sector_search_failed", "同花顺板块搜索失败，请稍后重试", 502,
+                           {"reason": "；".join(errors)[:1000]})
+        return {"items": deduped[:30], "source_attempts": attempts, "errors": errors}
+
+    @app.get("/api/sector-board-search")
+    def search_sector_boards(q: str = Query(min_length=1, max_length=40)) -> dict[str, object]:
+        return run_sector_search(q)
+
+    @app.get("/api/sectors/search")
+    def search_sectors(q: str = Query(min_length=1, max_length=40)) -> dict[str, object]:
+        return run_sector_search(q)
+
+    @app.post("/api/sectors/custom")
+    def add_custom_sectors(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+        from backend.storage.sector_heat import add_custom_boards, remove_sector_subjects
+        from backend.storage.collection_runs import finish_run, record_progress, start_run
+        from scripts.import_sector_heat import refresh_selected_ths_boards
+        from scripts.import_related_market import refresh_selected_csi_indexes
+        items = payload.get("items")
+        if not isinstance(items, list):
+            raise AppError("sector_custom_invalid", "请选择要添加的板块", 422)
+        raw_items = [item for item in items if isinstance(item, dict)]
+        if not raw_items:
+            raise AppError("sector_custom_invalid", "请选择要添加的板块或指数", 422)
+        board_items = [item for item in raw_items if item.get("universe_type", "hot_board") == "hot_board"]
+        index_items = [item for item in raw_items if item.get("universe_type") == "tracked_index"]
+        if len(board_items) + len(index_items) != len(raw_items):
+            raise AppError("sector_custom_invalid", "请选择可添加的板块或指数", 422)
+        try:
+            added = add_custom_boards(resolved, board_items) if board_items else []
+            if added:
+                legacy_index_items = [
+                    {"universe_type": "tracked_index", "source_id": source_id,
+                     "code": board["code"], "name": board["name"]}
+                    for board in added
+                    for source_id in ("index_daily.csi_official", "index_daily.sina")
+                ]
+                remove_sector_subjects(resolved, legacy_index_items)
+        except ValueError as exc:
+            raise AppError("sector_custom_invalid", str(exc), 422) from exc
+        run_id = start_run(resolved, "sectors")
+        terminal_state, terminal_result = "failed", {"message": "添加板块未完成"}
+        try:
+            record_progress(resolved, run_id, {"stage": "market", "state": "running", "percent": 5,
+                                               "message": "正在准备采集新增板块。"})
+            board_refresh = {"items": []}
+            index_refresh = {"items": []}
+            if added:
+                board_refresh = refresh_selected_ths_boards(
+                    resolved, added,
+                    progress=lambda event: record_progress(resolved, run_id, event),
+                )
+            if index_items:
+                index_refresh = refresh_selected_csi_indexes(
+                    resolved, index_items,
+                    progress=lambda event: record_progress(resolved, run_id, event),
+                )
+            updated = [item for item in board_refresh["items"]
+                       if any(item["code"] == board["code"] for board in added)]
+            index_updated = list(index_refresh["items"])
+            failed = sum(bool(item.get("collection_error")) for item in updated)
+            failed += sum(item.get("status") == "failed" for item in index_updated)
+            updated_count = len(updated) + len(index_updated)
+            status = "success" if updated_count and failed == 0 else "partial" if updated_count else "failed"
+            terminal_state = status
+            terminal_result = {"target": "sectors", "status": status,
+                               "message": f"新增板块/指数 {updated_count} 个；日线失败 {failed} 个。",
+                               "updated_codes": [item["code"] for item in updated + index_updated]}
+            evaluation = sector_opportunities(resolved)
+            return {"added": added + index_items, "refresh": terminal_result, "evaluation": evaluation,
+                    "api_contract": "market-workbench-v2", "collection_run_id": run_id}
+        except Exception as exc:
+            terminal_result = {"target": "sectors", "status": "failed",
+                               "message": f"新增板块采集未完成：{type(exc).__name__}: {str(exc)[:1000]}"}
+            raise AppError("sector_custom_refresh_failed", terminal_result["message"], 502,
+                           {"refresh": terminal_result}) from exc
+        finally:
+            finish_run(resolved, run_id, terminal_state, terminal_result)
+
+    @app.post("/api/sectors/remove")
+    def remove_custom_sectors(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+        from backend.storage.sector_heat import remove_sector_subjects
+        items = payload.get("items")
+        if not isinstance(items, list):
+            raise AppError("sector_remove_invalid", "请选择需要删除的板块", 422)
+        raw_items = [item for item in items if isinstance(item, dict)]
+        if not raw_items:
+            raise AppError("sector_remove_invalid", "请选择需要删除的板块", 422)
+        try:
+            removed = remove_sector_subjects(resolved, raw_items)
+        except ValueError as exc:
+            raise AppError("sector_remove_invalid", str(exc), 422) from exc
+        evaluation = sector_opportunities(resolved)
+        return {"removed": removed, "evaluation": evaluation,
+                "message": f"已从板块库移除 {len(removed)} 个板块/指数。",
+                "api_contract": "market-workbench-v2"}
 
     @app.get("/api/sectors/{code}")
     def sector_detail(code: str, source_id: str, universe_type: Literal["hot_board", "tracked_index"]) -> dict[str, object]:

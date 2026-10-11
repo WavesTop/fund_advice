@@ -159,7 +159,7 @@ export function FundDirectory() {
                 <small className="market-fund-meta">关系来源：{sourceLabel(sector.relation_source_id)} · 核验于 {sector.verified_at.slice(0, 10)}</small>
               </div>) : <p className="muted">{fund.relation_reason || '尚无已核验板块关联；不按基金名称推断。'}</p>}
             </div>
-            <Link to={`/advice?fund=${fund.code}&from=${encodeURIComponent(returnPath)}`}>查看关联研究</Link>
+            <Link to={`/advice?tab=research&fund=${fund.code}&from=${encodeURIComponent(returnPath)}`}>查看关联研究</Link>
           </article>
         </li>)}
       </ul>

@@ -525,7 +525,7 @@ function DecisionTimeline() {
         title: `${getFund(decision.fundCode)?.name ?? decision.fundCode} · ${decision.choice}`,
         detail: decision.reason || '当时未补充理由',
         meta: `${periods.find((period) => period.id === decision.period)?.name} · 建议 ${decision.adviceVersion}`,
-        to: `/advice?tab=history&decision=${encodeURIComponent(decision.id)}`,
+        to: `/advice?mode=demo&tab=history&decision=${encodeURIComponent(decision.id)}`,
       })),
     ...state.transactions
       .filter((transaction) => !decisionId || transaction.decisionIds.includes(decisionId))

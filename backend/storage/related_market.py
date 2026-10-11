@@ -25,6 +25,29 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def upsert_index_projection(settings: Settings, *, index_code: str, index_name: str,
+                            source_id: str, updated_at: str | None = None) -> None:
+    """Persist a standalone index identity before its independent market fetch completes."""
+    try:
+        source_id = writable_source_id(source_id, field="source_id")
+    except SourceAdmissionError as exc:
+        raise AppError("index_source_not_allowed", "指数行情来源不允许写入", 422,
+                       {"reason": str(exc)}) from exc
+    if not all(isinstance(value, str) and value.strip()
+               for value in (index_code, index_name, source_id)):
+        raise ValueError("指数身份无效")
+    now = updated_at or _now()
+    migrate(settings)
+    with connection_scope(settings) as connection:
+        connection.execute(
+            """INSERT INTO market_index_projection(code, name, source_id, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(code) DO UPDATE SET name=excluded.name, source_id=excluded.source_id,
+               updated_at=excluded.updated_at""",
+            (index_code, index_name, source_id, now),
+        )
+
+
 def import_related_relation(settings: Settings, *, fund_code: str, index_code: str,
                             index_name: str, market_source_id: str,
                             relation_source_id: str, evidence_url: str) -> None:
@@ -228,6 +251,52 @@ def import_related_index(settings: Settings, *, fund_code: str, index_code: str,
             connection.execute(
                 "INSERT INTO fund_relation_verification(fund_code,checked_at,outcome,index_code) VALUES (?,?,'verified',?)",
                 (fund_code, now, index_code),
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+
+
+def import_standalone_index(settings: Settings, *, index_code: str, index_name: str,
+                            rows: Iterable[Mapping[str, object]], source_id: str) -> None:
+    """Persist a manually watched index without requiring a fund relationship."""
+    try:
+        source_id = writable_source_id(source_id, field="source_id")
+    except SourceAdmissionError as exc:
+        raise AppError("index_source_not_allowed", "指数行情来源不允许写入", 422,
+                       {"reason": str(exc)}) from exc
+    normalized = _clean_rows("price", rows)
+    now = _now()
+    if not all(isinstance(value, str) and value.strip() for value in (index_code, index_name, source_id)):
+        raise ValueError("指数身份或来源无效")
+    migrate(settings)
+    with connection_scope(settings) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """INSERT INTO market_index_projection(code, name, source_id, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(code) DO UPDATE SET name=excluded.name, source_id=excluded.source_id,
+                   updated_at=excluded.updated_at""",
+                (index_code, index_name, source_id, now),
+            )
+            connection.execute("DELETE FROM market_index_daily WHERE index_code = ?", (index_code,))
+            connection.executemany(
+                """INSERT INTO market_index_daily(index_code,date,open,high,low,close,volume,amount)
+                   VALUES (?,?,?,?,?,?,?,?)
+                   ON CONFLICT(index_code,date) DO UPDATE SET
+                   open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,
+                   volume=excluded.volume,amount=excluded.amount""",
+                [(index_code, row["date"], row["open"], row["high"], row["low"], row["close"],
+                  row["volume"], row["amount"]) for row in normalized],
+            )
+            connection.execute(
+                """INSERT INTO index_market_refresh_state(index_code,attempted_at,outcome,source_id,error)
+                   VALUES (?,?,'updated',?,NULL)
+                   ON CONFLICT(index_code) DO UPDATE SET attempted_at=excluded.attempted_at,
+                   outcome='updated',source_id=excluded.source_id,error=NULL""",
+                (index_code, now, source_id),
             )
             connection.execute("COMMIT")
         except Exception:

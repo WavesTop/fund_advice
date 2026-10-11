@@ -198,7 +198,7 @@ export function subjectKey(item: Pick<ResearchItem, 'code' | 'source_id' | 'univ
   return `${item.universe_type ?? 'tracked_index'}:${item.source_id}:${item.code}`;
 }
 export function researchHref(item: Pick<ResearchItem, 'code' | 'source_id' | 'universe_type'>, from?: string): string {
-  const params = new URLSearchParams({ sector: item.code, source: item.source_id, universe: item.universe_type ?? 'tracked_index' });
+  const params = new URLSearchParams({ tab: 'research', sector: item.code, source: item.source_id, universe: item.universe_type ?? 'tracked_index' });
   if (from) params.set('from', from);
   return `/advice?${params}`;
 }
@@ -258,5 +258,5 @@ export function sourceHref(value: string | null | undefined): string | undefined
 
 /** Existing decision URLs remain demo-only; live research never records sample trades. */
 export function isDemoAdvice(params: URLSearchParams): boolean {
-  return params.get('mode') === 'demo' || ['decisions', 'history'].includes(params.get('tab') ?? '');
+  return params.get('mode') === 'demo';
 }

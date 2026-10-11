@@ -15,7 +15,7 @@ from backend.core.errors import AppError
 from backend.integrations.market_refresh import refresh_market_data, TIMEOUTS
 from backend.storage.catalog import import_catalog, list_catalog
 from backend.storage.database import connection_scope
-from backend.storage.related_market import import_related_index, record_relation_check
+from backend.storage.related_market import import_related_index, record_relation_check, upsert_index_projection
 from backend.analysis.sector_status import sector_opportunities
 from scripts.refresh_market_data import collect
 from scripts.import_fund_catalog import refresh_fund_catalog
@@ -70,6 +70,119 @@ class MarketWorkbenchTests(unittest.TestCase):
         self.assertEqual(failed["relation_status"], "withheld")
         self.assertEqual(failed["related_sectors"], [])
 
+    def test_sector_search_prefers_ths_board_identity(self):
+        app = create_app(self.settings)
+        board = {"code": "931248", "name": "油气资源", "kind": "概念",
+                 "source_id": "sector_daily.ths"}
+        index = {"code": "931248", "name": "油气资源", "kind": "参考指数",
+                 "source_id": "index_daily.csi_official", "universe_type": "tracked_index",
+                 "index_name": "中证油气资源指数"}
+        with TestClient(app) as client, patch(
+            "scripts.import_sector_heat.search_ths_boards",
+            return_value={"items": [board], "source_attempts": [], "errors": []},
+        ) as ths_search, patch(
+            "scripts.import_related_market.search_csi_indexes",
+            return_value={"items": [index], "source_attempts": [], "errors": []},
+        ) as index_search:
+            response = client.get("/api/sector-board-search", params={"q": "931248"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"], [board])
+        ths_search.assert_called_once_with("931248")
+        index_search.assert_not_called()
+
+    def test_manual_ths_board_replaces_same_code_reference_index(self):
+        upsert_index_projection(
+            self.settings, index_code="931248", index_name="油气资源",
+            source_id="index_daily.csi_official",
+        )
+        rows = [dict(PRICE, amount="1000")]
+        payload = {"items": [{"code": "931248", "name": "油气资源", "kind": "概念",
+                              "source_id": "sector_daily.ths"}]}
+        collected = {
+            "code": "931248", "name": "油气资源", "kind": "概念",
+            "source_id": "sector_daily.ths", "heat_value": "1000",
+            "heat_updated_at": "2026-09-14", "ranking_as_of": "2026-09-14",
+            "heat_rank": 0, "rows": rows, "updated_at": "2026-09-14T08:00:00Z",
+            "collection_error": None, "history_source_id": "sector_daily.ths",
+            "history_source_code": "bk_931248", "history_identity_match": "native_source_code",
+            "constituents": [], "constituent_error": None,
+            "constituent_updated_at": "2026-09-14T08:00:00Z", "source_attempts": [],
+        }
+        app = create_app(self.settings)
+        with TestClient(app) as client, patch(
+            "scripts.import_sector_heat.collect_ths_board",
+            return_value=collected,
+        ):
+            response = client.post("/api/sectors/custom", json_body=payload)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["refresh"]["updated_codes"], ["931248"])
+        matched = [item for item in body["evaluation"]["items"] if item["code"] == "931248"]
+        self.assertEqual([(item["universe_type"], item["source_id"]) for item in matched],
+                         [("hot_board", "sector_daily.ths")])
+
+    def test_manual_reference_index_is_added_to_library(self):
+        rows = [dict(PRICE, date="2026-09-14", amount="1000")]
+        payload = {"items": [{"code": "931248", "name": "油气资源", "kind": "参考指数",
+                              "source_id": "index_daily.csi_official",
+                              "universe_type": "tracked_index",
+                              "index_name": "中证油气资源指数"}]}
+        app = create_app(self.settings)
+        with TestClient(app) as client, patch(
+            "scripts.import_related_market._fetch",
+            return_value=(rows, "index_daily.csi_official"),
+        ), patch("scripts.import_related_market._validate_index_history", return_value=None):
+            response = client.post("/api/sectors/custom", json_body=payload)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["refresh"]["updated_codes"], ["931248"])
+        matched = [item for item in body["evaluation"]["items"]
+                   if item["code"] == "931248"
+                   and item["source_id"] == "index_daily.csi_official"
+                   and item["universe_type"] == "tracked_index"]
+        self.assertEqual(len(matched), 1)
+
+    def test_remove_reference_index_hides_it_from_library(self):
+        upsert_index_projection(
+            self.settings, index_code="931248", index_name="油气资源",
+            source_id="index_daily.csi_official",
+        )
+        app = create_app(self.settings)
+        with TestClient(app) as client:
+            before = client.get("/api/sectors/opportunities")
+            self.assertEqual(before.status_code, 200)
+            self.assertTrue(any(item["code"] == "931248" for item in before.json()["items"]))
+            response = client.post("/api/sectors/remove", json_body={"items": [{
+                "universe_type": "tracked_index", "source_id": "index_daily.csi_official",
+                "code": "931248", "name": "油气资源",
+            }]})
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["removed"][0]["code"], "931248")
+        self.assertFalse(any(item["code"] == "931248" for item in body["evaluation"]["items"]))
+
+    def test_manual_cni_reference_index_is_added_with_sina_market_source(self):
+        rows = [dict(PRICE, date="2026-10-08", amount="1000")]
+        payload = {"items": [{"code": "399441", "name": "生物医药", "kind": "参考指数",
+                              "source_id": "index_daily.sina",
+                              "universe_type": "tracked_index",
+                              "index_name": "国证生物医药指数",
+                              "provider": "sina", "symbol": "sina:sz399441"}]}
+        app = create_app(self.settings)
+        with TestClient(app) as client, patch(
+            "scripts.import_related_market._fetch",
+            return_value=(rows, "index_daily.sina"),
+        ), patch("scripts.import_related_market._validate_index_history", return_value=None):
+            response = client.post("/api/sectors/custom", json_body=payload)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["refresh"]["updated_codes"], ["399441"])
+        matched = [item for item in body["evaluation"]["items"]
+                   if item["code"] == "399441"
+                   and item["source_id"] == "index_daily.sina"
+                   and item["universe_type"] == "tracked_index"]
+        self.assertEqual(len(matched), 1)
+
     def test_ambiguous_legacy_relations_and_missing_relations_have_no_direct_link(self):
         self.relation("980017")
         self.relation("399441")
@@ -108,7 +221,7 @@ class MarketWorkbenchTests(unittest.TestCase):
         with patch("scripts.refresh_market_data.collect_sector_fundamentals", return_value=financial_stage) as financials, \
              patch("scripts.refresh_market_data.refresh_sector_heat", return_value=fixture) as fetcher:
             result = collect(self.settings, "sectors")
-        fetcher.assert_called_once_with(self.settings, industry_only=True)
+        fetcher.assert_called_once_with(self.settings, industry_only=True, progress=None)
         financials.assert_called_once_with(self.settings, fixture["items"])
         self.assertEqual(result["fundamentals"], financial_stage)
         self.assertEqual((result["status"], result["price_updated"], result["price_failed"]), ("partial", 1, 1))
@@ -118,6 +231,49 @@ class MarketWorkbenchTests(unittest.TestCase):
         with patch("scripts.refresh_market_data.collect_sector_fundamentals", return_value=financial_stage), \
              patch("scripts.refresh_market_data.refresh_sector_heat", return_value=fixture):
             self.assertEqual(collect(self.settings, "sectors")["status"], "failed")
+
+    def test_sector_refresh_uses_current_library_indexes_not_only_initial_boards(self):
+        upsert_index_projection(
+            self.settings, index_code="931248", index_name="油气资源",
+            source_id="index_daily.csi_official",
+        )
+        fixture = {"universe": {"ranking_as_of": "2026-09-14", "requested_count": 1, "catalog_count": 1},
+                   "items": [{"code": "BK1", "rows": [PRICE], "collection_error": None,
+                              "membership": {"status": "ready"}}],
+                   "directory_provenance": {"directory": {"mode": "live"}}}
+        financial_stage = {"status": "success", "message": "fixture financials"}
+        with patch("scripts.refresh_market_data.collect_sector_fundamentals", return_value=financial_stage), \
+             patch("scripts.refresh_market_data.refresh_sector_heat", return_value=fixture), \
+             patch("scripts.import_related_market._fetch", return_value=([dict(PRICE)], "index_daily.csi_official")), \
+             patch("scripts.import_related_market._validate_index_history", return_value=None):
+            result = collect(self.settings, "sectors")
+        self.assertEqual((result["index_updated"], result["index_failed"]), (1, 0))
+        self.assertTrue(result["reference_index_refreshed"])
+        self.assertIn("参考指数成功 1/1", result["message"])
+
+    def test_sector_refresh_relabels_cni_indexes_to_sina_market_source(self):
+        upsert_index_projection(
+            self.settings, index_code="399441", index_name="生物医药",
+            source_id="index_daily.csi_official",
+        )
+        fixture = {"universe": {"ranking_as_of": "2026-09-14", "requested_count": 1, "catalog_count": 1},
+                   "items": [{"code": "BK1", "rows": [PRICE], "collection_error": None,
+                              "membership": {"status": "ready"}}],
+                   "directory_provenance": {"directory": {"mode": "live"}}}
+        financial_stage = {"status": "success", "message": "fixture financials"}
+        with patch("scripts.refresh_market_data.collect_sector_fundamentals", return_value=financial_stage), \
+             patch("scripts.refresh_market_data.refresh_sector_heat", return_value=fixture), \
+             patch("scripts.import_related_market._fetch",
+                   return_value=([dict(PRICE, date="2026-10-08")], "index_daily.sina")), \
+             patch("scripts.import_related_market._validate_index_history", return_value=None):
+            result = collect(self.settings, "sectors")
+        self.assertEqual((result["index_updated"], result["index_failed"]), (1, 0))
+        with connection_scope(self.settings) as connection:
+            stored = connection.execute(
+                "SELECT source_id,(SELECT MAX(date) FROM market_index_daily WHERE index_code='399441') AS as_of "
+                "FROM market_index_projection WHERE code='399441'"
+            ).fetchone()
+        self.assertEqual((stored["source_id"], stored["as_of"]), ("index_daily.sina", "2026-10-08"))
 
     def test_refresh_uses_bounded_worker_not_read_only_opportunities(self):
         with patch("backend.integrations.market_refresh.subprocess.run", return_value=self.completed()) as runner:

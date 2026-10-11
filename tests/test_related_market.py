@@ -15,7 +15,12 @@ from backend.storage.related_market import (
     import_related_index,
     record_relation_check,
 )
-from scripts.import_related_market import refresh_related_market, resolve_cni_relation, resolve_related_relation
+from scripts.import_related_market import (
+    refresh_related_market,
+    resolve_cni_relation,
+    resolve_related_relation,
+    search_csi_indexes,
+)
 from scripts.probe_fund_source import ProbeError
 
 
@@ -111,9 +116,10 @@ class RelatedMarketTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_import_and_read_verified_index(self):
+        fresh = (dt.date.today() - dt.timedelta(days=1)).isoformat()
         import_related_index(
             self.settings, fund_code="012970", index_code="980017", index_name="国证半导体芯片指数",
-            rows=[{"date": "2026-09-11", "open": "100", "high": "105", "low": "99", "close": "103", "volume": "10", "amount": None}],
+            rows=[{"date": fresh, "open": "100", "high": "105", "low": "99", "close": "103", "volume": "10", "amount": None}],
             source_id="index_daily.sina", relation_source_id="fund_disclosure.cninfo",
             evidence_url="https://example.test/evidence.pdf",
         )
@@ -148,7 +154,7 @@ class RelatedMarketTests(unittest.TestCase):
         self.assertIsNone(get_related_market(self.settings, "012970"))
 
     def test_retired_sources_cannot_replace_relation_and_legacy_rows_are_audit_only(self):
-        row = {"date": "2026-09-11", "open": "100", "high": "105", "low": "99",
+        row = {"date": (dt.date.today() - dt.timedelta(days=1)).isoformat(), "open": "100", "high": "105", "low": "99",
                "close": "103", "volume": "10", "amount": None}
         import_related_index(
             self.settings, fund_code="012970", index_code="980017", index_name="国证半导体芯片指数",
@@ -223,6 +229,22 @@ class RelatedMarketTests(unittest.TestCase):
         self.assertEqual(relation["evidence_url"],
                          "https://fund.10jqka.com.cn/011041/interduce.html")
         self.assertTrue(all("eastmoney" not in url for url in calls))
+
+    def test_manual_index_search_includes_cni_index_with_sina_market_source(self):
+        def opener(request, timeout):
+            del timeout
+            if "cnindex.com.cn/index/indexList" in request.full_url:
+                return _Response(_cni("399441", "生物医药", "国证生物医药指数"))
+            if "csindex.com.cn/csindex-home/index-list/query-index-item" in request.full_url:
+                return _Response(_csi_list())
+            raise AssertionError(request.full_url)
+
+        result = search_csi_indexes("399441", timeout=1, opener=opener, catalogue_cache={})
+        self.assertEqual(result["items"], [{
+            "code": "399441", "name": "生物医药", "kind": "参考指数",
+            "source_id": "index_daily.sina", "universe_type": "tracked_index",
+            "index_name": "国证生物医药指数", "provider": "sina", "symbol": "sina:sz399441",
+        }])
 
     def test_ths_profile_and_official_csi_catalog_resolve_exact_relation(self):
         calls = []

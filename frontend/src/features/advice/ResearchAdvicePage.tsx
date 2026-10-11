@@ -60,11 +60,11 @@ function PeriodObservation({ item, period, focused }: { item: ResearchItem; peri
 function FundMatch({ fund }: { fund: FundAssociation }) {
   const href = sourceHref(fund.evidence_url);
   return <article className="research-fund-match">
-    <div><Link to={`/funds/${fund.code}?from=${encodeURIComponent(`/advice?fund=${fund.code}`)}`}>{fund.name}</Link>
+    <div><Link to={`/funds/${fund.code}?from=${encodeURIComponent(`/advice?tab=research&fund=${fund.code}`)}`}>{fund.name}</Link>
       <small>{fund.code} · {fund.status === 'linked' ? '已记录指数关联' : '关联暂不开放'}</small></div>
     <p>核验于 {dateText(fund.verified_at)} · {sourceLabel(fund.source_id, '来源未提供')} {href && <a href={href} target="_blank" rel="noreferrer">关系来源</a>}</p>
     <ul>{fund.limitations.map((text, index) => <li key={index}>{text}</li>)}</ul>
-    {fund.status === 'linked' && <Link className="button secondary" to={`/advice?fund=${fund.code}`}>查看该基金的关联研究</Link>}
+    {fund.status === 'linked' && <Link className="button secondary" to={`/advice?tab=research&fund=${fund.code}`}>查看该基金的关联研究</Link>}
   </article>;
 }
 
@@ -90,7 +90,8 @@ export function ResearchAdvicePage() {
         if (evaluation) applyEvaluation(evaluation); else reload();
       }} /> : <button className="button primary" type="button" disabled={loading} onClick={reload}>{loading ? '读取中…' : '重试读取'}</button>} />
     <nav className="research-nav" aria-label="研究页面导航">
-      <Link to={back}>返回浏览</Link><Link to="/advice">全部研究范围</Link>
+      <Link to={back}>返回浏览</Link><Link to="/advice?tab=research">全部研究范围</Link>
+      <Link to="/advice">查看正式建议</Link>
       <Link to="/advice?mode=demo">打开交互演示</Link>
       <Link to="/advice?mode=demo&tab=decisions">演示决策记录</Link>
     </nav>
@@ -101,6 +102,7 @@ export function ResearchAdvicePage() {
     <form className="research-search" onSubmit={(event) => {
       event.preventDefault();
       const next = new URLSearchParams();
+      next.set('tab', 'research');
       if (fundInput.trim()) next.set('fund', fundInput.trim());
       setParams(next);
     }}>

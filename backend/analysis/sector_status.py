@@ -266,7 +266,7 @@ def summarize_data_support(items: list[dict]) -> dict[str, object]:
 
 
 def sector_opportunities(settings: Settings) -> dict[str, object]:
-    from backend.storage.sector_heat import read_sector_heat
+    from backend.storage.sector_heat import read_sector_heat, removed_subject_keys
 
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
     calendar = get_calendar()
@@ -280,6 +280,7 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     from backend.storage.research import read_manifest, timestamp
     evidence = load_industry_evidence()
     heat = read_sector_heat(settings)
+    removed = removed_subject_keys(settings)
     # One read transaction keeps index identity, relations and prices consistent
     # while a concurrent import replaces the current projection.
     with connection_scope(settings) as connection:
@@ -296,6 +297,8 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
         associations = current_associations(connection, generated_at=now.isoformat())
         items = []
         for index in indexes:
+            if ("tracked_index", index["source_id"], index["code"]) in removed:
+                continue
             rows = connection.execute("SELECT date,close FROM market_index_daily WHERE index_code=? ORDER BY date", (index["code"],)).fetchall()
             funds = [fund for fund in associations if fund["index_code"] == index["code"]]
             market_state = market_data_state(dict(index), generated_at=now.isoformat())
@@ -313,7 +316,10 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
                                   reason=str(item["collection_error"]))
             items.append(item)
         subjects = [f"hot_board:{board['source_id']}:{board['code']}" for board in heat["items"]]
-        subjects += [f"tracked_index:{index['source_id']}:{index['code']}" for index in indexes]
+        subjects += [
+            f"tracked_index:{index['source_id']}:{index['code']}" for index in indexes
+            if ("tracked_index", index["source_id"], index["code"]) not in removed
+        ]
         manifest = read_manifest(connection, subjects, timestamp(now.isoformat()))
         connection.execute("COMMIT")
     boards = []

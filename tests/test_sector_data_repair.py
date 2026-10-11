@@ -78,7 +78,7 @@ class DataRepairTests(unittest.TestCase):
     def test_ths_history_requests_native_board_code(self):
         urls = []
         item = {**board(), 'ranking_as_of': '2026-09-17', 'price_cutoff': '2026-09-16'}
-        def source(url, timeout):
+        def source(url, timeout, *args, **kwargs):
             urls.append(url)
             return 'callback(' + json.dumps({'name': item['name'], 'data': '20260916,100,102,99,101,200,1000'}) + ')'
         with patch('scripts.import_sector_heat.fetch_text', side_effect=source):

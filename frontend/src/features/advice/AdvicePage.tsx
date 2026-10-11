@@ -10,11 +10,22 @@ import type { FieldErrors } from '../portfolio/model';
 import './advice.css';
 import { ResearchAdvicePage } from './ResearchAdvicePage';
 import { isDemoAdvice } from './research-model';
+import { StrategyAdvicePage } from './StrategyAdvicePage';
 
 type Draft = Omit<Decision, 'id' | 'createdAt'>;
+
+function isResearchAdvice(params: URLSearchParams): boolean {
+  return (
+    params.get('tab') === 'research' ||
+    ['fund', 'sector', 'source', 'universe'].some((key) => params.has(key))
+  );
+}
+
 export function AdvicePage() {
   const [params] = useSearchParams();
-  return isDemoAdvice(params) ? <DemoAdvicePage /> : <ResearchAdvicePage />;
+  if (isDemoAdvice(params)) return <DemoAdvicePage />;
+  if (isResearchAdvice(params)) return <ResearchAdvicePage />;
+  return <StrategyAdvicePage />;
 }
 
 function DemoAdvicePage() {

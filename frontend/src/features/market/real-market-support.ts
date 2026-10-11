@@ -158,6 +158,7 @@ export function researchHref(
   from?: string,
 ): string {
   const params = new URLSearchParams({
+    tab: 'research',
     sector: item.code,
     source: item.source_id,
     universe: item.universe_type ?? 'tracked_index',

@@ -29,13 +29,57 @@ export type TechnicalStage =
   | 'underwater-golden-cross'
   | 'yellow-near-zero'
   | 'white-near-zero'
-  | 'above-zero-death-cross';
+  | 'above-zero-golden-cross'
+  | 'above-zero-death-cross'
+  | 'underwater-death-cross'
+  | 'rsi-low-rebound'
+  | 'rsi-high-fall'
+  | 'kdj-low-golden-cross'
+  | 'kdj-high-death-cross'
+  | 'wr-high-risk';
 
 export const technicalStageLabels: Record<TechnicalStage, string> = {
   'underwater-golden-cross': '水下金叉',
   'yellow-near-zero': '黄线零轴附近',
   'white-near-zero': '白线零轴附近',
+  'above-zero-golden-cross': '零轴上方金叉',
   'above-zero-death-cross': '线上死叉提示',
+  'underwater-death-cross': '零轴下方死叉',
+  'rsi-low-rebound': 'RSI低位回升',
+  'rsi-high-fall': 'RSI高位回落',
+  'kdj-low-golden-cross': 'KDJ低位金叉',
+  'kdj-high-death-cross': 'KDJ高位死叉',
+  'wr-high-risk': 'WR高位风险',
+};
+
+export type TechnicalStageSentiment = 'good' | 'bad' | 'neutral';
+
+export const technicalStageSentiments: Record<TechnicalStage, TechnicalStageSentiment> = {
+  'underwater-golden-cross': 'good',
+  'yellow-near-zero': 'neutral',
+  'white-near-zero': 'good',
+  'above-zero-golden-cross': 'good',
+  'above-zero-death-cross': 'bad',
+  'underwater-death-cross': 'bad',
+  'rsi-low-rebound': 'good',
+  'rsi-high-fall': 'bad',
+  'kdj-low-golden-cross': 'good',
+  'kdj-high-death-cross': 'bad',
+  'wr-high-risk': 'bad',
+};
+
+export const technicalStageModifiers: Record<TechnicalStage, string> = {
+  'underwater-golden-cross': '好',
+  'yellow-near-zero': '中性偏好',
+  'white-near-zero': '好',
+  'above-zero-golden-cross': '好',
+  'above-zero-death-cross': '坏',
+  'underwater-death-cross': '坏',
+  'rsi-low-rebound': '好',
+  'rsi-high-fall': '坏',
+  'kdj-low-golden-cross': '好',
+  'kdj-high-death-cross': '坏',
+  'wr-high-risk': '坏',
 };
 
 function ema(values: number[], period: number): Array<number | null> {
@@ -76,7 +120,10 @@ function smoothRsi(closes: number[], period: number): Array<number | null> {
   return result;
 }
 
-function wr(points: Array<{ high: number; low: number; close: number }>, period: number): Array<number | null> {
+function wr(
+  points: Array<{ high: number; low: number; close: number }>,
+  period: number,
+): Array<number | null> {
   return points.map((point, index) => {
     if (index < period - 1) return null;
     const sample = points.slice(index - period + 1, index + 1);
@@ -98,7 +145,9 @@ function validRows(rows: PriceRow[]) {
     .filter(
       (row) =>
         /^\d{4}-\d{2}-\d{2}$/.test(row.date) &&
-        [row.open, row.high, row.low, row.close].every((value) => Number.isFinite(value) && value > 0) &&
+        [row.open, row.high, row.low, row.close].every(
+          (value) => Number.isFinite(value) && value > 0,
+        ) &&
         row.high >= Math.max(row.open, row.close) &&
         row.low <= Math.min(row.open, row.close),
     );
@@ -156,13 +205,47 @@ export function calculateTechnical(rows: PriceRow[]): TechnicalPoint[] {
 }
 
 function crossedUp(previous: TechnicalPoint, current: TechnicalPoint): boolean {
-  return previous.dif != null && previous.dea != null && current.dif != null && current.dea != null
-    && previous.dif <= previous.dea && current.dif > current.dea;
+  return (
+    previous.dif != null &&
+    previous.dea != null &&
+    current.dif != null &&
+    current.dea != null &&
+    previous.dif <= previous.dea &&
+    current.dif > current.dea
+  );
 }
 
 function crossedDown(previous: TechnicalPoint, current: TechnicalPoint): boolean {
-  return previous.dif != null && previous.dea != null && current.dif != null && current.dea != null
-    && previous.dif >= previous.dea && current.dif < current.dea;
+  return (
+    previous.dif != null &&
+    previous.dea != null &&
+    current.dif != null &&
+    current.dea != null &&
+    previous.dif >= previous.dea &&
+    current.dif < current.dea
+  );
+}
+
+function crossedKdjUp(previous: TechnicalPoint, current: TechnicalPoint): boolean {
+  return (
+    previous.k != null &&
+    previous.d != null &&
+    current.k != null &&
+    current.d != null &&
+    previous.k <= previous.d &&
+    current.k > current.d
+  );
+}
+
+function crossedKdjDown(previous: TechnicalPoint, current: TechnicalPoint): boolean {
+  return (
+    previous.k != null &&
+    previous.d != null &&
+    current.k != null &&
+    current.d != null &&
+    previous.k >= previous.d &&
+    current.k < current.d
+  );
 }
 
 export function detectTechnicalStages(points: TechnicalPoint[]): TechnicalStage[] {
@@ -185,6 +268,16 @@ export function detectTechnicalStages(points: TechnicalPoint[]): TechnicalStage[
   if (current.dif != null && Math.abs(current.dif) <= base) stages.push('white-near-zero');
   if (
     previous &&
+    crossedUp(previous, current) &&
+    current.dif != null &&
+    current.dea != null &&
+    current.dif > 0 &&
+    current.dea > 0
+  ) {
+    stages.push('above-zero-golden-cross');
+  }
+  if (
+    previous &&
     crossedDown(previous, current) &&
     current.dif != null &&
     current.dea != null &&
@@ -192,6 +285,55 @@ export function detectTechnicalStages(points: TechnicalPoint[]): TechnicalStage[
     current.dea > 0
   ) {
     stages.push('above-zero-death-cross');
+  }
+  if (
+    previous &&
+    crossedDown(previous, current) &&
+    current.dif != null &&
+    current.dea != null &&
+    current.dif < 0 &&
+    current.dea < 0
+  ) {
+    stages.push('underwater-death-cross');
+  }
+  if (
+    previous &&
+    previous.rsi6 != null &&
+    current.rsi6 != null &&
+    previous.rsi6 <= 35 &&
+    current.rsi6 > previous.rsi6
+  ) {
+    stages.push('rsi-low-rebound');
+  }
+  if (
+    previous &&
+    previous.rsi6 != null &&
+    current.rsi6 != null &&
+    previous.rsi6 >= 70 &&
+    current.rsi6 < previous.rsi6
+  ) {
+    stages.push('rsi-high-fall');
+  }
+  if (
+    previous &&
+    crossedKdjUp(previous, current) &&
+    current.k != null &&
+    current.d != null &&
+    Math.max(current.k, current.d) <= 35
+  ) {
+    stages.push('kdj-low-golden-cross');
+  }
+  if (
+    previous &&
+    crossedKdjDown(previous, current) &&
+    current.k != null &&
+    current.d != null &&
+    Math.min(current.k, current.d) >= 65
+  ) {
+    stages.push('kdj-high-death-cross');
+  }
+  if ((current.wr6 != null && current.wr6 <= 15) || (current.wr10 != null && current.wr10 <= 20)) {
+    stages.push('wr-high-risk');
   }
   return stages;
 }

@@ -6,8 +6,9 @@ popularity, investment merit, fund exposure, or a recommendation score.
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
+import re
 from typing import Any
 
 from backend.core.config import Settings
@@ -30,6 +31,8 @@ SOURCE_POLICY = {
     "limitations": "仅供本地市场背景观察；成分股来自来源当前板块定义，来源未提供官方权重；不作为国证或中证指数，不推定基金映射，不晋升正式基金推荐。",
     "refresh": "通过页面重新评估或采集命令刷新；当前版本以同花顺90个行业为主分析池，主题观察池另行扩展。",
 }
+
+REMOVABLE_UNIVERSE_TYPES = {"hot_board", "tracked_index"}
 
 
 class SectorHistoryIntegrityError(ValueError):
@@ -146,6 +149,10 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
             connection.execute("BEGIN")
             snapshot = connection.execute("SELECT * FROM sector_heat_snapshot WHERE id=1").fetchone()
             members = connection.execute("SELECT * FROM sector_heat_member ORDER BY heat_rank").fetchall()
+            removed = {
+                (row["universe_type"], row["source_id"], row["code"])
+                for row in connection.execute("SELECT universe_type,source_id,code FROM sector_removed_board")
+            }
             source_ids = sorted({row["source_id"] for row in members}) or [SOURCE_ID]
             placeholders = ",".join("?" for _ in source_ids)
             membership_snapshots = connection.execute(
@@ -180,6 +187,8 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
         membership_rows.setdefault((row["board_source_id"], row["board_code"]), []).append(component)
     items = []
     for member in members:
+        if ("hot_board", member["source_id"], member["code"]) in removed:
+            continue
         item = dict(member)
         item.pop("snapshot_id")
         item["rows"] = json.loads(item.pop("rows_json"))
@@ -222,7 +231,7 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
         "as_of": state.get("as_of"),
         "ranking_as_of": state.get("as_of"),
         "updated_at": state.get("updated_at"),
-        "requested_count": state.get("requested_count", 100),
+        "requested_count": len(items) if items else state.get("requested_count", 100),
         "member_count": len(items),
         "catalog_count": state.get("catalog_count", 0),
         "collected_count": sum(not item.get("collection_error") for item in items),
@@ -246,6 +255,113 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
     return {"universe": universe, "items": items, "directory_provenance": directory_provenance}
 
 
+def removed_subject_keys(settings: Settings) -> set[tuple[str, str, str]]:
+    """Return user-hidden board/index identities."""
+    migrate(settings)
+    with connection_scope(settings) as connection:
+        rows = connection.execute(
+            "SELECT universe_type,source_id,code FROM sector_removed_board"
+        ).fetchall()
+    return {(row["universe_type"], row["source_id"], row["code"]) for row in rows}
+
+
+def restore_removed_subjects(settings: Settings, subjects: list[dict[str, Any]]) -> None:
+    """Allow re-adding a board or index previously removed from the local library."""
+    if not subjects:
+        return
+    keys = []
+    for subject in subjects:
+        universe_type = str(subject.get("universe_type") or "hot_board")
+        source_id = str(subject.get("source_id") or SOURCE_ID).strip()
+        code = str(subject.get("code") or "").strip()
+        if universe_type not in REMOVABLE_UNIVERSE_TYPES or not re.fullmatch(r"[0-9A-Z]{6}", code):
+            continue
+        writable_source_id(source_id, field="source_id")
+        keys.append((universe_type, source_id, code))
+    if not keys:
+        return
+    migrate(settings)
+    with connection_scope(settings) as connection:
+        connection.executemany(
+            "DELETE FROM sector_removed_board WHERE universe_type=? AND source_id=? AND code=?",
+            keys,
+        )
+
+
+def remove_sector_subjects(settings: Settings, subjects: list[dict[str, Any]],
+                           *, removed_at: str | None = None) -> list[dict[str, Any]]:
+    """Persistently hide selected boards/indexes from the user's local library."""
+    if not subjects:
+        raise ValueError("请选择需要删除的板块")
+    observed = removed_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    cleaned = []
+    seen: set[tuple[str, str, str]] = set()
+    for subject in subjects:
+        universe_type = str(subject.get("universe_type") or "hot_board")
+        source_id = str(subject.get("source_id") or SOURCE_ID).strip()
+        code = str(subject.get("code") or "").strip()
+        name = str(subject.get("name") or "").strip()
+        if universe_type not in REMOVABLE_UNIVERSE_TYPES:
+            raise ValueError("只能删除板块库中的板块或指数")
+        writable_source_id(source_id, field="source_id")
+        if not re.fullmatch(r"[0-9A-Z]{6}", code):
+            raise ValueError("板块或指数身份无效")
+        key = (universe_type, source_id, code)
+        if key in seen:
+            continue
+        cleaned.append({"universe_type": universe_type, "source_id": source_id,
+                        "code": code, "name": name, "removed_at": observed})
+        seen.add(key)
+    migrate(settings)
+    with connection_scope(settings) as connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.executemany(
+                """INSERT INTO sector_removed_board(universe_type,source_id,code,removed_at)
+                   VALUES (?,?,?,?)
+                   ON CONFLICT(universe_type,source_id,code) DO UPDATE SET
+                   removed_at=excluded.removed_at""",
+                [(item["universe_type"], item["source_id"], item["code"], item["removed_at"])
+                 for item in cleaned],
+            )
+            hot = [(item["source_id"], item["code"]) for item in cleaned
+                   if item["universe_type"] == "hot_board"]
+            if hot:
+                connection.executemany(
+                    "DELETE FROM sector_custom_board WHERE source_id=? AND code=?",
+                    hot,
+                )
+                connection.executemany(
+                    "DELETE FROM sector_heat_member WHERE source_id=? AND code=?",
+                    hot,
+                )
+                connection.executemany(
+                    "DELETE FROM sector_membership_snapshot WHERE board_source_id=? AND board_code=?",
+                    hot,
+                )
+                connection.executemany(
+                    "DELETE FROM sector_membership WHERE board_source_id=? AND board_code=?",
+                    hot,
+                )
+                stats = connection.execute(
+                    "SELECT COUNT(*) AS total, SUM(collection_error IS NULL) AS ok, "
+                    "SUM(collection_error IS NOT NULL) AS failed FROM sector_heat_member"
+                ).fetchone()
+                total = int(stats["total"] or 0)
+                ok = int(stats["ok"] or 0)
+                failed = int(stats["failed"] or 0)
+                connection.execute(
+                    """UPDATE sector_heat_snapshot SET requested_count=?, catalog_count=?,
+                       collected_count=?, failed_count=? WHERE id=1""",
+                    (total, total, ok, failed),
+                )
+            connection.execute("COMMIT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+    return cleaned
+
+
 def record_sector_heat_failure(settings: Settings, *, attempted_at: str, error: str) -> None:
     """Keep the last ranking/data intact and expose the failed refresh separately."""
     migrate(settings)
@@ -255,6 +371,88 @@ def record_sector_heat_failure(settings: Settings, *, attempted_at: str, error: 
                ON CONFLICT(id) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,
                last_error=excluded.last_error""", (attempted_at, error),
         )
+
+
+def list_custom_boards(settings: Settings) -> list[dict[str, Any]]:
+    """Return manually added Tonghuashun boards that join normal refreshes."""
+    migrate(settings)
+    with connection_scope(settings) as connection:
+        rows = connection.execute(
+            """SELECT source_id,code,name,kind,added_at
+               FROM sector_custom_board
+               ORDER BY added_at, code"""
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_manual_index_projections_as_ths_boards(settings: Settings) -> list[dict[str, Any]]:
+    """Return manually watched index identities that should be retried as Tonghuashun boards."""
+    migrate(settings)
+    with connection_scope(settings) as connection:
+        rows = connection.execute(
+            """SELECT i.code,i.name,i.source_id AS original_source_id
+               FROM market_index_projection i
+               LEFT JOIN fund_market_relation r
+                 ON r.index_code=i.code AND r.relation_type='tracked_index'
+               WHERE r.index_code IS NULL
+               ORDER BY i.updated_at, i.code"""
+        ).fetchall()
+    removed = removed_subject_keys(settings)
+    boards = []
+    for row in rows:
+        code = str(row["code"])
+        source_id = str(row["original_source_id"])
+        if ("tracked_index", source_id, code) in removed:
+            continue
+        boards.append({
+            "code": code,
+            "name": str(row["name"]),
+            "kind": "行业" if code.startswith("881") else "概念",
+            "source_id": SOURCE_ID,
+            "legacy_index_source_id": source_id,
+        })
+    return boards
+
+
+def add_custom_boards(settings: Settings, boards: list[dict[str, Any]], *, added_at: str | None = None) -> list[dict[str, Any]]:
+    """Persist user-selected Tonghuashun boards without fabricating market data."""
+    if not boards:
+        raise ValueError("请选择至少一个板块")
+    observed = added_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    cleaned = []
+    seen: set[tuple[str, str]] = set()
+    for board in boards:
+        source_id = str(board.get("source_id") or SOURCE_ID).strip()
+        code = str(board.get("code") or "").strip()
+        name = str(board.get("name") or "").strip()
+        kind = str(board.get("kind") or "").strip()
+        writable_source_id(source_id, field="source_id")
+        if not re.fullmatch(r"\d{6}", code) or not name or kind not in ("行业", "概念"):
+            raise ValueError("板块身份无效")
+        key = (source_id, code)
+        if key not in seen:
+            cleaned.append({"source_id": source_id, "code": code, "name": name, "kind": kind, "added_at": observed})
+            seen.add(key)
+    migrate(settings)
+    with connection_scope(settings) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            connection.executemany(
+                """INSERT INTO sector_custom_board(source_id,code,name,kind,added_at)
+                   VALUES (?,?,?,?,?)
+                   ON CONFLICT(source_id,code) DO UPDATE SET
+                   name=excluded.name,kind=excluded.kind""",
+                [(item["source_id"], item["code"], item["name"], item["kind"], item["added_at"]) for item in cleaned],
+            )
+            connection.executemany(
+                "DELETE FROM sector_removed_board WHERE universe_type='hot_board' AND source_id=? AND code=?",
+                [(item["source_id"], item["code"]) for item in cleaned],
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+    return cleaned
 
 
 def save_sector_heat(settings: Settings, *, as_of: str, updated_at: str,
