@@ -72,8 +72,9 @@ class MarketWorkbenchTests(unittest.TestCase):
 
     def test_sector_search_prefers_ths_board_identity(self):
         app = create_app(self.settings)
-        board = {"code": "931248", "name": "油气资源", "kind": "概念",
-                 "source_id": "sector_daily.ths"}
+        board = {"code": "931248", "name": "油气资源", "kind": "指数",
+                 "source_id": "sector_daily.ths", "history_source_code": "zs_931248",
+                 "history_source_id": "sector_daily.ths"}
         index = {"code": "931248", "name": "油气资源", "kind": "参考指数",
                  "source_id": "index_daily.csi_official", "universe_type": "tracked_index",
                  "index_name": "中证油气资源指数"}
@@ -96,15 +97,17 @@ class MarketWorkbenchTests(unittest.TestCase):
             source_id="index_daily.csi_official",
         )
         rows = [dict(PRICE, amount="1000")]
-        payload = {"items": [{"code": "931248", "name": "油气资源", "kind": "概念",
-                              "source_id": "sector_daily.ths"}]}
+        payload = {"items": [{"code": "931248", "name": "油气资源", "kind": "指数",
+                              "source_id": "sector_daily.ths", "history_source_code": "zs_931248",
+                              "history_source_id": "sector_daily.ths", "ths_category": "index",
+                              "ths_page_code": "931248", "ths_market_code": "931248", "ths_prefix": "zs"}]}
         collected = {
-            "code": "931248", "name": "油气资源", "kind": "概念",
+            "code": "931248", "name": "油气资源", "kind": "指数",
             "source_id": "sector_daily.ths", "heat_value": "1000",
             "heat_updated_at": "2026-09-14", "ranking_as_of": "2026-09-14",
             "heat_rank": 0, "rows": rows, "updated_at": "2026-09-14T08:00:00Z",
             "collection_error": None, "history_source_id": "sector_daily.ths",
-            "history_source_code": "bk_931248", "history_identity_match": "native_source_code",
+            "history_source_code": "zs_931248", "history_identity_match": "native_source_code",
             "constituents": [], "constituent_error": None,
             "constituent_updated_at": "2026-09-14T08:00:00Z", "source_attempts": [],
         }

@@ -43,7 +43,7 @@ type ScanResult = {
 type SectorSearchItem = {
   code: string;
   name: string;
-  kind: '行业' | '概念' | '参考指数';
+  kind: '行业' | '概念' | '指数' | '参考指数';
   source_id: string;
   universe_type?: 'hot_board' | 'tracked_index';
   index_name?: string;

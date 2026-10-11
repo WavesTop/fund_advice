@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 import json
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 import re
@@ -33,6 +34,12 @@ from backend.storage.sector_heat import (SectorHistoryIntegrityError, merge_cons
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 Fetcher = Callable[[str, float], dict[str, Any]]
 COLLECTOR_VERSION = "sector-ths-only-v5-history-integrity"
+THS_CATEGORY_META = {
+    "industry": {"path": "thshy", "kind": "行业", "prefix": "bk"},
+    "concept": {"path": "gn", "kind": "概念", "prefix": "bk"},
+    "index": {"path": "zs", "kind": "指数", "prefix": "zs"},
+}
+THS_PATH_CATEGORY = {value["path"]: key for key, value in THS_CATEGORY_META.items()}
 
 
 class _ThsConstituentParser(HTMLParser):
@@ -87,6 +94,69 @@ def fetch_text(url: str, timeout: float, referer: str = "https://q.10jqka.com.cn
     return get_bytes(request, timeout=timeout).decode("gb18030", "strict")
 
 
+def _ths_history_source_code(prefix: str, code: str) -> str:
+    prefix = str(prefix or "bk").strip().lower()
+    code = str(code or "").strip()
+    if prefix not in ("bk", "zs") or not re.fullmatch(r"\d{6}", code):
+        raise ValueError("同花顺行情身份无效")
+    return f"{prefix}_{code}"
+
+
+def _is_direct_ths_concept_market_code(code: str) -> bool:
+    return bool(re.fullmatch(r"88[456]\d{3}", str(code or "").strip()))
+
+
+def _enrich_ths_identity(item: dict[str, Any], *, category: str | None = None,
+                         page_code: str | None = None, market_code: str | None = None,
+                         prefix: str | None = None) -> dict[str, Any]:
+    """Attach Tonghuashun page identity and quote identity to a board record."""
+    inferred_category = category or str(item.get("ths_category") or "").strip()
+    kind = str(item.get("kind") or "").strip()
+    if not inferred_category:
+        if kind == "行业":
+            inferred_category = "industry"
+        elif kind == "指数":
+            inferred_category = "index"
+        else:
+            inferred_category = "concept"
+    if inferred_category not in THS_CATEGORY_META:
+        raise ValueError("同花顺板块类别无效")
+    meta = THS_CATEGORY_META[inferred_category]
+    display_code = str(item.get("code") or page_code or market_code or "").strip()
+    page = str(page_code or item.get("ths_page_code") or display_code).strip()
+    quote_code = str(market_code or item.get("ths_market_code") or display_code).strip()
+    quote_prefix = str(prefix or item.get("ths_prefix") or meta["prefix"]).strip().lower()
+    if not re.fullmatch(r"\d{6}", display_code) or not re.fullmatch(r"\d{6}", page):
+        raise ValueError("同花顺板块代码无效")
+    if not re.fullmatch(r"\d{6}", quote_code):
+        quote_code = display_code
+    history_source_code = _ths_history_source_code(quote_prefix, quote_code)
+    return {
+        **item,
+        "code": display_code,
+        "kind": meta["kind"],
+        "source_id": "sector_daily.ths",
+        "ths_category": inferred_category,
+        "ths_page_code": page,
+        "ths_market_code": quote_code,
+        "ths_prefix": quote_prefix,
+        "history_source_id": "sector_daily.ths",
+        "history_source_code": history_source_code,
+        "history_identity_match": "native_source_code",
+    }
+
+
+def _member_history_source_code(member: dict[str, Any], fallback_code: str | None = None) -> str:
+    value = str(member.get("history_source_code") or "").strip().lower()
+    if re.fullmatch(r"(?:bk|zs)_\d{6}", value):
+        return value
+    code = str(member.get("code") or "").strip()
+    if not re.fullmatch(r"\d{6}", code) and fallback_code and re.fullmatch(r"\d{6}", fallback_code):
+        member = {**member, "code": fallback_code}
+    enriched = _enrich_ths_identity(member)
+    return str(enriched["history_source_code"])
+
+
 @lru_cache(maxsize=1)
 def _ths_cookie() -> str:
     """Generate the visitor cookie used by Tonghuashun's ordinary HTML pages."""
@@ -102,13 +172,19 @@ def _ths_cookie() -> str:
     return f"v={value}"
 
 
-def fetch_ths_line_text(ths_code: str, *, timeout: float = 12.0) -> str:
+def fetch_ths_line_text_by_source(source_code: str, *, timeout: float = 12.0) -> str:
     """Fetch Tonghuashun board daily JSONP using the same visitor cookie family as board pages."""
-    url = f"https://d.10jqka.com.cn/v4/line/bk_{ths_code}/01/last.js"
+    if not re.fullmatch(r"(?:bk|zs)_\d{6}", source_code):
+        raise ValueError("同花顺日线来源代码无效")
+    url = f"https://d.10jqka.com.cn/v4/line/{source_code}/01/last.js"
     try:
         return fetch_text(url, timeout, headers={"Cookie": _ths_cookie()})
     except Exception:
         return fetch_text(url, timeout)
+
+
+def fetch_ths_line_text(ths_code: str, *, timeout: float = 12.0) -> str:
+    return fetch_ths_line_text_by_source(_ths_history_source_code("bk", ths_code), timeout=timeout)
 
 
 def _number(value: object, field: str, *, positive: bool = False) -> str:
@@ -124,12 +200,14 @@ def _number(value: object, field: str, *, positive: bool = False) -> str:
 
 
 def fetch_ths_sector_daily(member: dict[str, Any], ths_code: str, *, timeout: float = 12.0) -> list[dict[str, str]]:
-    payload = fetch_ths_line_text(ths_code, timeout=timeout)
+    payload = fetch_ths_line_text_by_source(_member_history_source_code(member, ths_code), timeout=timeout)
     left, right = payload.find("{"), payload.rfind("}")
     if left < 0 or right <= left:
         raise ValueError("同花顺日线JSONP无效")
     root = json.loads(payload[left:right + 1], parse_float=str, parse_int=str)
-    if str(root.get("name", "")).strip() != member["name"]:
+    source_name = str(root.get("name", "")).strip()
+    member_name = str(member["name"]).strip()
+    if source_name != member_name and source_name not in member_name and member_name not in source_name:
         raise ValueError("同花顺日线名称与行业目录不一致")
     cutoff = min(date.fromisoformat(member["ranking_as_of"]),
                  date.fromisoformat(member["price_cutoff"]) if member.get("price_cutoff")
@@ -228,10 +306,12 @@ def fetch_ths_industry_directory(*, now: datetime | None = None) -> dict[str, An
         name, code = str(raw["name"]).strip(), str(raw["code"]).strip()
         if not re.fullmatch(r"\d{6}", code):
             raise ValueError(f"同花顺行业代码无效：{name} {code}")
-        rows.append({"code": code, "name": name, "kind": "行业", "source_id": "sector_daily.ths",
-                     "heat_value": format(turnover_by_name.get(name, Decimal(0)), "f"),
-                     "heat_updated_at": current.astimezone(SHANGHAI).isoformat(timespec="seconds"),
-                     "ranking_as_of": cutoff})
+        rows.append(_enrich_ths_identity({
+            "code": code, "name": name, "kind": "行业", "source_id": "sector_daily.ths",
+            "heat_value": format(turnover_by_name.get(name, Decimal(0)), "f"),
+            "heat_updated_at": current.astimezone(SHANGHAI).isoformat(timespec="seconds"),
+            "ranking_as_of": cutoff,
+        }, category="industry", page_code=code, market_code=code, prefix="bk"))
     ranked = [dict(row, heat_rank=rank) for rank, row in enumerate(
         sorted(rows, key=lambda item: (-Decimal(item["heat_value"]), item["code"])), 1)]
     return {
@@ -277,56 +357,240 @@ def fetch_ths_concept_directory(*, now: datetime | None = None) -> dict[str, Any
         name, code = raw["name"], raw["code"]
         if not re.fullmatch(r"\d{6}", code):
             raise ValueError(f"同花顺概念代码无效：{name} {code}")
-        result.append({"code": code, "name": name, "kind": "概念", "source_id": "sector_daily.ths",
-                       "heat_value": "0",
-                       "heat_updated_at": current.astimezone(SHANGHAI).isoformat(timespec="seconds"),
-                       "ranking_as_of": cutoff})
+        result.append(_enrich_ths_identity({
+            "code": code, "name": name, "kind": "概念", "source_id": "sector_daily.ths",
+            "heat_value": "0",
+            "heat_updated_at": current.astimezone(SHANGHAI).isoformat(timespec="seconds"),
+            "ranking_as_of": cutoff,
+        }, category="concept", page_code=code, market_code=code, prefix="bk"))
     return {"rows": result, "source_attempts": attempts}
+
+
+def _parse_ths_standard_sector_links(html: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    pattern = re.compile(
+        r"q\.10jqka\.com\.cn/(gn|thshy|zs)/detail/code/([^/]+)/[^>]*>([^<]+)</a>",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(html):
+        path, page_code, raw_name = match.groups()
+        category = THS_PATH_CATEGORY[path.lower()]
+        name = " ".join(unescape(raw_name).split())
+        if not re.fullmatch(r"\d{6}", page_code) or not name:
+            continue
+        meta = THS_CATEGORY_META[category]
+        market_code = page_code if category != "concept" or _is_direct_ths_concept_market_code(page_code) else ""
+        key = (category, page_code, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(_enrich_ths_identity({
+            "code": page_code,
+            "name": name,
+            "source_id": "sector_daily.ths",
+        }, category=category, page_code=page_code, market_code=market_code or page_code,
+           prefix=meta["prefix"]))
+        if category == "concept" and not market_code:
+            rows[-1]["ths_market_code"] = ""
+            rows[-1]["history_source_code"] = ""
+    return rows
+
+
+def _parse_ths_page_count(html: str) -> int:
+    match = re.search(
+        r"<span[^>]*class\s*=\s*['\"][^'\"]*page_info[^'\"]*['\"][^>]*>\s*\d+\s*/\s*(\d+)\s*</span>",
+        html,
+        re.IGNORECASE,
+    )
+    if match:
+        return max(1, min(100, int(match.group(1))))
+    pages = [int(value) for value in re.findall(r"\bpage\s*=\s*['\"](\d+)['\"]", html, re.IGNORECASE)]
+    return max([1, *pages])
+
+
+def _parse_ths_market_code_from_detail_html(html: str) -> str:
+    for pattern in (
+        r"id\s*=\s*['\"]clid['\"][^>]*value\s*=\s*['\"]([^'\"]+)['\"]",
+        r"value\s*=\s*['\"]([^'\"]+)['\"][^>]*id\s*=\s*['\"]clid['\"]",
+    ):
+        match = re.search(pattern, html, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def resolve_ths_concept_market_code(page_code: str, *, timeout: float = 12.0) -> str:
+    if _is_direct_ths_concept_market_code(page_code):
+        return page_code
+    if not re.fullmatch(r"\d{6}", page_code):
+        raise ValueError("同花顺概念页面代码无效")
+    html = fetch_text(f"https://q.10jqka.com.cn/gn/detail/code/{page_code}/", timeout,
+                      referer="https://q.10jqka.com.cn/gn/", headers={"Cookie": _ths_cookie()})
+    market_code = _parse_ths_market_code_from_detail_html(html)
+    if not _is_direct_ths_concept_market_code(market_code):
+        raise ValueError("同花顺概念详情页未提供有效行情代码")
+    return market_code
+
+
+@lru_cache(maxsize=1)
+def _fetch_ths_standard_sector_entries_cached() -> tuple[dict[str, Any], ...]:
+    entries: list[dict[str, Any]] = []
+    attempts: list[dict[str, Any]] = []
+    sources = (
+        ("industry", "https://q.10jqka.com.cn/thshy/",
+         "https://q.10jqka.com.cn/thshy/index/field/199112/order/desc/page/{page}/ajax/1/"),
+        ("concept", "https://q.10jqka.com.cn/gn/",
+         "https://q.10jqka.com.cn/gn/index/field/addtime/order/desc/page/{page}/ajax/1/"),
+        ("index", "https://q.10jqka.com.cn/zs/",
+         "https://q.10jqka.com.cn/zs/index/field/199112/order/desc/page/{page}/ajax/1/"),
+    )
+    for category, first_url, page_url in sources:
+        meta = THS_CATEGORY_META[category]
+        try:
+            first = fetch_text(first_url, 12.0, referer=first_url, headers={"Cookie": _ths_cookie()})
+            page_count = _parse_ths_page_count(first)
+            category_entries = _parse_ths_standard_sector_links(first)
+            for page in range(2, page_count + 1):
+                try:
+                    category_entries.extend(_parse_ths_standard_sector_links(
+                        fetch_text(page_url.format(page=page), 12.0, referer=first_url,
+                                   headers={"Cookie": _ths_cookie()}),
+                    ))
+                except Exception:
+                    continue
+            entries.extend(item for item in category_entries if item.get("ths_category") == category)
+            attempts.append({"dataset": "directory", "subject": f"ths_{category}",
+                             "endpoint": first_url, "provenance": "live",
+                             "status": "available", "row_count": len(category_entries), "error": None})
+        except Exception as exc:
+            attempts.append({"dataset": "directory", "subject": f"ths_{category}",
+                             "endpoint": first_url, "provenance": "live",
+                             "status": "failed", "row_count": 0, "error": _source_error(exc)})
+            if category == "industry":
+                continue
+        for item in entries:
+            item.setdefault("kind", meta["kind"])
+    unique: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in entries:
+        unique.setdefault((item["ths_category"], item["ths_page_code"]), item)
+    return tuple(unique.values())
+
+
+def fetch_ths_standard_sector_directory(*, now: datetime | None = None) -> dict[str, Any]:
+    current = now or datetime.now(timezone.utc)
+    cutoff = get_calendar().latest_completed(current.astimezone(SHANGHAI)).isoformat()
+    rows = []
+    for entry in _fetch_ths_standard_sector_entries_cached():
+        rows.append({
+            **entry,
+            "heat_value": "0",
+            "heat_updated_at": current.astimezone(SHANGHAI).isoformat(timespec="seconds"),
+            "ranking_as_of": cutoff,
+        })
+    return {"rows": rows, "source_attempts": []}
+
+
+def resolve_ths_board_identity(item: dict[str, Any], *, timeout: float = 12.0) -> dict[str, Any]:
+    page_code = str(item.get("ths_page_code") or item.get("code") or "").strip()
+    needs_concept_resolution = (
+        str(item.get("ths_category") or "").strip() == "concept"
+        and not str(item.get("ths_market_code") or "").strip()
+        and not _is_direct_ths_concept_market_code(page_code)
+    )
+    enriched = _enrich_ths_identity(item)
+    if needs_concept_resolution:
+        market_code = resolve_ths_concept_market_code(enriched["ths_page_code"], timeout=timeout)
+        enriched = _enrich_ths_identity(enriched, category="concept", page_code=enriched["ths_page_code"],
+                                        market_code=market_code, prefix="bk")
+    return enriched
 
 
 def fetch_ths_board_identity_by_code(code: str, *, timeout: float = 12.0) -> dict[str, Any]:
     if not re.fullmatch(r"\d{6}", code):
         raise ValueError("同花顺板块代码必须为六位数字")
-    payload = fetch_ths_line_text(code, timeout=timeout)
-    left, right = payload.find("{"), payload.rfind("}")
-    if left < 0 or right <= left:
-        raise ValueError("同花顺板块日线JSONP无效")
-    root = json.loads(payload[left:right + 1], parse_float=str, parse_int=str)
-    name = str(root.get("name", "")).strip()
-    if not name:
-        raise ValueError("同花顺未返回板块名称")
-    return {"code": code, "name": name, "kind": "行业" if code.startswith("881") else "概念",
-            "source_id": "sector_daily.ths"}
+    for item in _fetch_ths_standard_sector_entries_cached():
+        if code in (item.get("code"), item.get("ths_page_code"), item.get("ths_market_code")):
+            return resolve_ths_board_identity(item, timeout=timeout)
+    attempts = []
+    for category, prefix in (
+        ("industry", "bk") if code.startswith("881") else ("index", "zs"),
+        ("concept", "bk"),
+        ("index", "zs"),
+    ):
+        source_code = _ths_history_source_code(prefix, code)
+        if source_code in attempts:
+            continue
+        attempts.append(source_code)
+        try:
+            payload = fetch_ths_line_text_by_source(source_code, timeout=timeout)
+            left, right = payload.find("{"), payload.rfind("}")
+            if left < 0 or right <= left:
+                raise ValueError("同花顺板块日线JSONP无效")
+            root = json.loads(payload[left:right + 1], parse_float=str, parse_int=str)
+            name = str(root.get("name", "")).strip()
+            if not name:
+                raise ValueError("同花顺未返回板块名称")
+            return _enrich_ths_identity({"code": code, "name": name, "source_id": "sector_daily.ths"},
+                                        category=category, page_code=code, market_code=code, prefix=prefix)
+        except Exception:
+            continue
+    raise ValueError("同花顺未返回可用板块身份")
+
+
+def _resolve_search_identity(item: dict[str, Any]) -> dict[str, Any]:
+    if item.get("ths_category") == "concept" and not item.get("ths_market_code"):
+        try:
+            return resolve_ths_board_identity(item)
+        except Exception:
+            return item
+    return item
 
 
 def search_ths_boards(query: str, *, now: datetime | None = None, limit: int = 30) -> dict[str, Any]:
-    """Search Tonghuashun industry and concept board directories by name or code."""
+    """Search Tonghuashun industry, concept and index directories by name or code."""
     term = query.strip()
     if not term:
         raise ValueError("请输入板块名称或代码")
     if len(term) > 40:
         raise ValueError("搜索词过长")
     lowered = term.lower()
+    relaxed_terms = {lowered}
+    relaxed = lowered
+    for noise in ("资源", "指数", "概念", "板块", "行业"):
+        relaxed = relaxed.replace(noise, "")
+    if len(relaxed) >= 2:
+        relaxed_terms.add(relaxed)
     candidates: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
     errors: list[str] = []
-    for loader in (fetch_ths_industry_directory, fetch_ths_concept_directory):
-        try:
-            result = loader(now=now)
-            candidates.extend(result["rows"])
-            attempts.extend(result.get("source_attempts", []))
-        except Exception as exc:
-            errors.append(str(exc))
+    try:
+        result = fetch_ths_standard_sector_directory(now=now)
+        candidates.extend(result["rows"])
+        attempts.extend(result.get("source_attempts", []))
+    except Exception as exc:
+        errors.append(str(exc))
+    if not candidates:
+        for loader in (fetch_ths_industry_directory, fetch_ths_concept_directory):
+            try:
+                result = loader(now=now)
+                candidates.extend(result["rows"])
+                attempts.extend(result.get("source_attempts", []))
+            except Exception as exc:
+                errors.append(str(exc))
     if not candidates and errors:
         raise RuntimeError("；".join(errors))
 
     def matched(item: dict[str, Any]) -> bool:
-        return lowered in item["name"].lower() or lowered in item["code"].lower()
+        name = item["name"].lower()
+        code = item["code"].lower()
+        return any(value in name or value in code for value in relaxed_terms)
 
     def rank(item: dict[str, Any]) -> tuple[int, int, str]:
         exact = item["code"] == term or item["name"].lower() == lowered
-        starts = item["code"].startswith(term) or item["name"].lower().startswith(lowered)
-        return (0 if exact else 1 if starts else 2, 0 if item["kind"] == "行业" else 1, item["code"])
+        starts = item["code"].startswith(term) or any(item["name"].lower().startswith(value) for value in relaxed_terms)
+        kind_order = {"行业": 0, "概念": 1, "指数": 2}.get(item["kind"], 3)
+        return (0 if exact else 1 if starts else 2, kind_order, item["code"])
 
     seen: set[tuple[str, str]] = set()
     items = []
@@ -335,7 +599,12 @@ def search_ths_boards(query: str, *, now: datetime | None = None, limit: int = 3
         if key in seen:
             continue
         seen.add(key)
-        items.append({key: item[key] for key in ("code", "name", "kind", "source_id")})
+        resolved = _resolve_search_identity(item)
+        keys = (
+            "code", "name", "kind", "source_id", "ths_category", "ths_page_code", "ths_market_code",
+            "ths_prefix", "history_source_id", "history_source_code", "history_identity_match",
+        )
+        items.append({key: resolved[key] for key in keys if key in resolved and resolved.get(key) != ""})
         if len(items) >= limit:
             break
     if re.fullmatch(r"\d{6}", term) and not any(item["code"] == term for item in items):
@@ -408,8 +677,10 @@ def fetch_ths_visible_constituents(member: dict[str, Any], *, timeout: float = 1
     for page in range(1, 101):
         if page > 1 and throttle_seconds:
             time.sleep(throttle_seconds)
-        path = "gn" if member.get("kind") == "概念" else "thshy"
-        url = f"https://q.10jqka.com.cn/{path}/detail/page/{page}/code/{code}/"
+        category = str(member.get("ths_category") or ("concept" if member.get("kind") == "概念" else "industry"))
+        path = THS_CATEGORY_META.get(category, THS_CATEGORY_META["industry"])["path"]
+        page_code = str(member.get("ths_page_code") or code)
+        url = f"https://q.10jqka.com.cn/{path}/detail/page/{page}/code/{page_code}/"
         parsed_count, page_rows = _parse_ths_constituent_page(
             fetch_text(url, timeout, headers=headers), expected_page=page,
         )
@@ -435,7 +706,8 @@ def fetch_ths_visible_constituents(member: dict[str, Any], *, timeout: float = 1
 
 
 def _constituent_endpoint(member: dict[str, Any]) -> str:
-    path = "gn" if member.get("kind") == "概念" else "thshy"
+    category = str(member.get("ths_category") or ("concept" if member.get("kind") == "概念" else "industry"))
+    path = THS_CATEGORY_META.get(category, THS_CATEGORY_META["industry"])["path"]
     return f"https://q.10jqka.com.cn/{path}/detail/page/{{page}}/code/"
 
 
@@ -453,10 +725,18 @@ def collect_ths_board(member: dict[str, Any], *, previous: dict[str, Any],
     components = old_membership.get("members", []) if old_membership.get("as_of") == member["ranking_as_of"] else []
     component_updated_at = old_membership.get("fetched_at") if components else None
     attempts: list[dict] = []
-    native_source_id, native_source_code = "sector_daily.ths", "bk_" + member["code"]
+    resolution_error = None
+    try:
+        member = resolve_ths_board_identity(member, timeout=timeout)
+    except Exception as exc:
+        resolution_error = f"{type(exc).__name__}: {exc}"
+    native_source_id = "sector_daily.ths"
+    native_source_code = _member_history_source_code(member, member["code"])
     native = old.get("history_source_id") == native_source_id and old.get("history_source_code") == native_source_code
     fetched: list[dict[str, Any]] = []
     try:
+        if resolution_error:
+            raise ValueError(f"同花顺板块身份解析失败：{resolution_error}")
         fetched = fetch_ths_sector_daily(member, member["code"], timeout=timeout)
         cutoff = date.fromisoformat(member["price_cutoff"])
         quality = get_calendar().validate_grid(
@@ -484,7 +764,7 @@ def collect_ths_board(member: dict[str, Any], *, previous: dict[str, Any],
             )
         rows = candidate_rows
         attempts.append({"dataset": "daily", "subject": member["code"],
-                         "endpoint": "https://d.10jqka.com.cn/v4/line/",
+                         "endpoint": f"https://d.10jqka.com.cn/v4/line/{native_source_code}/01/last.js",
                          "status": "available", "row_count": len(fetched),
                          "first_date": fetched[0]["date"], "last_date": fetched[-1]["date"],
                          "error": None, **merge_details})
@@ -492,7 +772,8 @@ def collect_ths_board(member: dict[str, Any], *, previous: dict[str, Any],
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         attempts.append({"dataset": "daily", "subject": member["code"],
-                         "endpoint": "https://d.10jqka.com.cn/v4/line/", "status": "failed",
+                         "endpoint": f"https://d.10jqka.com.cn/v4/line/{native_source_code}/01/last.js",
+                         "status": "failed",
                          "row_count": len(fetched),
                          "first_date": fetched[0]["date"] if fetched else None,
                          "last_date": fetched[-1]["date"] if fetched else None,
@@ -630,7 +911,13 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
                 for board in legacy_index_boards
             ])
         existing_keys = {(item["source_id"], item["code"]) for item in directory}
+        resolved_extra_boards = []
         for board in [*custom_boards, *legacy_index_boards]:
+            try:
+                resolved_extra_boards.append(resolve_ths_board_identity(board, timeout=timeout))
+            except Exception:
+                resolved_extra_boards.append(board)
+        for board in resolved_extra_boards:
             key = (board["source_id"], board["code"])
             if ("hot_board", board["source_id"], board["code"]) in removed:
                 continue
@@ -641,6 +928,13 @@ def refresh_sector_heat(settings: Settings, *, fetcher: Fetcher | None = None, t
                 "name": board["name"],
                 "kind": board["kind"],
                 "source_id": board["source_id"],
+                "ths_category": board.get("ths_category"),
+                "ths_page_code": board.get("ths_page_code"),
+                "ths_market_code": board.get("ths_market_code"),
+                "ths_prefix": board.get("ths_prefix"),
+                "history_source_id": board.get("history_source_id"),
+                "history_source_code": board.get("history_source_code"),
+                "history_identity_match": board.get("history_identity_match"),
                 "heat_value": "0",
                 "heat_updated_at": current.astimezone(SHANGHAI).isoformat(timespec="seconds"),
                 "ranking_as_of": directory[0]["ranking_as_of"],

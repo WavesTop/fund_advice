@@ -20,6 +20,8 @@ from backend.storage.sector_heat import add_custom_boards, read_sector_heat, rem
 from scripts.import_sector_heat import (
     fetch_ths_industry_directory,
     fetch_ths_sector_daily,
+    _parse_ths_market_code_from_detail_html,
+    _parse_ths_standard_sector_links,
     refresh_sector_heat,
     refresh_selected_ths_boards,
     search_ths_boards,
@@ -167,7 +169,8 @@ class SectorHeatTests(unittest.TestCase):
         self.assertIn("931248", calls)
         stored = {item["code"]: item for item in result["items"]}
         self.assertEqual((stored["931248"]["source_id"], stored["931248"]["kind"]),
-                         ("sector_daily.ths", "概念"))
+                         ("sector_daily.ths", "指数"))
+        self.assertEqual(stored["931248"]["history_source_code"], "zs_931248")
         visible = read_sector_heat(self.settings)
         self.assertTrue(any(item["code"] == "931248" for item in visible["items"]))
 
@@ -192,30 +195,81 @@ class SectorHeatTests(unittest.TestCase):
         self.assertEqual(stored["886001"]["rows"][-1]["date"], DAYS[-1])
 
     def test_search_ths_boards_matches_industry_and_concept(self):
+        standard = {
+            "rows": [
+                *directory_result()["rows"],
+                {"code": "886001", "name": "合成概念", "kind": "概念",
+                 "source_id": "sector_daily.ths", "heat_value": "0",
+                 "heat_updated_at": NOW.isoformat(), "ranking_as_of": DAYS[-1]},
+                {"code": "881107", "name": "油气开采及服务", "kind": "行业",
+                 "source_id": "sector_daily.ths", "ths_category": "industry",
+                 "ths_page_code": "881107", "ths_market_code": "881107", "ths_prefix": "bk",
+                 "history_source_id": "sector_daily.ths", "history_source_code": "bk_881107",
+                 "history_identity_match": "native_source_code",
+                 "heat_value": "0", "heat_updated_at": NOW.isoformat(), "ranking_as_of": DAYS[-1]},
+            ],
+            "source_attempts": [],
+        }
         concept = {
             "rows": [{"code": "886001", "name": "合成概念", "kind": "概念",
                       "source_id": "sector_daily.ths", "heat_value": "0",
                       "heat_updated_at": NOW.isoformat(), "ranking_as_of": DAYS[-1]}],
             "source_attempts": [],
         }
-        with patch("scripts.import_sector_heat.fetch_ths_industry_directory", return_value=directory_result()), patch(
+        with patch("scripts.import_sector_heat.fetch_ths_standard_sector_directory",
+                   return_value=standard), patch(
+            "scripts.import_sector_heat.fetch_ths_industry_directory", return_value=directory_result()), patch(
             "scripts.import_sector_heat.fetch_ths_concept_directory", return_value=concept,
         ):
             by_name = search_ths_boards("合成")
             self.assertEqual({item["code"] for item in by_name["items"]}, {"881101", "881102", "886001"})
             by_code = search_ths_boards("886001")
             self.assertEqual(by_code["items"][0]["kind"], "概念")
+            relaxed = search_ths_boards("油气资源")
+            self.assertEqual(relaxed["items"][0]["code"], "881107")
 
     def test_exact_board_code_falls_back_to_ths_daily_identity(self):
         concept = {"rows": [], "source_attempts": []}
         payload = 'callback({"name":"合成代码板块","data":"20260918,1,2,1,2,10,20"});'.encode("gb18030")
-        with patch("scripts.import_sector_heat.fetch_ths_industry_directory", return_value=directory_result()), patch(
+        with patch("scripts.import_sector_heat.fetch_ths_standard_sector_directory",
+                   return_value={"rows": [], "source_attempts": []}), patch(
+            "scripts.import_sector_heat.fetch_ths_industry_directory", return_value=directory_result()), patch(
             "scripts.import_sector_heat.fetch_ths_concept_directory", return_value=concept,
         ), patch("scripts.import_sector_heat.get_bytes", return_value=payload):
             result = search_ths_boards("881153")
-        self.assertEqual(result["items"][0], {
-            "code": "881153", "name": "合成代码板块", "kind": "行业", "source_id": "sector_daily.ths",
-        })
+        self.assertEqual(result["items"][0]["code"], "881153")
+        self.assertEqual(result["items"][0]["name"], "合成代码板块")
+        self.assertEqual(result["items"][0]["kind"], "行业")
+        self.assertEqual(result["items"][0]["history_source_code"], "bk_881153")
+
+    def test_ths_standard_directory_parses_index_and_concept_identity(self):
+        html = """
+        <a href="https://q.10jqka.com.cn/zs/detail/code/931248/">油气资源</a>
+        <a href="https://q.10jqka.com.cn/gn/detail/code/301558/">合成概念</a>
+        """
+        rows = _parse_ths_standard_sector_links(html)
+        by_code = {item["code"]: item for item in rows}
+        self.assertEqual(by_code["931248"]["kind"], "指数")
+        self.assertEqual(by_code["931248"]["history_source_code"], "zs_931248")
+        self.assertEqual(by_code["301558"]["kind"], "概念")
+        self.assertEqual(by_code["301558"]["ths_market_code"], "")
+        self.assertEqual(_parse_ths_market_code_from_detail_html(
+            '<input id="clid" value="886001">'
+        ), "886001")
+
+    def test_fetch_sector_daily_uses_saved_ths_source_code(self):
+        member = {
+            "code": "931248", "name": "油气资源", "kind": "指数", "source_id": "sector_daily.ths",
+            "ranking_as_of": DAYS[-1], "history_source_code": "zs_931248",
+            "history_source_id": "sector_daily.ths", "ths_category": "index",
+            "ths_page_code": "931248", "ths_market_code": "931248", "ths_prefix": "zs",
+        }
+        payload = 'callback({"name":"油气资源","data":"20260918,1,2,1,2,10,20"});'.encode("gb18030")
+        with patch("scripts.import_sector_heat.get_bytes", return_value=payload) as get:
+            rows = fetch_ths_sector_daily(member, member["code"])
+        self.assertEqual(rows[-1]["date"], "2026-09-18")
+        url = get.call_args[0][0].full_url
+        self.assertIn("/zs_931248/01/last.js", url)
 
     def test_short_source_window_preserves_consistent_long_native_history(self):
         with patch("scripts.import_sector_heat.fetch_ths_industry_directory", return_value=directory_result()), patch(

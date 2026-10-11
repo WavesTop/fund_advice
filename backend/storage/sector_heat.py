@@ -378,7 +378,8 @@ def list_custom_boards(settings: Settings) -> list[dict[str, Any]]:
     migrate(settings)
     with connection_scope(settings) as connection:
         rows = connection.execute(
-            """SELECT source_id,code,name,kind,added_at
+            """SELECT source_id,code,name,kind,added_at,ths_category,ths_page_code,ths_market_code,
+                      ths_prefix,history_source_id,history_source_code
                FROM sector_custom_board
                ORDER BY added_at, code"""
         ).fetchall()
@@ -407,7 +408,7 @@ def list_manual_index_projections_as_ths_boards(settings: Settings) -> list[dict
         boards.append({
             "code": code,
             "name": str(row["name"]),
-            "kind": "行业" if code.startswith("881") else "概念",
+            "kind": "行业" if code.startswith("881") else "指数" if code.startswith(("93", "39")) else "概念",
             "source_id": SOURCE_ID,
             "legacy_index_source_id": source_id,
         })
@@ -427,22 +428,56 @@ def add_custom_boards(settings: Settings, boards: list[dict[str, Any]], *, added
         name = str(board.get("name") or "").strip()
         kind = str(board.get("kind") or "").strip()
         writable_source_id(source_id, field="source_id")
-        if not re.fullmatch(r"\d{6}", code) or not name or kind not in ("行业", "概念"):
+        if not re.fullmatch(r"\d{6}", code) or not name or kind not in ("行业", "概念", "指数"):
             raise ValueError("板块身份无效")
+        ths_category = str(board.get("ths_category") or "").strip() or None
+        ths_page_code = str(board.get("ths_page_code") or "").strip() or None
+        ths_market_code = str(board.get("ths_market_code") or "").strip() or None
+        ths_prefix = str(board.get("ths_prefix") or "").strip() or None
+        history_source_id = str(board.get("history_source_id") or "").strip() or None
+        history_source_code = str(board.get("history_source_code") or "").strip() or None
+        if ths_category is not None and ths_category not in ("industry", "concept", "index"):
+            raise ValueError("同花顺板块类别无效")
+        for value in (ths_page_code, ths_market_code):
+            if value is not None and not re.fullmatch(r"\d{6}", value):
+                raise ValueError("同花顺板块代码无效")
+        if ths_prefix is not None and ths_prefix not in ("bk", "zs"):
+            raise ValueError("同花顺行情前缀无效")
+        if history_source_id is not None:
+            writable_source_id(history_source_id, field="history_source_id")
+        if history_source_code is not None and not re.fullmatch(r"[a-z][a-z]_\d{6}", history_source_code):
+            raise ValueError("同花顺行情代码无效")
         key = (source_id, code)
         if key not in seen:
-            cleaned.append({"source_id": source_id, "code": code, "name": name, "kind": kind, "added_at": observed})
+            cleaned.append({
+                "source_id": source_id, "code": code, "name": name, "kind": kind, "added_at": observed,
+                "ths_category": ths_category, "ths_page_code": ths_page_code,
+                "ths_market_code": ths_market_code, "ths_prefix": ths_prefix,
+                "history_source_id": history_source_id, "history_source_code": history_source_code,
+            })
             seen.add(key)
     migrate(settings)
     with connection_scope(settings) as connection:
         connection.execute("BEGIN IMMEDIATE")
         try:
             connection.executemany(
-                """INSERT INTO sector_custom_board(source_id,code,name,kind,added_at)
-                   VALUES (?,?,?,?,?)
+                """INSERT INTO sector_custom_board
+                   (source_id,code,name,kind,added_at,ths_category,ths_page_code,ths_market_code,
+                    ths_prefix,history_source_id,history_source_code)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(source_id,code) DO UPDATE SET
-                   name=excluded.name,kind=excluded.kind""",
-                [(item["source_id"], item["code"], item["name"], item["kind"], item["added_at"]) for item in cleaned],
+                   name=excluded.name,kind=excluded.kind,
+                   ths_category=excluded.ths_category,
+                   ths_page_code=excluded.ths_page_code,
+                   ths_market_code=excluded.ths_market_code,
+                   ths_prefix=excluded.ths_prefix,
+                   history_source_id=excluded.history_source_id,
+                   history_source_code=excluded.history_source_code""",
+                [(
+                    item["source_id"], item["code"], item["name"], item["kind"], item["added_at"],
+                    item["ths_category"], item["ths_page_code"], item["ths_market_code"], item["ths_prefix"],
+                    item["history_source_id"], item["history_source_code"],
+                ) for item in cleaned],
             )
             connection.executemany(
                 "DELETE FROM sector_removed_board WHERE universe_type='hot_board' AND source_id=? AND code=?",
