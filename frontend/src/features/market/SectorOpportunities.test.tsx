@@ -139,11 +139,14 @@ describe('SectorOpportunities', () => {
     expect(input).toHaveAttribute('enterkeyhint', 'search');
   });
 
-  it('shows data support denominators and recommendation readiness', async () => {
+  it('omits collection diagnostics and coverage panels from the opportunity page', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(new Response(JSON.stringify({
         ...fixture(),
+        collection_status: { state: 'stale', run_id: 'fixture-task', database_id: 'fixture-database' },
+        coverage: [{ universe_type: 'hot_board', total: 90, price_eligible: { short: 90, medium: 90, long: 90 },
+          industry_current: 0, valuation_observations: 0, valuation_dated_current: 0 }],
         data_support: {
           version: 'sector-data-support-v1',
           scope: 'tonghuashun_industry_pool',
@@ -171,12 +174,12 @@ describe('SectorOpportunities', () => {
       }), { status: 200 })),
     );
     renderPage();
-    await screen.findByText('底层数据支撑');
-    expect(screen.getByText(/正式推荐条件：未满足/)).toBeInTheDocument();
-    expect(screen.getByText('覆盖：短/中/长期 90/90/90，目标 90')).toBeInTheDocument();
-    expect(screen.getByText('覆盖：板块 75/90，成员 3179')).toBeInTheDocument();
-    expect(screen.getByText('用途：中期判断、长期判断、估值判断')).toBeInTheDocument();
-    expect(screen.getByText('边界：超过 100 只成分的行业仍有分页限制。')).toBeInTheDocument();
+    await screen.findByText('测试指数');
+    expect(screen.queryByLabelText('板块采集任务状态')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('板块研究数据覆盖')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('板块底层数据支撑')).not.toBeInTheDocument();
+    expect(screen.queryByText('查看全部数据项与覆盖分母')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新评估' })).toBeInTheDocument();
   });
 
   it('keeps unknown heat last in both directions and preserves strength ties', () => {

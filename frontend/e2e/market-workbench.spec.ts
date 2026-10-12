@@ -67,7 +67,11 @@ test('实际打开基金详情后记录，清空搜索恢复浏览卡片，刷�
 
 test('只保留重新评估，连续五次POST显示各次返回结果', async ({ page }) => {
   let posts = 0;
-  const initial = { ...workbenchDetail(), items: [workbenchSector()] };
+  const initial = { ...workbenchDetail(), items: [workbenchSector()],
+    collection_status: { state: 'stale', run_id: 'fixture-task', database_id: 'fixture-database' },
+    coverage: [],
+    data_support: { datasets: [], blocking_gaps: [], formal_recommendation_ready: false, note: '测试资料覆盖' },
+  };
   await page.route('**/api/sectors/opportunities', async (route) => route.fulfill({ json: initial }));
   await page.route('**/api/sectors/refresh', async (route) => {
     expect(route.request().method()).toBe('POST'); posts += 1;
@@ -75,8 +79,12 @@ test('只保留重新评估，连续五次POST显示各次返回结果', async (
     await route.fulfill({ json: { refresh: { target: 'sectors', status: 'success', message: `完成第${posts}次` },
       evaluation: { ...initial, items: [item] }, api_contract: 'market-workbench-v2' } });
   });
-  await page.goto('/sectors');
+  await page.goto('/sectors?scope=all');
   await expect(page.getByRole('table', { name: '板块三周期历史表现与研究证据对照' })).toBeVisible();
+  await expect(page.getByLabel('板块采集任务状态')).toHaveCount(0);
+  await expect(page.getByLabel('板块研究数据覆盖')).toHaveCount(0);
+  await expect(page.getByLabel('板块底层数据支撑')).toHaveCount(0);
+  await page.screenshot({ path: '../runtime/verification/sector-opportunities-cleaned.png', fullPage: true });
   await expect(page.getByRole('button', { name: '获取最新行业数据' })).toHaveCount(0);
   for (let round = 1; round <= 5; round += 1) {
     await page.getByRole('button', { name: '重新评估', exact: true }).click();

@@ -222,52 +222,6 @@ function heatBasisLabel(value: string) {
   return value === 'turnover_amount' ? '成交额' : value === 'source_heat' ? '源人气值' : value;
 }
 
-function supportStatusLabel(value: 'available' | 'partial' | 'not_collected' | 'blocked') {
-  return value === 'available' ? '已具备' : value === 'partial' ? '部分具备' : value === 'blocked' ? '受阻' : '尚未采集';
-}
-
-const supportPurposeLabels: Record<string, string> = {
-  short: '短期判断',
-  medium: '中期判断',
-  long: '长期判断',
-  valuation: '估值判断',
-  pricing: '定价判断',
-  sample_quality: '样本质量',
-  weighted_fundamentals: '加权经营',
-  historical_replay: '历史回放',
-  valuation_percentile: '估值分位',
-  crowding: '拥挤度',
-  risk: '风险判断',
-  relative_return: '相对收益',
-  fund_selection: '基金择优',
-  formal_recommendation: '正式推荐',
-};
-
-function coverageText(item: SectorSupportDataset) {
-  const c = item.coverage || {};
-  if (item.id === 'sector_price_history') {
-    return `短/中/长期 ${c.short ?? 0}/${c.medium ?? 0}/${c.long ?? 0}，目标 ${c.total ?? 0}`;
-  }
-  if (item.id === 'current_constituents') {
-    return `板块 ${c.boards ?? 0}/${c.total_boards ?? 0}，成员 ${c.members ?? 0}`;
-  }
-  if (item.id === 'constituent_financials') {
-    return `可用板块 ${c.available_boards ?? 0}/${c.total_boards ?? 0}，部分板块 ${c.partial_boards ?? 0}`;
-  }
-  if ('members' in c || 'total_members' in c) {
-    return `成员 ${c.members ?? 0}/${c.total_members ?? 0}`;
-  }
-  if ('boards' in c || 'total_boards' in c) {
-    return `板块 ${c.boards ?? 0}/${c.total_boards ?? 0}`;
-  }
-  return Object.entries(c).map(([key, value]) => `${key} ${value}`).join('，') || '未提供分母';
-}
-
-function requiredText(item: SectorSupportDataset) {
-  const values = item.required_for?.map((key) => supportPurposeLabels[key] ?? key).filter(Boolean) ?? [];
-  return values.length ? values.join('、') : '资料核对';
-}
-
 function periodFor(item: SectorOpportunity, key: SortKey) {
   return key === 'heat' ? null : (item.periods.find((period) => period.id === key) ?? null);
 }
@@ -723,8 +677,6 @@ export function SectorOpportunities() {
     return () => request.current?.abort();
   }, [load]);
 
-  const taskProgress = data?.collection_status?.result?.progress ?? data?.collection_status?.result?.last_progress;
-
   return (
     <div className="sector-opportunities">
       <Notice title="真实板块行情与分层证据，不是基金推荐或买卖信号" tone="info">
@@ -755,37 +707,6 @@ export function SectorOpportunities() {
         }} />
       </div>
       <p className="muted">“重新评估”先联网采集可核验行业名单、日线和成分，再返回本次评估。当前同花顺公开链路尚未接入完整的成分经营报表和带明确口径的同日估值；已有参考指数仍须从关联基金详情更新。资料日期不等于评估时间，缺项或更新失败时不能视为完整投资判断。</p>
-      {data?.collection_status && <p className="muted" aria-label="板块采集任务状态">
-        最近采集任务：{data.collection_status.state} · {data.collection_status.run_id || '尚未开始'}
-        {taskProgress && <> · 阶段 {taskProgress.stage}
-          {taskProgress.dataset && <> / {taskProgress.dataset}</>}</>}
-        {' '}· 数据库标识 {data.collection_status.database_id}。进入页面只读取已保存资料，不启动联网采集。
-      </p>}
-      {data?.coverage && <section className="sector-coverage" aria-label="板块研究数据覆盖">
-        <strong>当前资料覆盖，不是投资评分</strong>
-        {data.coverage.map((coverage) => <p key={coverage.universe_type}>
-          {coverage.universe_type === 'hot_board' ? '行业／板块池' : '参考指数池'}：共 {coverage.total} 个；
-          短／中／长期可比较 {coverage.price_eligible.short}／{coverage.price_eligible.medium}／{coverage.price_eligible.long} 个；
-          有效经营依据 {coverage.industry_current} 个；估值原始观察 {coverage.valuation_observations} 个，其中日期明确且未过期 {coverage.valuation_dated_current} 个。
-        </p>)}
-        <p>尚缺同口径历史估值、成分盈利与现金流穿透、资金申赎及催化／预期快照、完整交易日历和样本外验证；本页面不生成正式投资推荐。</p>
-      </section>}
-      {data?.data_support && <section className="sector-coverage sector-support" aria-label="板块底层数据支撑">
-        <strong>底层数据支撑</strong>
-        <p>{data.data_support.note}</p>
-        <p>正式推荐条件：{data.data_support.formal_recommendation_ready ? '已满足' : '未满足'}；阻断缺口 {data.data_support.blocking_gaps.length} 项。缺口未补齐前，只展示观察依据，不生成买入、加仓、减仓或清仓建议。</p>
-        <details open>
-          <summary>查看全部数据项与覆盖分母</summary>
-          <ul className="sector-support-list">
-            {data.data_support.datasets.map((item) => <li key={item.id}>
-              <b>{item.label}</b>：{supportStatusLabel(item.status)}
-              <small>覆盖：{coverageText(item)}</small>
-              <small>用途：{requiredText(item)}</small>
-              {item.note && <small>边界：{item.note}</small>}
-            </li>)}
-          </ul>
-        </details>
-      </section>}
       {data?.universe && (
         <div className="sector-universe-meta">
           <strong>{data.universe.label}</strong>
