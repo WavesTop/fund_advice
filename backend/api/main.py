@@ -4,6 +4,7 @@ from threading import Lock
 from typing import Literal
 
 from fastapi import Body, FastAPI, Query
+from pydantic import BaseModel
 
 from backend.core.config import Settings
 from backend.integrations.market_refresh import refresh_market_data
@@ -20,6 +21,10 @@ from backend.analysis.sector_status import sector_opportunities
 
 _refresh_locks: dict[str, Lock] = {}
 _refresh_locks_guard = Lock()
+
+
+class SectorRefreshInput(BaseModel):
+    mode: Literal["full", "quotes"] = "full"
 
 
 def _refresh_lock(code: str) -> Lock:
@@ -90,7 +95,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return refresh_market_data(resolved, "catalog")
 
     @app.post("/api/sectors/refresh")
-    def refresh_sectors() -> dict[str, object]:
+    def refresh_sectors(payload: SectorRefreshInput | None = None) -> dict[str, object]:
+        if payload is not None and payload.mode == "quotes":
+            return refresh_market_data(resolved, "sectors", mode="quotes")
         return refresh_market_data(resolved, "sectors")
 
     def run_sector_search(q: str) -> dict[str, object]:
@@ -118,7 +125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         index_like = bool(re.fullmatch(r"\d{6}", term) or any(
             marker in term for marker in ("中证", "国证", "沪深", "上证")
         ))
-        if not exact_ths and (index_like or not items):
+        if not exact_ths and not ths.get("pending_directory_update") and (index_like or not items):
             try:
                 indexes = search_csi_indexes(term)
                 items.extend(indexes.get("items", []))
@@ -140,7 +147,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not deduped and errors and not attempts:
             raise AppError("sector_search_failed", "同花顺板块搜索失败，请稍后重试", 502,
                            {"reason": "；".join(errors)[:1000]})
-        return {"items": deduped[:30], "source_attempts": attempts, "errors": errors}
+        return {"items": deduped[:30], "source_attempts": attempts, "errors": errors,
+                "pending_directory_update": ths.get("pending_directory_update", False)}
 
     @app.get("/api/sector-board-search")
     def search_sector_boards(q: str = Query(min_length=1, max_length=100)) -> dict[str, object]:

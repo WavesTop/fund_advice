@@ -5,11 +5,12 @@ import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
+from threading import Event
 
 from asgi_client import ASGITestClient
 from backend.api.main import create_app
 from backend.core.config import Settings
-from backend.integrations.ths_search_catalog import parse_etf_pool
+from backend.integrations.ths_search_catalog import parse_etf_pool, match_ths_candidates, refresh_identities_in_background
 from backend.storage.database import MIGRATIONS_DIR, connection_scope, migrate
 from backend.storage.sector_heat import add_custom_boards, list_custom_boards, read_sector_heat
 from scripts.import_sector_heat import _parse_ths_standard_sector_links, refresh_selected_ths_boards, search_ths_boards
@@ -60,6 +61,30 @@ class ThsSearchTests(unittest.TestCase):
         root = {"data": {**ETF_ROOT["data"], "total": 2}}
         with self.assertRaisesRegex(ValueError, "不完整"):
             parse_etf_pool(root)
+
+    def test_exact_alias_keeps_ambiguous_etfs_and_index_updates_after_rename(self):
+        first = {**self.etf, "aliases": ["沪深300ETF"]}
+        second = {**self.etf, "code": "159919", "name": "沪深300ETF嘉实", "aliases": ["沪深300ETF"]}
+        partial = {**self.etf, "code": "510330", "name": "沪深300ETF相关主题", "aliases": []}
+        found = match_ths_candidates([first, second, partial], "沪深300ETF", {"沪深300ETF"})
+        self.assertEqual({row["code"] for row in found}, {"510300", "159919"})
+        renamed = {**first, "name": "重命名基金", "aliases": []}
+        self.assertEqual(match_ths_candidates([renamed], "沪深300ETF", {"沪深300ETF"}), [])
+        self.assertEqual(match_ths_candidates([renamed], "重命名基金", {"重命名基金"})[0]["code"], "510300")
+
+    def test_directory_background_refresh_is_nonblocking_and_deduplicated(self):
+        started, finish = Event(), Event()
+        def load():
+            started.set()
+            finish.wait(2)
+        try:
+            refresh_identities_in_background("fixture-directory", load)
+            self.assertTrue(started.wait(1))
+            with patch("backend.integrations.ths_search_catalog.Thread") as thread:
+                refresh_identities_in_background("fixture-directory", load)
+            thread.assert_not_called()
+        finally:
+            finish.set()
 
     def test_populated_database_upgrade_preserves_boards_and_accepts_etf(self):
         older = Path(self.temp.name) / "old-migrations"

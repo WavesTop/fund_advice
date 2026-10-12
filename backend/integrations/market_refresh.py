@@ -20,9 +20,11 @@ _locks: dict[tuple[str, str], Lock] = {}
 _guard = Lock()
 
 
-def refresh_market_data(settings: Settings, target: str) -> dict:
+def refresh_market_data(settings: Settings, target: str, *, mode: str = "full") -> dict:
     if target not in TIMEOUTS:
         raise AppError("invalid_refresh_target", "采集目标无效", 422)
+    if mode not in ("full", "quotes") or (mode == "quotes" and target != "sectors"):
+        raise AppError("invalid_refresh_mode", "刷新模式无效", 422)
     database = str(settings.database_path.resolve())
     with _guard:
         lock = _locks.setdefault((database, target), Lock())
@@ -36,7 +38,8 @@ def refresh_market_data(settings: Settings, target: str) -> dict:
         # A subprocess bounds even an upstream library which fails to honor HTTP timeouts.
         try:
             process = subprocess.run(
-                [sys.executable, "-X", "utf8", "-m", "scripts.refresh_market_data", "--target", target, "--database", database, "--run-id", run_id],
+                [sys.executable, "-X", "utf8", "-m", "scripts.refresh_market_data", "--target", target, "--database", database, "--run-id", run_id,
+                 "--mode", mode],
                 cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=TIMEOUTS[target], check=False,
             )
         except subprocess.TimeoutExpired as exc:
@@ -61,14 +64,16 @@ def refresh_market_data(settings: Settings, target: str) -> dict:
                                500, {"refresh": result}) from exc
             # A research failure is distinct from source collection and from the legacy display.
             # No snapshot gap can silently enable an investment recommendation.
-            try:
-                from backend.integrations.research_inputs import capture_current_inputs
-                from backend.analysis.research_pipeline import run_snapshot
-                captured = capture_current_inputs(settings)
-                fixed = run_snapshot(settings, captured["snapshot_id"])
-                research = {"status": "recorded_unvalidated", **captured, "run_id": fixed["run_id"]}
-            except Exception as exc:
-                research = {"status": "failed", "reason": f"{type(exc).__name__}: {str(exc)[:1000]}"}
+            research = {"status": "not_requested", "reason": "行情快速刷新保留原有研究资料。"}
+            if mode == "full":
+                try:
+                    from backend.integrations.research_inputs import capture_current_inputs
+                    from backend.analysis.research_pipeline import run_snapshot
+                    captured = capture_current_inputs(settings)
+                    fixed = run_snapshot(settings, captured["snapshot_id"])
+                    research = {"status": "recorded_unvalidated", **captured, "run_id": fixed["run_id"]}
+                except Exception as exc:
+                    research = {"status": "failed", "reason": f"{type(exc).__name__}: {str(exc)[:1000]}"}
             terminal_state, terminal_result = result["status"], {**result, "research": research}
             return {"refresh": result, "evaluation": evaluation, "api_contract": "market-workbench-v2",
                     "collection_run_id": run_id, "research": research}

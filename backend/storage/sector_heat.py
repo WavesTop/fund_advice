@@ -161,18 +161,20 @@ def read_sector_heat(settings: Settings) -> dict[str, Any]:
                 (row["universe_type"], row["source_id"], row["code"])
                 for row in connection.execute("SELECT universe_type,source_id,code FROM sector_removed_board")
             }
-            source_ids = sorted({row["source_id"] for row in members}) or [SOURCE_ID]
-            placeholders = ",".join("?" for _ in source_ids)
             membership_snapshots = connection.execute(
-                f"""SELECT * FROM sector_membership_snapshot
-                    WHERE board_source_id IN ({placeholders}) AND as_of=?""",
-                (*source_ids, snapshot["as_of"] if snapshot else None),
+                """SELECT m.* FROM sector_heat_member h JOIN sector_membership_snapshot m
+                    ON m.board_source_id=h.source_id AND m.board_code=h.code AND m.as_of=(
+                        SELECT MAX(s.as_of) FROM sector_membership_snapshot s
+                        WHERE s.board_source_id=h.source_id AND s.board_code=h.code AND s.as_of<=?)""",
+                (snapshot["as_of"] if snapshot else None,),
             ).fetchall()
             memberships = connection.execute(
-                f"""SELECT * FROM sector_membership
-                    WHERE board_source_id IN ({placeholders}) AND as_of=?
-                    ORDER BY board_source_id, board_code, source_order""",
-                (*source_ids, snapshot["as_of"] if snapshot else None),
+                """SELECT m.* FROM sector_heat_member h JOIN sector_membership m
+                    ON m.board_source_id=h.source_id AND m.board_code=h.code AND m.as_of=(
+                        SELECT MAX(s.as_of) FROM sector_membership_snapshot s
+                        WHERE s.board_source_id=h.source_id AND s.board_code=h.code AND s.as_of<=?)
+                    ORDER BY m.board_source_id, m.board_code, m.source_order""",
+                (snapshot["as_of"] if snapshot else None,),
             ).fetchall()
             connection.execute("COMMIT")
         except Exception:
@@ -501,7 +503,8 @@ def add_custom_boards(settings: Settings, boards: list[dict[str, Any]], *, added
 def save_sector_heat(settings: Settings, *, as_of: str, updated_at: str,
                      catalog_count: int, members: list[dict[str, Any]],
                      requested_count: int = 100, universe_scope: str = "hot_board_top100",
-                     directory_provenance: dict[str, Any] | None = None) -> None:
+                     directory_provenance: dict[str, Any] | None = None,
+                     refresh_membership: bool = True) -> None:
     """Publish a complete ranking plus each member's actual collection outcome."""
     try:
         for item in members:
@@ -589,7 +592,7 @@ def save_sector_heat(settings: Settings, *, as_of: str, updated_at: str,
                  for item in members],
             )
             for item in members:
-                if item["kind"] == "ETF":
+                if item["kind"] == "ETF" or not refresh_membership:
                     continue
                 source_id = item.get("source_id", SOURCE_ID)
                 component_error = item.get("constituent_error")

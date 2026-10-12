@@ -11,7 +11,7 @@ import sys
 
 from backend.core.config import Settings
 from scripts.import_fund_catalog import refresh_fund_catalog
-from scripts.import_sector_heat import refresh_sector_heat
+from scripts.import_sector_heat import refresh_sector_heat, refresh_sector_quotes
 from scripts.import_related_market import refresh_existing_indexes
 from backend.integrations.sector_financials import collect_sector_fundamentals
 from scripts.import_sector_heat import COLLECTOR_VERSION
@@ -25,7 +25,9 @@ def progress_event(stage: str, state: str, percent: int, message: str, **extra) 
     return {"stage": stage, "state": state, "percent": max(0, min(100, percent)), "message": message, **extra}
 
 
-def collect(settings: Settings, target: str, *, progress=None) -> dict:
+def collect(settings: Settings, target: str, *, progress=None, mode: str = "full") -> dict:
+    if mode not in ("full", "quotes"):
+        raise ValueError("刷新模式无效")
     started = now()
     if target == "catalog":
         result = refresh_fund_catalog(settings)
@@ -49,7 +51,8 @@ def collect(settings: Settings, target: str, *, progress=None) -> dict:
         else:
             progress(progress_event("market", "running", 8, text))
 
-    result = refresh_sector_heat(settings, industry_only=True, progress=market_progress if progress else None)
+    result = (refresh_sector_quotes(settings, progress=market_progress if progress else None) if mode == "quotes"
+              else refresh_sector_heat(settings, industry_only=True, progress=market_progress if progress else None))
     if progress:
         progress(progress_event("market", "running", 62, "同花顺板块/概念采集完成，正在刷新参考指数。"))
 
@@ -84,25 +87,28 @@ def collect(settings: Settings, target: str, *, progress=None) -> dict:
     status = "failed" if not price_ok else "success" if (
         price_ok == members_ok == requested and not universe.get("last_error") and directory_mode == "live"
     ) else "partial"
+    if mode == "quotes":
+        status = "failed" if not price_ok else "success" if price_ok == requested else "partial"
     if status == "success" and index_failed:
         status = "partial"
-    if progress:
+    if progress and mode == "full":
         progress(progress_event("financials", "running", 82, "正在核对成分经营与估值资料。"))
-    financials = (collect_sector_fundamentals(settings, items, progress=progress) if progress
+    financials = ({"status": "not_requested", "message": "行情快速刷新保留原有经营、估值和成分资料。"} if mode == "quotes"
+                  else collect_sector_fundamentals(settings, items, progress=progress) if progress
                   else collect_sector_fundamentals(settings, items))
     if progress:
         progress(progress_event("financials", financials["status"], 95, financials["message"]))
-    if status == "success" and financials["status"] != "success":
+    if mode == "full" and status == "success" and financials["status"] != "success":
         status = "partial"
     window_coverage = result.get("price_window_coverage")
     if status == "success" and window_coverage is not None and any(
             window_coverage.get(key) != requested for key in ("short", "medium", "long")):
         status = "partial"
     errors = [{"code": item["code"], "message": item.get("collection_error") or item.get("membership", {}).get("error")}
-              for item in items if item.get("collection_error") or item.get("membership", {}).get("error")]
+              for item in items if item.get("collection_error") or (mode == "full" and item.get("membership", {}).get("error"))]
     errors.extend({"code": str(item.get("code")), "message": str(item.get("error"))}
                   for item in index_items if item.get("status") == "failed")
-    return {"target": target, "status": status, "started_at": started, "completed_at": now(),
+    return {"target": target, "mode": mode, "status": status, "started_at": started, "completed_at": now(),
             "ranking_as_of": universe["ranking_as_of"], "requested_count": requested,
             "catalog_count": catalog_count, "identity_excluded_count": catalog_count - requested,
             "collector_version": COLLECTOR_VERSION,
@@ -111,13 +117,15 @@ def collect(settings: Settings, target: str, *, progress=None) -> dict:
             "price_cutoff": result.get("price_cutoff"), "price_window_coverage": window_coverage,
             "price_updated": price_ok, "price_failed": requested - price_ok,
             "index_updated": index_ok, "index_failed": index_failed,
-            "membership_updated": members_ok, "membership_failed": requested - members_ok,
+            "membership_updated": members_ok if mode == "full" else 0,
+            "membership_failed": requested - members_ok if mode == "full" else 0,
             "errors": errors, "manual_evidence_refreshed": bool(index_items),
             "reference_index_refreshed": bool(index_items), "fundamentals": financials,
-            "message": f"目录 {catalog_count} 个，纳入行业 {requested} 个（失败项不剔除）；日线成功 {price_ok}/{requested}，成分成功 {members_ok}/{requested}。"
+            "message": (f"最新行情成功 {price_ok}/{requested}，参考指数成功 {index_ok}/{len(index_items)}；经营、估值和成分资料保留原有更新时间。" if mode == "quotes" else
+                       f"目录 {catalog_count} 个，纳入行业 {requested} 个（失败项不剔除）；日线成功 {price_ok}/{requested}，成分成功 {members_ok}/{requested}。"
                        f"参考指数成功 {index_ok}/{len(index_items)}。"
                        f"成分经营与同日估值：{financials['message']}。"
-                       "本次以当前板块库清单为准；失败项不计作本轮完整研究。"}
+                       "本次以当前板块库清单为准；失败项不计作本轮完整研究。")}
 
 
 def main(argv=None) -> int:
@@ -125,6 +133,7 @@ def main(argv=None) -> int:
     parser.add_argument("--target", choices=("catalog", "sectors"), required=True)
     parser.add_argument("--database", required=True)
     parser.add_argument("--run-id")
+    parser.add_argument("--mode", choices=("full", "quotes"), default="full")
     args = parser.parse_args(argv)
     settings = Settings(database_path=Path(args.database))
     if args.run_id:
@@ -135,7 +144,7 @@ def main(argv=None) -> int:
     try:
         # Upstream libraries may write diagnostics; stdout is reserved for this JSON contract.
         with redirect_stdout(sys.stderr):
-            result = collect(settings, args.target, progress=(
+            result = collect(settings, args.target, mode=args.mode, progress=(
                 (lambda event: record_progress(settings, args.run_id, event)) if args.run_id else None))
     except Exception as exc:
         result = {"target": args.target, "status": "failed", "started_at": started,

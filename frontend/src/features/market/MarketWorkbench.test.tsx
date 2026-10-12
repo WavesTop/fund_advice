@@ -304,6 +304,7 @@ describe('基金与板块工作台', () => {
       '/api/sectors/custom',
       expect.objectContaining({ method: 'POST' }),
     );
+    expect(fetcher.mock.calls.some(([url]) => String(url).startsWith('/api/sector-board-search'))).toBe(false);
   });
   it('板块库可搜索同花顺板块并添加到同一行情列表', async () => {
     let finishAdd!: (value: Response) => void;
@@ -388,7 +389,7 @@ describe('基金与板块工作台', () => {
         evaluation: {
           ...opportunities('2026-10-08'),
           items: [
-            board('2026-10-08'),
+            board('2026-09-23'),
             {
               ...board('2026-10-08'),
               code: '886001',
@@ -417,6 +418,7 @@ describe('基金与板块工作台', () => {
       expect(screen.getByRole('status', { name: '板块刷新进度' })).toHaveTextContent('100%'),
     );
     expect(document.querySelector('.sector-library-count')).toHaveTextContent('2 个板块/指数');
+    expect(fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/sectors/881001/series'))).toHaveLength(1);
   });
   it('板块库可编辑删除板块，并同步更新列表数量', async () => {
     HTMLDialogElement.prototype.showModal = vi.fn(function showModal(this: HTMLDialogElement) {

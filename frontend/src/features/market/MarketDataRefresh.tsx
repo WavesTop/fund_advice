@@ -12,6 +12,7 @@ import {
 type Outcome = { status: 'success' | 'partial' | 'failed'; message: string };
 interface Props {
   target: RefreshTarget;
+  mode?: 'full' | 'quotes';
   onSettled: (evaluation?: OpportunitiesResponse, outcome?: Outcome) => void;
   onStart?: () => void;
   idleLabel?: string;
@@ -19,7 +20,7 @@ interface Props {
 }
 
 /** Changing routes unsubscribes the view, not the server-side collection. */
-export function MarketDataRefresh({ target, onSettled, onStart, idleLabel, busyLabel }: Props) {
+export function MarketDataRefresh({ target, mode = 'full', onSettled, onStart, idleLabel, busyLabel }: Props) {
   const [busy, setBusy] = useState(Boolean(pendingRefresh(target)));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const callback = useRef({ onSettled, onStart });
@@ -66,7 +67,7 @@ export function MarketDataRefresh({ target, onSettled, onStart, idleLabel, busyL
         type="button"
         disabled={busy}
         onClick={() => {
-          startSharedRefresh(target);
+          startSharedRefresh(target, mode);
         }}
       >
         <RefreshCw size={16} aria-hidden="true" />

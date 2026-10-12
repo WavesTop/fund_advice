@@ -23,13 +23,14 @@ export function subscribeRefresh(listener: () => void) {
 function notify() { for (const listener of listeners) listener(); }
 
 /** One POST survives route changes; only the explicit button starts collection. */
-export function startSharedRefresh(target: RefreshTarget): Promise<RefreshResult> {
+export function startSharedRefresh(target: RefreshTarget, mode: 'full' | 'quotes' = 'full'): Promise<RefreshResult> {
   const existing = pending.get(target);
   if (existing) return existing;
   revision += 1; // An earlier GET must not overwrite the result of this refresh.
   const task = (async (): Promise<RefreshResult> => {
     const response = await fetch(target === 'sectors' ? '/api/sectors/refresh' : '/api/funds/catalog/refresh', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: target === 'sectors' && mode === 'quotes' ? JSON.stringify({ mode }) : '{}',
     });
     const data = await response.json().catch(() => null);
     if (!response.ok) {

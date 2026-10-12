@@ -5,6 +5,7 @@ from functools import lru_cache
 import json
 from pathlib import Path
 import time
+from threading import Lock, Thread
 import unicodedata
 from urllib.request import Request, urlopen
 
@@ -12,13 +13,45 @@ ROOT = Path(__file__).resolve().parents[2]
 ETF_POOL_URL = "https://fund.10jqka.com.cn/quotation/fund_pool/v2/query"
 ETF_RANK_URL = "https://fund.10jqka.com.cn/quotation/temp/data_api/fetch/v1/specific_data"
 ETF_POOL_KEY = "347c9f28-8a67-48a7-8c05-380ff8e595c7"
+_refresh_guard = Lock()
+_refresh_tasks: dict[str, Thread] = {}
+_refresh_after: dict[str, float] = {}
+
+
+@lru_cache(maxsize=8)
+def _identity_file(path: str, modified: int, size: int) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def refresh_identities_in_background(group: str, loader) -> None:
+    with _refresh_guard:
+        if (_refresh_tasks.get(group) is not None and _refresh_tasks[group].is_alive()) or time.monotonic() < _refresh_after.get(group, 0):
+            return
+        _refresh_after[group] = time.monotonic() + 3600
+        def refresh() -> None:
+            try:
+                loader()
+            except Exception:
+                with _refresh_guard:
+                    _refresh_after[group] = time.monotonic() + 60
+        task = Thread(target=refresh, daemon=True, name=f"ths-identities-{group}")
+        _refresh_tasks[group] = task
+        task.start()
+
+
+def identity_refresh_running() -> bool:
+    with _refresh_guard:
+        return any(task.is_alive() for task in _refresh_tasks.values())
 
 
 def read_identity_cache(group: str, *, max_age: float | None = 3600) -> list[dict]:
     for path in (ROOT / "runtime" / "cache" / f"ths-search-{group}.json",
                  ROOT / "config" / f"ths-search-{group}.json"):
         try:
-            root = json.loads(path.read_text(encoding="utf-8"))
+            stat = path.stat()
+            root = _identity_file(str(path), stat.st_mtime_ns, stat.st_size)
+            if not isinstance(root, dict):
+                continue
             if root.get("source") != "tonghuashun" or root.get("version") != 2:
                 continue
             if max_age is not None and time.time() - root["fetched_at"] > max_age:
@@ -44,6 +77,39 @@ def save_identity_cache(group: str, rows: list[dict]) -> None:
 
 def normalize_query(value: str) -> str:
     return "".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+@lru_cache(maxsize=2)
+def _search_index(signatures: tuple) -> tuple:
+    exact: dict[str, list[int]] = {}
+    normalized = []
+    for position, values in enumerate(signatures):
+        fields = tuple(normalize_query(value) for value in values if value)
+        normalized.append(fields)
+        for value in set(fields):
+            exact.setdefault(value, []).append(position)
+    return normalized, exact
+
+
+def match_ths_candidates(candidates: list[dict], term: str, relaxed_terms: set[str]) -> list[dict]:
+    signatures = tuple(tuple(str(item.get(key) or "") for key in
+        ("name", "code", "ths_page_code", "ths_market_code", "history_source_code")) +
+        tuple(item.get("aliases", [])) for item in candidates)
+    fields, exact = _search_index(signatures)
+    normalized_term = normalize_query(term)
+    if normalized_term in exact:
+        positions = exact[normalized_term]
+    else:
+        terms = tuple(normalize_query(value) for value in relaxed_terms)
+        positions = [index for index, values in enumerate(fields)
+                     if any(value in field for value in terms for field in values)]
+    terms = tuple(normalize_query(value) for value in relaxed_terms)
+    def rank(position: int) -> tuple:
+        item = candidates[position]
+        starts = any(fields[position][0].startswith(value) or fields[position][1].startswith(value) for value in terms)
+        return (0 if normalized_term in fields[position] else 1 if starts else 2,
+                {"行业": 0, "概念": 1, "指数": 2, "ETF": 3}.get(item["kind"], 4), item["code"])
+    return [candidates[position] for position in sorted(positions, key=rank)]
 
 
 def public_json_query(url: str, body: dict) -> dict:
@@ -98,7 +164,17 @@ def _etf_catalog(hour: int) -> tuple[dict, ...]:
 
 
 def fetch_ths_etf_directory() -> list[dict]:
+    cached = read_identity_cache("etfs", max_age=None)
+    if cached:
+        if not read_identity_cache("etfs"):
+            refresh_identities_in_background("etfs", _refresh_etf_directory)
+        return [dict(item) for item in cached]
     return [dict(item) for item in _etf_catalog(int(time.time() // 3600))]
+
+
+def _refresh_etf_directory() -> tuple[dict, ...]:
+    _etf_catalog.cache_clear()
+    return _etf_catalog(int(time.time() // 3600))
 
 
 def fetch_ths_etf_hot100() -> dict:

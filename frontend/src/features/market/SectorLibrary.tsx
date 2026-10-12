@@ -196,6 +196,11 @@ function formatDate(value: string | null | undefined) {
   return value?.slice(0, 10) || '暂无';
 }
 
+function historyRevision(item: SectorOpportunity) {
+  return JSON.stringify([item.updated_at, item.as_of, item.collection_error,
+                         item.history_source_id, item.history_source_code]);
+}
+
 function quoteLabel(item: SectorOpportunity, result?: ScanResult) {
   const queriedAt = result ? result.queriedAt : item.updated_at;
   if (!queriedAt) return '行情查询 时间未知';
@@ -606,6 +611,8 @@ export function SectorLibrary() {
   const [progressVisible, setProgressVisible] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<RefreshProgress | null>(null);
   const [refreshingLibrary, setRefreshingLibrary] = useState(false);
+  const [refreshMode, setRefreshMode] = useState<'quotes' | 'full'>('quotes');
+  const scanCache = useRef<Record<string, { revision: string; result: ScanResult }>>({});
   const request = useRef<AbortController | null>(null);
   const dataRef = useRef(data);
   const progressActive = useRef(false);
@@ -699,7 +706,7 @@ export function SectorLibrary() {
   );
   const existingBoardKeys = useMemo(() => new Set(boards.map(boardLookupKey)), [boards]);
   const boardKey = boards
-    .map((item) => `${subjectKey(item)}:${item.updated_at}:${item.as_of}`)
+    .map((item) => `${subjectKey(item)}:${historyRevision(item)}`)
     .join('|');
 
   useEffect(() => {
@@ -711,12 +718,22 @@ export function SectorLibrary() {
     if (!boards.length) return;
     let cancelled = false;
     const controllers: AbortController[] = [];
-    setTechnical({});
-    setScan({ done: 0, total: boards.length, running: true });
+    const reused: Record<string, ScanResult> = {};
+    const pending = boards.filter((item) => {
+      const key = subjectKey(item);
+      const cached = scanCache.current[key];
+      if (!cached || cached.revision !== historyRevision(item)) return true;
+      reused[key] = cached.result;
+      return false;
+    });
+    const liveKeys = new Set(boards.map(subjectKey));
+    for (const key of Object.keys(scanCache.current)) if (!liveKeys.has(key)) delete scanCache.current[key];
+    setTechnical(reused);
+    setScan({ done: boards.length - pending.length, total: boards.length, running: pending.length > 0 });
     let cursor = 0;
     const worker = async () => {
-      while (!cancelled && cursor < boards.length) {
-        const item = boards[cursor];
+      while (!cancelled && cursor < pending.length) {
+        const item = pending[cursor];
         cursor += 1;
         const controller = new AbortController();
         controllers.push(controller);
@@ -730,15 +747,12 @@ export function SectorLibrary() {
           const points = calculateTechnical(history.rows);
           const stages = detectTechnicalStages(points);
           if (!cancelled) {
+            const result = { asOf: history.as_of, queriedAt: history.updated_at, stages, points,
+                             error: history.collection_error || undefined };
+            scanCache.current[key] = { revision: historyRevision(item), result };
             setTechnical((values) => ({
               ...values,
-              [key]: {
-                asOf: history.as_of,
-                queriedAt: history.updated_at,
-                stages,
-                points,
-                error: history.collection_error || undefined,
-              },
+              [key]: result,
             }));
           }
         } catch (cause) {
@@ -759,7 +773,7 @@ export function SectorLibrary() {
         }
       }
     };
-    void Promise.all(Array.from({ length: Math.min(6, boards.length) }, worker)).finally(() => {
+    void Promise.all(Array.from({ length: Math.min(6, pending.length) }, worker)).finally(() => {
       if (!cancelled) setScan((value) => ({ ...value, running: false }));
     });
     return () => {
@@ -788,6 +802,22 @@ export function SectorLibrary() {
   const searchCustomBoard = async () => {
     const term = addQuery.trim();
     if (!term || searchingBoard || addingBoard) return;
+    const normalizedTerm = term.normalize('NFKC').replace(/\s/g, '').toLowerCase();
+    const localMatches = boards.filter((item) =>
+      [item.code, item.name, item.history_source_code].some((value) =>
+        value?.normalize('NFKC').replace(/\s/g, '').toLowerCase() === normalizedTerm,
+      ),
+    );
+    if (localMatches.length === 1) {
+      const item = localMatches[0];
+      setSelectedKey(boardLookupKey(item));
+      setQuery(item.code);
+      setSearchResults([]);
+      setSelectedAddKeys(new Set());
+      setShowAddModal(false);
+      setAddError(`${item.name} 已在板块库中，已为你定位到列表。`);
+      return;
+    }
     setSearchingBoard(true);
     setAddError('');
     try {
@@ -812,7 +842,8 @@ export function SectorLibrary() {
         new Set(addableItems.length === 1 ? [boardLookupKey(addableItems[0])] : []),
       );
       setShowAddModal(true);
-      if (!items.length) setAddError('没有找到匹配的板块、指数或 ETF。');
+      if (!items.length) setAddError(payload?.pending_directory_update
+        ? '同花顺目录正在更新，请稍后重试。' : '没有找到匹配的板块、指数或 ETF。');
     } catch (cause) {
       setAddError(cause instanceof Error ? cause.message : '板块搜索失败。');
     } finally {
@@ -994,8 +1025,18 @@ export function SectorLibrary() {
             </small>
           )}
         </p>
+        <select
+          aria-label="板块更新范围"
+          value={refreshMode}
+          disabled={refreshingLibrary || addingBoard}
+          onChange={(event) => setRefreshMode(event.target.value as 'quotes' | 'full')}
+        >
+          <option value="quotes">最新行情</option>
+          <option value="full">行情与完整资料</option>
+        </select>
         <MarketDataRefresh
           target="sectors"
+          mode={refreshMode}
           idleLabel="刷新板块数据"
           busyLabel="正在刷新板块数据…"
           onStart={() => {
