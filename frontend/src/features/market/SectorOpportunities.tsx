@@ -105,6 +105,8 @@ export type SectorOpportunity = {
   history_source_code?: string | null;
   history_identity_match?: string | null;
   updated_at: string | null;
+  quote_as_of?: string | null;
+  quote_provisional?: boolean;
   as_of: string | null;
   observation_count: number;
   funds: { code: string; name: string; relation_status?: string; relation_reason?: string }[];

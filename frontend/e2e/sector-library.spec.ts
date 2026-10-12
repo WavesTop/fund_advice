@@ -78,6 +78,7 @@ test('sector library renders kline and four indicator charts', async ({ page }) 
       history_source_id: 'sector_daily.ths',
       history_source_code: 'BK0001',
       history_relation: 'native_source',
+      updated_at: '2026-09-21T10:23:45+08:00',
       as_of: '2026-08-29',
       collection_error: null,
       rows,
@@ -88,4 +89,8 @@ test('sector library renders kline and four indicator charts', async ({ page }) 
   await expect(page.getByRole('button', { name: /测试板块一/ })).toBeVisible();
   await expect(page.getByLabel('测试板块一 K线以及 MACD、KDJ、RSI、WR 四类常用指标图')).toBeVisible();
   await expect(page.getByLabel('技术阶段筛选')).toBeVisible();
+  await expect(page.getByRole('button', { name: /测试板块一/ })).toContainText('行情查询 2026-09-21 10:23:45');
+  await expect(page.getByRole('button', { name: /测试板块二/ })).toContainText('行情查询 2026-09-21 10:23:45');
+  await expect(page.locator('.sector-library-chart')).toContainText('行情查询 2026-09-21 10:23:45');
+  await expect(page.getByText(/15:00:00（收盘）/)).toHaveCount(0);
 });

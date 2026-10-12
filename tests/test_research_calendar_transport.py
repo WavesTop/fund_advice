@@ -13,7 +13,7 @@ from backend.core.errors import AppError
 from backend.core.trading_calendar import get_calendar, CalendarUnavailable
 from backend.integrations.http_transport import get_bytes
 from backend.storage.collection_runs import start_run, finish_run, record_attempt, runs
-from backend.storage.database import migrate, connection_scope
+from backend.storage.database import migrate, connection_scope, MIGRATIONS_DIR
 
 
 class CalendarTests(unittest.TestCase):
@@ -132,4 +132,5 @@ class DurableCollectionTests(unittest.TestCase):
     def test_concurrent_migrations_recheck_after_lock(self):
         with ThreadPoolExecutor(max_workers=3) as executor:
             values = list(executor.map(lambda _:migrate(self.settings), range(6)))
-        self.assertEqual(values,[23]*6)
+        latest = max(int(path.name[:3]) for path in MIGRATIONS_DIR.glob('[0-9][0-9][0-9]_*.sql'))
+        self.assertEqual(values,[latest]*6)

@@ -26,13 +26,15 @@ SOURCE_POLICY = {
     "provider": "同花顺",
     "classification": "同花顺原生行业分类；行业与后续主题观察池分开展示，不与概念板块混排。",
     "heat_definition": "完整读取同花顺行业目录；优先使用行业摘要成交额，摘要不可用时使用最新日线成交额排序；同额按代码排序，不是涨幅榜。",
-    "timing": "排名日期取本地交易日历最新完整交易日；行业摘要和日线请求不是同一瞬时快照。",
+    "timing": "交易日开盘后合并当日最新行情，盘中观测随刷新更新并标注行情时间；行业摘要和行情请求不是同一瞬时快照。",
     "price_basis": "按同花顺原生行业代码读取日线。不复权；成交额为元，成交量保留来源单位。",
     "limitations": "仅供本地市场背景观察；成分股来自来源当前板块定义，来源未提供官方权重；不作为国证或中证指数，不推定基金映射，不晋升正式基金推荐。",
     "refresh": "通过页面重新评估或采集命令刷新；当前版本以同花顺90个行业为主分析池，主题观察池另行扩展。",
 }
 
 REMOVABLE_UNIVERSE_TYPES = {"hot_board", "tracked_index"}
+THS_CODE_PATTERN = r"[0-9A-Z]{6}"
+THS_HISTORY_SOURCE_PATTERN = r"(?:[a-z]{2}|[0-9]{2})_[0-9A-Z]{6}"
 
 
 class SectorHistoryIntegrityError(ValueError):
@@ -94,6 +96,12 @@ def merge_consistent_sector_history(
         raise SectorHistoryIntegrityError("同来源同身份的新旧日线没有重叠日期，无法核对连续性")
     for observed_on in overlap:
         old_row, new_row = previous[observed_on], fetched[observed_on]
+        # An explicitly provisional observation can change until finalized.
+        if old_row.get("provisional") is True:
+            old_time, new_time = old_row.get("quote_as_of"), new_row.get("quote_as_of")
+            if old_time and new_time and new_time < old_time:
+                raise SectorHistoryIntegrityError("本次盘中行情时间早于已保存行情")
+            continue
         for field in PRICE_HISTORY_FIELDS:
             if not _same_history_value(old_row.get(field), new_row.get(field)):
                 raise SectorHistoryIntegrityError(
@@ -424,11 +432,11 @@ def add_custom_boards(settings: Settings, boards: list[dict[str, Any]], *, added
     seen: set[tuple[str, str]] = set()
     for board in boards:
         source_id = str(board.get("source_id") or SOURCE_ID).strip()
-        code = str(board.get("code") or "").strip()
+        code = str(board.get("code") or "").strip().upper()
         name = str(board.get("name") or "").strip()
         kind = str(board.get("kind") or "").strip()
         writable_source_id(source_id, field="source_id")
-        if not re.fullmatch(r"\d{6}", code) or not name or kind not in ("行业", "概念", "指数"):
+        if not re.fullmatch(THS_CODE_PATTERN, code) or not name or kind not in ("行业", "概念", "指数", "ETF"):
             raise ValueError("板块身份无效")
         ths_category = str(board.get("ths_category") or "").strip() or None
         ths_page_code = str(board.get("ths_page_code") or "").strip() or None
@@ -436,16 +444,16 @@ def add_custom_boards(settings: Settings, boards: list[dict[str, Any]], *, added
         ths_prefix = str(board.get("ths_prefix") or "").strip() or None
         history_source_id = str(board.get("history_source_id") or "").strip() or None
         history_source_code = str(board.get("history_source_code") or "").strip() or None
-        if ths_category is not None and ths_category not in ("industry", "concept", "index"):
+        if ths_category is not None and ths_category not in ("industry", "concept", "index", "etf"):
             raise ValueError("同花顺板块类别无效")
         for value in (ths_page_code, ths_market_code):
-            if value is not None and not re.fullmatch(r"\d{6}", value):
+            if value is not None and not re.fullmatch(THS_CODE_PATTERN, value):
                 raise ValueError("同花顺板块代码无效")
-        if ths_prefix is not None and ths_prefix not in ("bk", "zs"):
+        if ths_prefix is not None and ths_prefix not in ("bk", "zs", "hs", "16", "17", "33"):
             raise ValueError("同花顺行情前缀无效")
         if history_source_id is not None:
             writable_source_id(history_source_id, field="history_source_id")
-        if history_source_code is not None and not re.fullmatch(r"[a-z][a-z]_\d{6}", history_source_code):
+        if history_source_code is not None and not re.fullmatch(THS_HISTORY_SOURCE_PATTERN, history_source_code):
             raise ValueError("同花顺行情代码无效")
         key = (source_id, code)
         if key not in seen:
@@ -581,6 +589,8 @@ def save_sector_heat(settings: Settings, *, as_of: str, updated_at: str,
                  for item in members],
             )
             for item in members:
+                if item["kind"] == "ETF":
+                    continue
                 source_id = item.get("source_id", SOURCE_ID)
                 component_error = item.get("constituent_error")
                 components = item.get("constituents", [])

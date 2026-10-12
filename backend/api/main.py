@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import re
 from threading import Lock
 from typing import Literal
 
@@ -94,15 +95,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def run_sector_search(q: str) -> dict[str, object]:
         from scripts.import_sector_heat import search_ths_boards
+        from scripts.import_related_market import search_csi_indexes
+        from backend.integrations.ths_search_catalog import normalize_query
         try:
             ths = search_ths_boards(q)
         except ValueError as exc:
             raise AppError("sector_search_invalid", str(exc), 422) from exc
         except Exception as exc:
-            return {"items": [], "source_attempts": [], "errors": [str(exc)]}
-        items = ths.get("items", [])
-        attempts = ths.get("source_attempts", [])
-        errors = ths.get("errors", [])
+            ths = {"items": [], "source_attempts": [], "errors": [str(exc)]}
+        items = list(ths.get("items", []))
+        attempts = list(ths.get("source_attempts", []))
+        errors = list(ths.get("errors", []))
+        term = q.strip()
+        lowered = term.lower()
+        exact_ths = any(
+            isinstance(item, dict)
+            and any(normalize_query(str(value)) == normalize_query(term) for value in (
+                item.get("code"), item.get("name"), item.get("ths_page_code"), item.get("ths_market_code"),
+                *item.get("aliases", [])))
+            for item in items
+        )
+        index_like = bool(re.fullmatch(r"\d{6}", term) or any(
+            marker in term for marker in ("中证", "国证", "沪深", "上证")
+        ))
+        if not exact_ths and (index_like or not items):
+            try:
+                indexes = search_csi_indexes(term)
+                items.extend(indexes.get("items", []))
+                attempts.extend(indexes.get("source_attempts", []))
+                errors.extend(indexes.get("errors", []))
+            except Exception as exc:
+                errors.append(str(exc))
         seen: set[tuple[str, str, str]] = set()
         deduped = []
         for item in items:
@@ -120,11 +143,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"items": deduped[:30], "source_attempts": attempts, "errors": errors}
 
     @app.get("/api/sector-board-search")
-    def search_sector_boards(q: str = Query(min_length=1, max_length=40)) -> dict[str, object]:
+    def search_sector_boards(q: str = Query(min_length=1, max_length=100)) -> dict[str, object]:
         return run_sector_search(q)
 
     @app.get("/api/sectors/search")
-    def search_sectors(q: str = Query(min_length=1, max_length=40)) -> dict[str, object]:
+    def search_sectors(q: str = Query(min_length=1, max_length=100)) -> dict[str, object]:
         return run_sector_search(q)
 
     @app.post("/api/sectors/custom")

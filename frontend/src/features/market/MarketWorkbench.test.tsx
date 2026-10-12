@@ -59,6 +59,7 @@ function history(asOf: string) {
     source_id: 'ths.industry',
     universe_type: 'hot_board',
     as_of: asOf,
+    updated_at: `${asOf}T08:00:00Z`,
     history_source_id: 'ths.industry',
     history_source_code: '881001',
     collection_error: null,
@@ -249,7 +250,7 @@ describe('基金与板块工作台', () => {
     });
     vi.stubGlobal('fetch', fetcher);
     render(<SectorLibrary />);
-    expect(await screen.findByText(/行情截至 2026-09-23/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/行情查询 2026-09-23 16:00:00/)).length).toBeGreaterThan(0);
     await waitFor(() => {
       expect(document.querySelector('.sector-library-summary')).toHaveTextContent(
         '最近交易日 2026-09-23',
@@ -264,7 +265,7 @@ describe('基金与板块工作台', () => {
         evaluation: opportunities('2026-10-08'),
       }),
     );
-    expect(await screen.findByText(/行情截至 2026-10-08/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/行情查询 2026-10-08 16:00:00/)).length).toBeGreaterThan(0);
     await waitFor(() =>
       expect(screen.getByRole('status', { name: '板块刷新进度' })).toHaveTextContent('100%'),
     );
@@ -287,7 +288,7 @@ describe('基金与板块工作台', () => {
     });
     vi.stubGlobal('fetch', fetcher);
     render(<SectorLibrary />);
-    await screen.findByText(/行情截至 2026-09-23/);
+    await screen.findAllByText(/行情查询 2026-09-23 16:00:00/);
     fireEvent.change(screen.getByLabelText('搜索板块库名称或代码'), {
       target: { value: '881001' },
     });
@@ -371,12 +372,12 @@ describe('基金与板块工作台', () => {
     });
     vi.stubGlobal('fetch', fetcher);
     render(<SectorLibrary />);
-    await screen.findByText(/行情截至 2026-09-23/);
+    await screen.findAllByText(/行情查询 2026-09-23 16:00:00/);
     fireEvent.change(screen.getByLabelText('输入同花顺板块名称或代码'), {
       target: { value: '合成概念' },
     });
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
-    const dialog = await screen.findByRole('dialog', { name: '添加板块/指数' });
+    const dialog = await screen.findByRole('dialog', { name: '添加板块/指数/ETF' });
     expect(within(dialog).getByText('合成概念')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '全部添加' }));
     expect(await screen.findByRole('status', { name: '板块刷新进度' })).toHaveTextContent('42%');

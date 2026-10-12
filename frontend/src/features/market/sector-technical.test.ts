@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  calculateTechnical,
-  detectTechnicalStages,
-  technicalStageModifiers,
-  type TechnicalPoint,
-} from './sector-technical';
+import { calculateTechnical, detectTechnicalStages, type TechnicalPoint } from './sector-technical';
 
 const point = (
   dif: number,
@@ -54,22 +49,36 @@ describe('sector technical indicators', () => {
     ]);
   });
 
-  it('detects RSI, KDJ and WR stage filters with good or bad modifiers', () => {
+  it('detects RSI, KDJ and WR stage filters by independent periods', () => {
     const stages = detectTechnicalStages([
-      point(1, 1, 100, { rsi6: 30, k: 20, d: 22, wr10: 50 }),
-      point(1, 1, 100, { rsi6: 34, k: 26, d: 24, wr10: 10 }),
+      point(1, 1, 100, { rsi6: 30, rsi12: 32, rsi24: 34, k: 20, d: 22, wr6: 50, wr10: 50 }),
+      point(1, 1, 100, { rsi6: 34, rsi12: 36, rsi24: 38, k: 26, d: 24, wr6: 10, wr10: 10 }),
     ]);
     expect(stages).toEqual(
-      expect.arrayContaining(['rsi-low-rebound', 'kdj-low-golden-cross', 'wr-high-risk']),
+      expect.arrayContaining([
+        'rsi6-low-rebound',
+        'rsi12-low-rebound',
+        'rsi24-low-rebound',
+        'kdj-low-golden-cross',
+        'wr6-high-risk',
+        'wr10-high-risk',
+      ]),
     );
-    expect(technicalStageModifiers['rsi-low-rebound']).toBe('好');
-    expect(technicalStageModifiers['wr-high-risk']).toBe('坏');
     expect(
       detectTechnicalStages([
-        point(1, 1, 100, { rsi6: 75, k: 78, d: 74 }),
-        point(1, 1, 100, { rsi6: 71, k: 68, d: 70 }),
+        point(1, 1, 100, { rsi6: 75, rsi12: 74, rsi24: 73, k: 78, d: 74, wr6: 84, wr10: 79 }),
+        point(1, 1, 100, { rsi6: 71, rsi12: 69, rsi24: 68, k: 68, d: 70, wr6: 90, wr10: 85 }),
       ]),
-    ).toEqual(expect.arrayContaining(['rsi-high-fall', 'kdj-high-death-cross']));
+    ).toEqual(
+      expect.arrayContaining([
+        'rsi6-high-fall',
+        'rsi12-high-fall',
+        'rsi24-high-fall',
+        'kdj-high-death-cross',
+        'wr6-low-repair',
+        'wr10-low-repair',
+      ]),
+    );
   });
 
   it('calculates four indicator families from valid OHLC rows', () => {

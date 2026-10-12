@@ -82,6 +82,28 @@ class TradingCalendar:
             raise CalendarUnavailable("缺少截止日前的已核验交易日历")
         return self._sessions[pos]
 
+    def latest_daily_price_session(self, now: datetime) -> date:
+        """Return the latest session whose daily close can appear in market quote feeds."""
+        if now.tzinfo is None:
+            raise ValueError("计算时间必须含时区")
+        local = now.astimezone(SHANGHAI)
+        self.require(local.date())
+        boundary = local.date() if local.time() > time(15, 0) else local.date() - timedelta(days=1)
+        self.require(boundary)
+        pos = bisect_right(self._sessions, boundary) - 1
+        if pos < 0:
+            raise CalendarUnavailable("缺少截止日前的已核验交易日历")
+        return self._sessions[pos]
+
+    def latest_market_price_session(self, now: datetime) -> date:
+        """Include the current trading session once continuous trading opens."""
+        if now.tzinfo is None:
+            raise ValueError("计算时间必须含时区")
+        local = now.astimezone(SHANGHAI)
+        if self.is_session(local.date()) and local.time() >= time(9, 30):
+            return local.date()
+        return self.latest_daily_price_session(now)
+
     def shift(self, session: date, count: int) -> date:
         if not isinstance(count, int) or isinstance(count, bool):
             raise ValueError("交易日偏移必须是整数")

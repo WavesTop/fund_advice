@@ -32,24 +32,38 @@ export type TechnicalStage =
   | 'above-zero-golden-cross'
   | 'above-zero-death-cross'
   | 'underwater-death-cross'
-  | 'rsi-low-rebound'
-  | 'rsi-high-fall'
   | 'kdj-low-golden-cross'
   | 'kdj-high-death-cross'
-  | 'wr-high-risk';
+  | 'rsi6-low-rebound'
+  | 'rsi6-high-fall'
+  | 'rsi12-low-rebound'
+  | 'rsi12-high-fall'
+  | 'rsi24-low-rebound'
+  | 'rsi24-high-fall'
+  | 'wr6-high-risk'
+  | 'wr6-low-repair'
+  | 'wr10-high-risk'
+  | 'wr10-low-repair';
 
 export const technicalStageLabels: Record<TechnicalStage, string> = {
-  'underwater-golden-cross': '水下金叉',
-  'yellow-near-zero': '黄线零轴附近',
-  'white-near-zero': '白线零轴附近',
-  'above-zero-golden-cross': '零轴上方金叉',
-  'above-zero-death-cross': '线上死叉提示',
-  'underwater-death-cross': '零轴下方死叉',
-  'rsi-low-rebound': 'RSI低位回升',
-  'rsi-high-fall': 'RSI高位回落',
-  'kdj-low-golden-cross': 'KDJ低位金叉',
-  'kdj-high-death-cross': 'KDJ高位死叉',
-  'wr-high-risk': 'WR高位风险',
+  'underwater-golden-cross': 'DIF快线上穿DEA慢线，零轴下方金叉',
+  'yellow-near-zero': 'DEA慢线接近零轴',
+  'white-near-zero': 'DIF快线接近零轴',
+  'above-zero-golden-cross': 'DIF快线上穿DEA慢线，零轴上方金叉',
+  'above-zero-death-cross': 'DIF快线下穿DEA慢线，零轴上方死叉',
+  'underwater-death-cross': 'DIF快线下穿DEA慢线，零轴下方死叉',
+  'kdj-low-golden-cross': 'K快速线上穿D慢速线，低位金叉',
+  'kdj-high-death-cross': 'K快速线下穿D慢速线，高位死叉',
+  'rsi6-low-rebound': 'RSI6短周期低位回升',
+  'rsi6-high-fall': 'RSI6短周期高位回落',
+  'rsi12-low-rebound': 'RSI12中周期低位回升',
+  'rsi12-high-fall': 'RSI12中周期高位回落',
+  'rsi24-low-rebound': 'RSI24长周期低位回升',
+  'rsi24-high-fall': 'RSI24长周期高位回落',
+  'wr6-high-risk': 'WR6短周期接近近期高位风险区',
+  'wr6-low-repair': 'WR6短周期接近近期低位修复区',
+  'wr10-high-risk': 'WR10中周期接近近期高位风险区',
+  'wr10-low-repair': 'WR10中周期接近近期低位修复区',
 };
 
 export type TechnicalStageSentiment = 'good' | 'bad' | 'neutral';
@@ -61,25 +75,39 @@ export const technicalStageSentiments: Record<TechnicalStage, TechnicalStageSent
   'above-zero-golden-cross': 'good',
   'above-zero-death-cross': 'bad',
   'underwater-death-cross': 'bad',
-  'rsi-low-rebound': 'good',
-  'rsi-high-fall': 'bad',
   'kdj-low-golden-cross': 'good',
   'kdj-high-death-cross': 'bad',
-  'wr-high-risk': 'bad',
+  'rsi6-low-rebound': 'good',
+  'rsi6-high-fall': 'bad',
+  'rsi12-low-rebound': 'good',
+  'rsi12-high-fall': 'bad',
+  'rsi24-low-rebound': 'good',
+  'rsi24-high-fall': 'bad',
+  'wr6-high-risk': 'bad',
+  'wr6-low-repair': 'good',
+  'wr10-high-risk': 'bad',
+  'wr10-low-repair': 'good',
 };
 
 export const technicalStageModifiers: Record<TechnicalStage, string> = {
-  'underwater-golden-cross': '好',
-  'yellow-near-zero': '中性偏好',
-  'white-near-zero': '好',
-  'above-zero-golden-cross': '好',
-  'above-zero-death-cross': '坏',
-  'underwater-death-cross': '坏',
-  'rsi-low-rebound': '好',
-  'rsi-high-fall': '坏',
-  'kdj-low-golden-cross': '好',
-  'kdj-high-death-cross': '坏',
-  'wr-high-risk': '坏',
+  'underwater-golden-cross': 'DIF/DEA金叉',
+  'yellow-near-zero': 'DEA慢线',
+  'white-near-zero': 'DIF快线',
+  'above-zero-golden-cross': 'DIF/DEA金叉',
+  'above-zero-death-cross': 'DIF/DEA死叉',
+  'underwater-death-cross': 'DIF/DEA死叉',
+  'kdj-low-golden-cross': 'K/D金叉',
+  'kdj-high-death-cross': 'K/D死叉',
+  'rsi6-low-rebound': 'RSI6',
+  'rsi6-high-fall': 'RSI6',
+  'rsi12-low-rebound': 'RSI12',
+  'rsi12-high-fall': 'RSI12',
+  'rsi24-low-rebound': 'RSI24',
+  'rsi24-high-fall': 'RSI24',
+  'wr6-high-risk': 'WR6',
+  'wr6-low-repair': 'WR6',
+  'wr10-high-risk': 'WR10',
+  'wr10-low-repair': 'WR10',
 };
 
 function ema(values: number[], period: number): Array<number | null> {
@@ -248,6 +276,34 @@ function crossedKdjDown(previous: TechnicalPoint, current: TechnicalPoint): bool
   );
 }
 
+function rsiLowRebound(
+  previous: TechnicalPoint | undefined,
+  current: TechnicalPoint,
+  key: 'rsi6' | 'rsi12' | 'rsi24',
+): boolean {
+  return (
+    !!previous &&
+    previous[key] != null &&
+    current[key] != null &&
+    previous[key] <= 35 &&
+    current[key] > previous[key]
+  );
+}
+
+function rsiHighFall(
+  previous: TechnicalPoint | undefined,
+  current: TechnicalPoint,
+  key: 'rsi6' | 'rsi12' | 'rsi24',
+): boolean {
+  return (
+    !!previous &&
+    previous[key] != null &&
+    current[key] != null &&
+    previous[key] >= 70 &&
+    current[key] < previous[key]
+  );
+}
+
 export function detectTechnicalStages(points: TechnicalPoint[]): TechnicalStage[] {
   const current = points.at(-1);
   const previous = points.at(-2);
@@ -296,24 +352,14 @@ export function detectTechnicalStages(points: TechnicalPoint[]): TechnicalStage[
   ) {
     stages.push('underwater-death-cross');
   }
-  if (
-    previous &&
-    previous.rsi6 != null &&
-    current.rsi6 != null &&
-    previous.rsi6 <= 35 &&
-    current.rsi6 > previous.rsi6
-  ) {
-    stages.push('rsi-low-rebound');
+  if (rsiLowRebound(previous, current, 'rsi6')) {
+    stages.push('rsi6-low-rebound');
   }
-  if (
-    previous &&
-    previous.rsi6 != null &&
-    current.rsi6 != null &&
-    previous.rsi6 >= 70 &&
-    current.rsi6 < previous.rsi6
-  ) {
-    stages.push('rsi-high-fall');
-  }
+  if (rsiHighFall(previous, current, 'rsi6')) stages.push('rsi6-high-fall');
+  if (rsiLowRebound(previous, current, 'rsi12')) stages.push('rsi12-low-rebound');
+  if (rsiHighFall(previous, current, 'rsi12')) stages.push('rsi12-high-fall');
+  if (rsiLowRebound(previous, current, 'rsi24')) stages.push('rsi24-low-rebound');
+  if (rsiHighFall(previous, current, 'rsi24')) stages.push('rsi24-high-fall');
   if (
     previous &&
     crossedKdjUp(previous, current) &&
@@ -332,8 +378,9 @@ export function detectTechnicalStages(points: TechnicalPoint[]): TechnicalStage[
   ) {
     stages.push('kdj-high-death-cross');
   }
-  if ((current.wr6 != null && current.wr6 <= 15) || (current.wr10 != null && current.wr10 <= 20)) {
-    stages.push('wr-high-risk');
-  }
+  if (current.wr6 != null && current.wr6 <= 15) stages.push('wr6-high-risk');
+  if (current.wr6 != null && current.wr6 >= 85) stages.push('wr6-low-repair');
+  if (current.wr10 != null && current.wr10 <= 20) stages.push('wr10-high-risk');
+  if (current.wr10 != null && current.wr10 >= 80) stages.push('wr10-low-repair');
   return stages;
 }

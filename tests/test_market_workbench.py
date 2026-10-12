@@ -91,6 +91,24 @@ class MarketWorkbenchTests(unittest.TestCase):
         ths_search.assert_called_once_with("931248")
         index_search.assert_not_called()
 
+    def test_sector_search_supplements_csi_index_when_ths_has_no_exact_match(self):
+        app = create_app(self.settings)
+        index = {"code": "000949", "name": "中证农业", "kind": "参考指数",
+                 "source_id": "index_daily.csi_official", "universe_type": "tracked_index",
+                 "index_name": "中证农业主题指数", "provider": "csi", "symbol": "csi:000949"}
+        with TestClient(app) as client, patch(
+            "scripts.import_sector_heat.search_ths_boards",
+            return_value={"items": [], "source_attempts": [], "errors": []},
+        ) as ths_search, patch(
+            "scripts.import_related_market.search_csi_indexes",
+            return_value={"items": [index], "source_attempts": [], "errors": []},
+        ) as index_search:
+            response = client.get("/api/sector-board-search", params={"q": "000949"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"], [index])
+        ths_search.assert_called_once_with("000949")
+        index_search.assert_called_once_with("000949")
+
     def test_manual_ths_board_replaces_same_code_reference_index(self):
         upsert_index_projection(
             self.settings, index_code="931248", index_name="油气资源",

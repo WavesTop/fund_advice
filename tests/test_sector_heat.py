@@ -16,10 +16,11 @@ from backend.core.errors import AppError
 from backend.core.trading_calendar import get_calendar
 from backend.storage.database import connection_scope
 from backend.storage.related_market import upsert_index_projection
-from backend.storage.sector_heat import add_custom_boards, read_sector_heat, remove_sector_subjects, save_sector_heat
+from backend.storage.sector_heat import add_custom_boards, read_sector_heat, remove_sector_subjects, save_sector_heat, merge_consistent_sector_history
 from scripts.import_sector_heat import (
     fetch_ths_industry_directory,
     fetch_ths_sector_daily,
+    fetch_ths_today,
     _parse_ths_market_code_from_detail_html,
     _parse_ths_standard_sector_links,
     refresh_sector_heat,
@@ -94,6 +95,9 @@ class SectorHeatTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.settings = Settings(database_path=Path(self.temp.name) / "app.sqlite3")
+        etfs = patch("scripts.import_sector_heat.fetch_ths_etf_directory", return_value=[])
+        etfs.start()
+        self.addCleanup(etfs.stop)
 
     def refresh(self, **kwargs):
         with patch("scripts.import_sector_heat.fetch_ths_industry_directory", return_value=directory_result()), patch(
@@ -194,6 +198,18 @@ class SectorHeatTests(unittest.TestCase):
         self.assertIn("886001", stored)
         self.assertEqual(stored["886001"]["rows"][-1]["date"], DAYS[-1])
 
+    def test_post_close_refresh_accepts_same_day_ths_daily_before_strict_calendar_cutoff(self):
+        current = NOW.replace(hour=15, minute=1)
+        with patch("scripts.import_sector_heat.fetch_ths_industry_directory", return_value=directory_result()), patch(
+            "scripts.import_sector_heat.fetch_ths_sector_daily", side_effect=prices,
+        ), patch("scripts.import_sector_heat.fetch_ths_visible_constituents", side_effect=constituents):
+            result = refresh_sector_heat(
+                self.settings, now=current, workers=1, throttle_seconds=0, budget_seconds=60,
+            )
+        self.assertEqual(result["price_cutoff"], DAYS[-1])
+        self.assertTrue(all(item["rows"][-1]["date"] == DAYS[-1] for item in result["items"]))
+        self.assertTrue(all(item["collection_error"] is None for item in result["items"]))
+
     def test_search_ths_boards_matches_industry_and_concept(self):
         standard = {
             "rows": [
@@ -235,7 +251,8 @@ class SectorHeatTests(unittest.TestCase):
                    return_value={"rows": [], "source_attempts": []}), patch(
             "scripts.import_sector_heat.fetch_ths_industry_directory", return_value=directory_result()), patch(
             "scripts.import_sector_heat.fetch_ths_concept_directory", return_value=concept,
-        ), patch("scripts.import_sector_heat.get_bytes", return_value=payload):
+        ), patch("scripts.import_sector_heat._fetch_ths_standard_sector_entries_cached", return_value=()), \
+             patch("scripts.import_sector_heat.get_bytes", return_value=payload):
             result = search_ths_boards("881153")
         self.assertEqual(result["items"][0]["code"], "881153")
         self.assertEqual(result["items"][0]["name"], "合成代码板块")
@@ -261,6 +278,7 @@ class SectorHeatTests(unittest.TestCase):
         member = {
             "code": "931248", "name": "油气资源", "kind": "指数", "source_id": "sector_daily.ths",
             "ranking_as_of": DAYS[-1], "history_source_code": "zs_931248",
+            "price_cutoff": DAYS[-1],
             "history_source_id": "sector_daily.ths", "ths_category": "index",
             "ths_page_code": "931248", "ths_market_code": "931248", "ths_prefix": "zs",
         }
@@ -410,6 +428,73 @@ class SectorHeatTests(unittest.TestCase):
         bad = "callback(" + json.dumps({"name": "错误行业", "data": values[0]}) + ")"
         with patch("scripts.import_sector_heat.fetch_text", return_value=bad), self.assertRaisesRegex(ValueError, "名称"):
             fetch_ths_sector_daily(member, member["code"])
+
+    def test_intraday_quote_replaces_same_day_bar_without_duplicating_date(self):
+        current = NOW.replace(hour=10, minute=31)
+        member = {**directory()[0], "price_cutoff": DAYS[-1], "quote_requested_at": current.isoformat()}
+        history = 'callback(' + json.dumps({"name": member["name"], "data":
+            "20260917,100,102,99,101,1000,100000;20260918,101,103,100,102,1100,110000"}) + ')'
+        quote = 'callback(' + json.dumps({"bk_881101": {"name": member["name"], "1": "20260918",
+            "7": "101", "8": "105", "9": "100", "11": "104", "13": "1500", "19": "150000", "dt": "1030"}}) + ')'
+        with patch("scripts.import_sector_heat.fetch_ths_line_text_by_source", return_value=history), \
+             patch("scripts.import_sector_heat.fetch_text", return_value=quote):
+            rows = fetch_ths_sector_daily(member, member["code"])
+        self.assertEqual([row["date"] for row in rows], ["2026-09-17", "2026-09-18"])
+        self.assertEqual(rows[-1]["close"], "104")
+        self.assertTrue(rows[-1]["provisional"])
+        self.assertEqual(rows[-1]["quote_as_of"], "2026-09-18T10:30:00+08:00")
+
+    def test_stale_quote_is_rejected(self):
+        quote = 'callback(' + json.dumps({"bk_881101": {"name": directory()[0]["name"], "1": "20260917"}}) + ')'
+        with patch("scripts.import_sector_heat.fetch_text", return_value=quote), \
+             self.assertRaisesRegex(ValueError, "未更新"):
+            fetch_ths_today(directory()[0], "bk_881101", current=NOW.replace(hour=10))
+
+    def test_repeated_intraday_refresh_and_next_day_finalization_preserve_history(self):
+        old = prices(directory()[0], "881101")
+        old[-1] = {**old[-1], "provisional": True, "quote_as_of": "2026-09-18T10:00:00+08:00"}
+        newer = [*old[:-1], {**old[-1], "close": "101", "quote_as_of": "2026-09-18T10:30:00+08:00"}]
+        merged, _ = merge_consistent_sector_history(old, newer)
+        self.assertEqual(merged[-1]["close"], "101")
+        final = [*newer[:-1], {key: value for key, value in newer[-1].items() if key not in ("provisional", "quote_as_of")}]
+        final[-1]["close"] = "102"
+        merged, _ = merge_consistent_sector_history(merged, final)
+        self.assertEqual(merged[-1]["close"], "102")
+        self.assertNotIn("provisional", merged[-1])
+        with self.assertRaisesRegex(ValueError, "时间早于"):
+            merge_consistent_sector_history(newer, old)
+
+    def test_intraday_refresh_updates_stored_same_day_price(self):
+        current = NOW.replace(hour=10, minute=31)
+        def intraday_prices(member, code, *, timeout=12):
+            rows = prices(member, code, timeout=timeout)
+            rows[-1] = {**rows[-1], "close": value[0], "high": "110", "provisional": True,
+                        "quote_as_of": current.isoformat()}
+            return rows
+        value = ["101"]
+        with patch("scripts.import_sector_heat.fetch_ths_industry_directory", return_value=directory_result()), \
+             patch("scripts.import_sector_heat.fetch_ths_sector_daily", side_effect=intraday_prices), \
+             patch("scripts.import_sector_heat.fetch_ths_visible_constituents", side_effect=constituents):
+            refresh_sector_heat(self.settings, now=current, workers=1, throttle_seconds=0, budget_seconds=60)
+            value[0] = "105"
+            result = refresh_sector_heat(self.settings, now=current, workers=1, throttle_seconds=0, budget_seconds=60)
+        self.assertTrue(all(item["rows"][-1]["close"] == "105" for item in result["items"]))
+        self.assertTrue(all(item["collection_error"] is None for item in result["items"]))
+
+    def test_failed_intraday_refresh_keeps_last_quote_and_reports_failure(self):
+        current = NOW.replace(hour=10, minute=31)
+        self.refresh()
+        with patch("scripts.import_sector_heat.fetch_ths_industry_directory", return_value=directory_result()), \
+             patch("scripts.import_sector_heat.fetch_ths_sector_daily", side_effect=TimeoutError("实时行情不可用")), \
+             patch("scripts.import_sector_heat.fetch_ths_visible_constituents", side_effect=constituents):
+            result = refresh_sector_heat(self.settings, now=current, workers=1, throttle_seconds=0, budget_seconds=60)
+        self.assertTrue(all(item["rows"][-1]["close"] == "101" for item in result["items"]))
+        self.assertTrue(all("实时行情不可用" in item["collection_error"] for item in result["items"]))
+
+    def test_market_cutoff_during_lunch_and_on_nontrading_day(self):
+        calendar = get_calendar()
+        self.assertEqual(calendar.latest_market_price_session(NOW.replace(hour=12)), NOW.date())
+        self.assertEqual(calendar.latest_market_price_session(NOW.replace(day=19, hour=10)), NOW.date())
 
     def test_directory_failure_keeps_previous_snapshot(self):
         original = self.refresh()

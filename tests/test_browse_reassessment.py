@@ -174,15 +174,31 @@ class BrowseReassessmentTests(unittest.TestCase):
                          ('partial', 3, 2, 2))
         self.assertFalse(result['manual_evidence_refreshed'])
 
-    def test_intraday_bar_does_not_enter_price_ranking(self):
+    def test_intraday_bar_enters_current_analysis(self):
         self.publish('1000')
         with patch('backend.analysis.sector_status.datetime') as clock:
-            clock.now.return_value = NOW.replace(hour=15)
+            clock.now.return_value = NOW.replace(hour=10)
+            result = sector_opportunities(self.settings)
+        self.assertEqual(result['price_cutoff'], '2026-09-16')
+        self.assertEqual(result['items'][0]['as_of'], '2026-09-16')
+        self.assertGreater(result['items'][0]['periods'][0]['return_pct'], 0)
+        self.assertEqual(result['calendar_status'], 'ready')
+
+    def test_before_open_still_uses_previous_trading_session(self):
+        self.publish('1000')
+        with patch('backend.analysis.sector_status.datetime') as clock:
+            clock.now.return_value = NOW.replace(hour=9, minute=29)
             result = sector_opportunities(self.settings)
         self.assertEqual(result['price_cutoff'], '2026-09-15')
         self.assertEqual(result['items'][0]['as_of'], '2026-09-15')
-        self.assertEqual(result['items'][0]['periods'][0]['return_pct'], 0)
-        self.assertEqual(result['calendar_status'], 'ready')
+
+    def test_post_close_board_display_uses_same_day_stored_close(self):
+        self.publish('1000')
+        with patch('backend.analysis.sector_status.datetime') as clock:
+            clock.now.return_value = NOW.replace(hour=15, minute=1)
+            result = sector_opportunities(self.settings)
+        self.assertEqual(result['price_cutoff'], '2026-09-16')
+        self.assertEqual(result['items'][0]['as_of'], '2026-09-16')
 
     def test_display_rounding_does_not_create_a_ranking_tie(self):
         items = []

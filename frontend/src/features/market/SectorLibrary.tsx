@@ -12,7 +12,6 @@ import {
   calculateTechnical,
   detectTechnicalStages,
   technicalStageLabels,
-  technicalStageModifiers,
   technicalStageSentiments,
   type PriceRow,
   type TechnicalPoint,
@@ -27,6 +26,7 @@ type History = {
   source_id: string;
   universe_type: string;
   as_of: string | null;
+  updated_at?: string | null;
   history_source_id: string;
   history_source_code: string;
   collection_error: string | null;
@@ -35,6 +35,7 @@ type History = {
 
 type ScanResult = {
   asOf: string | null;
+  queriedAt?: string | null;
   stages: TechnicalStage[];
   points: TechnicalPoint[];
   error?: string;
@@ -43,7 +44,7 @@ type ScanResult = {
 type SectorSearchItem = {
   code: string;
   name: string;
-  kind: '行业' | '概念' | '指数' | '参考指数';
+  kind: '行业' | '概念' | '指数' | '参考指数' | 'ETF';
   source_id: string;
   universe_type?: 'hot_board' | 'tracked_index';
   index_name?: string;
@@ -77,34 +78,136 @@ type RefreshProgress = {
   message: string;
 };
 
-type StageFilter = '' | TechnicalStage | 'no-signal' | 'insufficient-data';
+type TechnicalIndicator = 'macd' | 'kdj' | 'rsi' | 'wr';
+type TechnicalSelections = Record<TechnicalIndicator, TechnicalStage[]>;
+type SavedTechnicalCombination = {
+  id: string;
+  name: string;
+  selections: TechnicalSelections;
+  updatedAt: string;
+};
 
-const technicalStageOrder: TechnicalStage[] = [
-  'underwater-golden-cross',
-  'yellow-near-zero',
-  'white-near-zero',
-  'above-zero-golden-cross',
-  'rsi-low-rebound',
-  'kdj-low-golden-cross',
-  'above-zero-death-cross',
-  'underwater-death-cross',
-  'rsi-high-fall',
-  'kdj-high-death-cross',
-  'wr-high-risk',
+const technicalCombinationStorageKey = 'sector-technical-combinations-v1';
+
+const emptySelections = (): TechnicalSelections => ({
+  macd: [],
+  kdj: [],
+  rsi: [],
+  wr: [],
+});
+
+const defaultCombination = (): SavedTechnicalCombination => ({
+  id: 'default-combination',
+  name: '自定义组合 1',
+  selections: emptySelections(),
+  updatedAt: new Date().toISOString(),
+});
+
+const indicatorGroups: Array<{
+  key: TechnicalIndicator;
+  title: string;
+  description: string;
+  stages: TechnicalStage[];
+}> = [
+  {
+    key: 'macd',
+    title: 'MACD',
+    description: 'DIF快线、DEA慢线与柱状线',
+    stages: [
+      'underwater-golden-cross',
+      'above-zero-golden-cross',
+      'white-near-zero',
+      'yellow-near-zero',
+      'above-zero-death-cross',
+      'underwater-death-cross',
+    ],
+  },
+  {
+    key: 'kdj',
+    title: 'KDJ',
+    description: 'K快速线、D慢速线与J敏感方向线',
+    stages: ['kdj-low-golden-cross', 'kdj-high-death-cross'],
+  },
+  {
+    key: 'rsi',
+    title: 'RSI',
+    description: 'RSI6、RSI12、RSI24独立周期',
+    stages: [
+      'rsi6-low-rebound',
+      'rsi6-high-fall',
+      'rsi12-low-rebound',
+      'rsi12-high-fall',
+      'rsi24-low-rebound',
+      'rsi24-high-fall',
+    ],
+  },
+  {
+    key: 'wr',
+    title: 'WR',
+    description: 'WR6短周期与WR10中周期',
+    stages: ['wr6-high-risk', 'wr6-low-repair', 'wr10-high-risk', 'wr10-low-repair'],
+  },
 ];
 
-const stageOptions: Array<{ value: StageFilter; label: string }> = [
-  { value: '', label: '全部阶段' },
-  ...technicalStageOrder.map((stage) => ({
-    value: stage,
-    label: `${technicalStageLabels[stage]} · ${technicalStageModifiers[stage]}`,
-  })),
-  { value: 'no-signal', label: '暂无命中 · 中性' },
-  { value: 'insufficient-data', label: '指标不足 · 中性' },
-];
+function sanitizeCombination(raw: unknown): SavedTechnicalCombination | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Partial<SavedTechnicalCombination>;
+  if (typeof value.id !== 'string' || typeof value.name !== 'string') return null;
+  const stageSet = new Set(indicatorGroups.flatMap((group) => group.stages));
+  const selections = emptySelections();
+  indicatorGroups.forEach((group) => {
+    const stages = value.selections?.[group.key];
+    selections[group.key] = Array.isArray(stages)
+      ? stages.filter((stage): stage is TechnicalStage => stageSet.has(stage as TechnicalStage))
+      : [];
+  });
+  return {
+    id: value.id,
+    name: value.name.trim() || '自定义组合',
+    selections,
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date().toISOString(),
+  };
+}
+
+function readTechnicalCombinations(): SavedTechnicalCombination[] {
+  try {
+    const stored = window.localStorage.getItem(technicalCombinationStorageKey);
+    if (!stored) return [defaultCombination()];
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [defaultCombination()];
+    const combinations = parsed
+      .map(sanitizeCombination)
+      .filter((item): item is SavedTechnicalCombination => !!item);
+    return combinations.length ? combinations : [defaultCombination()];
+  } catch {
+    return [defaultCombination()];
+  }
+}
+
+function writeTechnicalCombinations(combinations: SavedTechnicalCombination[]) {
+  try {
+    window.localStorage.setItem(technicalCombinationStorageKey, JSON.stringify(combinations));
+  } catch {
+    // Local storage is a convenience cache; filtering still works in memory.
+  }
+}
 
 function formatDate(value: string | null | undefined) {
   return value?.slice(0, 10) || '暂无';
+}
+
+function quoteLabel(item: SectorOpportunity, result?: ScanResult) {
+  const queriedAt = result ? result.queriedAt : item.updated_at;
+  if (!queriedAt) return '行情查询 时间未知';
+  const date = new Date(queriedAt);
+  if (!Number.isFinite(date.getTime())) return '行情查询 时间未知';
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const timestamp = `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`;
+  return `行情查询 ${timestamp}`;
 }
 
 function formatPercent(value: number | null | undefined) {
@@ -122,15 +225,44 @@ function latest(point: TechnicalPoint[] | undefined) {
 }
 
 function latestTradingChange(points: TechnicalPoint[] | undefined) {
-  if (!points || points.length < 2) return { date: null as string | null, change: null as number | null };
+  if (!points || points.length < 2)
+    return { date: null as string | null, change: null as number | null };
   const current = points.at(-1);
   const previous = points.at(-2);
   const currentClose = Number(current?.close);
   const previousClose = Number(previous?.close);
-  if (!current?.date || !Number.isFinite(currentClose) || !Number.isFinite(previousClose) || previousClose === 0) {
+  if (
+    !current?.date ||
+    !Number.isFinite(currentClose) ||
+    !Number.isFinite(previousClose) ||
+    previousClose === 0
+  ) {
     return { date: current?.date ?? null, change: null };
   }
   return { date: current.date, change: ((currentClose - previousClose) / previousClose) * 100 };
+}
+
+function combinationSelectionCount(combination: SavedTechnicalCombination) {
+  return Object.values(combination.selections).reduce((sum, stages) => sum + stages.length, 0);
+}
+
+function matchesCombination(
+  result: ScanResult | undefined,
+  combination: SavedTechnicalCombination,
+) {
+  const selectedGroups = indicatorGroups.filter(
+    (group) => combination.selections[group.key].length > 0,
+  );
+  if (!selectedGroups.length) return true;
+  if (selectedGroups.length) {
+    if (!result || result.error || result.points.length < 35) return false;
+    const stageSet = new Set(result.stages);
+    const groupMatched = selectedGroups.every((group) =>
+      combination.selections[group.key].some((stage) => stageSet.has(stage)),
+    );
+    if (!groupMatched) return false;
+  }
+  return true;
 }
 
 function boardLookupKey(item: { source_id: string; code: string; universe_type?: string }) {
@@ -192,11 +324,11 @@ function klineOption(item: SectorOpportunity, result: ScanResult): EChartsOption
   const axisText = '#d6dee6';
   const gridLine = '#465564';
   const grid = [
-    { left: 60, right: 28, top: 28, height: 190 },
-    { left: 60, right: 28, top: 258, height: 95 },
-    { left: 60, right: 28, top: 394, height: 95 },
-    { left: 60, right: 28, top: 530, height: 80 },
-    { left: 60, right: 28, top: 650, height: 80 },
+    { left: 60, right: 28, top: 64, height: 210 },
+    { left: 60, right: 28, top: 322, height: 110 },
+    { left: 60, right: 28, top: 480, height: 115 },
+    { left: 60, right: 28, top: 643, height: 100 },
+    { left: 60, right: 28, top: 792, height: 90 },
   ].map((entry) => ({
     ...entry,
     show: true,
@@ -224,7 +356,7 @@ function klineOption(item: SectorOpportunity, result: ScanResult): EChartsOption
     color: ['#326a79', '#b18a24', '#7a5aa6', '#bf4752', '#26806b', '#4c78a8'],
     grid,
     legend: {
-      top: 4,
+      top: 12,
       left: 60,
       right: 24,
       itemWidth: 10,
@@ -242,8 +374,8 @@ function klineOption(item: SectorOpportunity, result: ScanResult): EChartsOption
       {
         type: 'slider',
         xAxisIndex: [0, 1, 2, 3, 4],
-        bottom: 8,
-        height: 22,
+        bottom: 18,
+        height: 24,
         left: 60,
         right: 28,
         start: 45,
@@ -274,8 +406,8 @@ function klineOption(item: SectorOpportunity, result: ScanResult): EChartsOption
       },
       {
         type: 'value',
-        min: 0,
-        max: 100,
+        min: -50,
+        max: 150,
         gridIndex: 2,
         name: 'KDJ',
         nameTextStyle: { color: axisText },
@@ -294,8 +426,8 @@ function klineOption(item: SectorOpportunity, result: ScanResult): EChartsOption
       },
       {
         type: 'value',
-        min: 0,
-        max: 100,
+        min: -10,
+        max: 110,
         gridIndex: 4,
         name: 'WR',
         nameTextStyle: { color: axisText },
@@ -327,7 +459,7 @@ function klineOption(item: SectorOpportunity, result: ScanResult): EChartsOption
         })),
       },
       {
-        name: '白线DIF',
+        name: 'DIF快线',
         type: 'line',
         xAxisIndex: 1,
         yAxisIndex: 1,
@@ -342,7 +474,7 @@ function klineOption(item: SectorOpportunity, result: ScanResult): EChartsOption
         },
       },
       {
-        name: '黄线DEA',
+        name: 'DEA慢线',
         type: 'line',
         xAxisIndex: 1,
         yAxisIndex: 1,
@@ -432,13 +564,13 @@ function StageBadges({
   stages: TechnicalStage[];
   insufficient?: boolean;
 }) {
-  if (insufficient) return <Badge tone="neutral">指标不足 · 中性</Badge>;
-  if (!stages.length) return <Badge tone="neutral">暂无命中 · 中性</Badge>;
+  if (insufficient) return <Badge tone="neutral">指标不足</Badge>;
+  if (!stages.length) return <Badge tone="neutral">暂无命中</Badge>;
   return (
     <>
       {stages.map((stage) => (
         <Badge key={stage} tone={stageTone(stage)}>
-          {technicalStageLabels[stage]} · {technicalStageModifiers[stage]}
+          {technicalStageLabels[stage]}
         </Badge>
       ))}
     </>
@@ -452,7 +584,11 @@ export function SectorLibrary() {
   );
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
-  const [stage, setStage] = useState<StageFilter>('');
+  const [combinations, setCombinations] =
+    useState<SavedTechnicalCombination[]>(readTechnicalCombinations);
+  const [activeCombinationId, setActiveCombinationId] = useState(
+    () => readTechnicalCombinations()[0]?.id ?? defaultCombination().id,
+  );
   const [selectedKey, setSelectedKey] = useState('');
   const [scan, setScan] = useState({ done: 0, total: 0, running: false });
   const [technical, setTechnical] = useState<Record<string, ScanResult>>({});
@@ -473,10 +609,22 @@ export function SectorLibrary() {
   const request = useRef<AbortController | null>(null);
   const dataRef = useRef(data);
   const progressActive = useRef(false);
+  const activeCombination =
+    combinations.find((combination) => combination.id === activeCombinationId) ??
+    combinations[0] ??
+    defaultCombination();
+  const selectedFilterCount = activeCombination ? combinationSelectionCount(activeCombination) : 0;
 
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  useEffect(() => {
+    writeTechnicalCombinations(combinations);
+    if (!combinations.some((combination) => combination.id === activeCombinationId)) {
+      setActiveCombinationId(combinations[0]?.id ?? defaultCombination().id);
+    }
+  }, [activeCombinationId, combinations]);
 
   const load = useCallback(() => {
     request.current?.abort();
@@ -586,6 +734,7 @@ export function SectorLibrary() {
               ...values,
               [key]: {
                 asOf: history.as_of,
+                queriedAt: history.updated_at,
                 stages,
                 points,
                 error: history.collection_error || undefined,
@@ -623,14 +772,7 @@ export function SectorLibrary() {
   const filtered = boards.filter((item) => {
     const key = subjectKey(item);
     const result = technical[key];
-    if (stage === 'no-signal') {
-      if (!result || result.error || result.points.length < 35 || result.stages.length)
-        return false;
-    } else if (stage === 'insufficient-data') {
-      if (!result || result.error || result.points.length >= 35) return false;
-    } else if (stage && !result?.stages.includes(stage)) {
-      return false;
-    }
+    if (!matchesCombination(result, activeCombination)) return false;
     return (
       !normalized ||
       item.name.toLowerCase().includes(normalized) ||
@@ -670,7 +812,7 @@ export function SectorLibrary() {
         new Set(addableItems.length === 1 ? [boardLookupKey(addableItems[0])] : []),
       );
       setShowAddModal(true);
-      if (!items.length) setAddError('没有找到匹配的板块或指数。');
+      if (!items.length) setAddError('没有找到匹配的板块、指数或 ETF。');
     } catch (cause) {
       setAddError(cause instanceof Error ? cause.message : '板块搜索失败。');
     } finally {
@@ -780,6 +922,61 @@ export function SectorLibrary() {
       setRemovingBoards(false);
     }
   };
+  const updateActiveCombination = (
+    updater: (combination: SavedTechnicalCombination) => SavedTechnicalCombination,
+  ) => {
+    setCombinations((items) =>
+      items.map((item) => (item.id === activeCombination.id ? updater(item) : item)),
+    );
+  };
+  const toggleStageFilter = (group: TechnicalIndicator, stage: TechnicalStage) => {
+    updateActiveCombination((combination) => {
+      const selected = new Set(combination.selections[group]);
+      if (selected.has(stage)) selected.delete(stage);
+      else selected.add(stage);
+      return {
+        ...combination,
+        selections: {
+          ...combination.selections,
+          [group]: Array.from(selected),
+        },
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  };
+  const createCombination = () => {
+    const next: SavedTechnicalCombination = {
+      id: `combination-${Date.now()}`,
+      name: `自定义组合 ${combinations.length + 1}`,
+      selections: emptySelections(),
+      updatedAt: new Date().toISOString(),
+    };
+    setCombinations((items) => [...items, next]);
+    setActiveCombinationId(next.id);
+  };
+  const renameCombination = () => {
+    const name = window.prompt('重命名筛选目标', activeCombination.name)?.trim();
+    if (!name) return;
+    updateActiveCombination((combination) => ({
+      ...combination,
+      name,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+  const clearCombination = () => {
+    updateActiveCombination((combination) => ({
+      ...combination,
+      selections: emptySelections(),
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+  const deleteCombination = () => {
+    if (combinations.length <= 1) return;
+    const next = combinations.filter((item) => item.id !== activeCombination.id);
+    const fallback = next.length ? next : [defaultCombination()];
+    setCombinations(fallback);
+    setActiveCombinationId(fallback[0].id);
+  };
 
   return (
     <div className="sector-library">
@@ -854,7 +1051,7 @@ export function SectorLibrary() {
           <input
             {...searchInputProps}
             aria-label="输入同花顺板块名称或代码"
-            placeholder="输入同花顺板块名称或代码"
+            placeholder="输入同花顺板块、指数或 ETF 名称/代码"
             value={addQuery}
             onChange={(event) => setAddQuery(event.target.value)}
           />
@@ -884,26 +1081,81 @@ export function SectorLibrary() {
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <label>
-          阶段筛选
+        <label className="sector-combination-picker">
+          筛选目标
           <select
-            aria-label="技术阶段筛选"
-            value={stage}
-            onChange={(event) => setStage(event.target.value as StageFilter)}
+            aria-label="选择自定义指标组合"
+            value={activeCombination.id}
+            onChange={(event) => setActiveCombinationId(event.target.value)}
           >
-            {stageOptions.map((option) => (
-              <option key={option.value || 'all'} value={option.value}>
-                {option.label}
+            {combinations.map((combination) => (
+              <option key={combination.id} value={combination.id}>
+                {combination.name}
               </option>
             ))}
           </select>
         </label>
+        <div className="sector-combination-actions">
+          <button className="button secondary small" type="button" onClick={createCombination}>
+            新建
+          </button>
+          <button className="button secondary small" type="button" onClick={renameCombination}>
+            重命名
+          </button>
+          <button
+            className="button secondary small"
+            type="button"
+            disabled={!selectedFilterCount}
+            onClick={clearCombination}
+          >
+            清空
+          </button>
+          <button
+            className="button secondary small"
+            type="button"
+            disabled={combinations.length <= 1}
+            onClick={deleteCombination}
+          >
+            删除
+          </button>
+        </div>
         <div className="sector-library-count">
           <strong>{boards.length}</strong> 个板块/指数 · 已扫描 {scan.done}/{scan.total}
           {scan.running ? ' · 扫描中' : ''}
-          {(normalized || stage) && <> · 当前显示 {matchedCount}</>}
+          {(normalized || selectedFilterCount) && <> · 当前显示 {matchedCount}</>}
         </div>
       </div>
+      <section className="sector-filter-builder" aria-label="技术阶段筛选">
+        <div className="sector-filter-builder-head">
+          <strong>{activeCombination.name}</strong>
+          <span>{selectedFilterCount ? `已选 ${selectedFilterCount} 项` : '未选择指标条件'}</span>
+        </div>
+        <div className="sector-filter-groups">
+          {indicatorGroups.map((group) => (
+            <details key={group.key} className="sector-filter-menu">
+              <summary>
+                <span>
+                  <strong>{group.title}</strong>
+                  <small>{group.description}</small>
+                </span>
+                <b>{activeCombination.selections[group.key].length || '全部'}</b>
+              </summary>
+              <div className="sector-filter-menu-options">
+                {group.stages.map((stageOption) => (
+                  <label key={stageOption}>
+                    <input
+                      type="checkbox"
+                      checked={activeCombination.selections[group.key].includes(stageOption)}
+                      onChange={() => toggleStageFilter(group.key, stageOption)}
+                    />
+                    <span>{technicalStageLabels[stageOption]}</span>
+                  </label>
+                ))}
+              </div>
+            </details>
+          ))}
+        </div>
+      </section>
       {error && (
         <p role="alert" className="market-error">
           {error}
@@ -930,10 +1182,30 @@ export function SectorLibrary() {
             title="板块列表"
             subtitle="按真实行业池展示，点击查看右侧指标图。"
             action={
-              <button className="button secondary small" type="button" onClick={openEditModal}>
-                <ListChecks size={15} aria-hidden="true" />
-                编辑列表
-              </button>
+              <div className="sector-library-header-action">
+                <div className="sector-tone-legend" aria-label="指标颜色含义">
+                  <span>
+                    <i className="sector-tone-dot green" />
+                    绿=改善
+                  </span>
+                  <span>
+                    <i className="sector-tone-dot red" />
+                    红=风险
+                  </span>
+                  <span>
+                    <i className="sector-tone-dot amber" />
+                    黄=观察
+                  </span>
+                  <span>
+                    <i className="sector-tone-dot neutral" />
+                    灰=无信号/不足
+                  </span>
+                </div>
+                <button className="button secondary small" type="button" onClick={openEditModal}>
+                  <ListChecks size={15} aria-hidden="true" />
+                  编辑列表
+                </button>
+              </div>
             }
           >
             <div className="sector-library-card-list">
@@ -967,7 +1239,7 @@ export function SectorLibrary() {
                     <span className="sector-library-card-meta">
                       <span>{item.code}</span>
                       <span>热度 #{item.heat_rank ?? '—'}</span>
-                      <span>行情 {formatDate(result?.asOf ?? item.as_of)}</span>
+                      <span>{quoteLabel(item, result)}</span>
                       <span>{sourceLabel(item.history_source_id ?? item.source_id)}</span>
                     </span>
                     <span className="sector-library-stages">
@@ -990,7 +1262,7 @@ export function SectorLibrary() {
             </div>
             {!filtered.length && (
               <p className="research-empty">
-                没有匹配的板块。扫描未完成时，技术阶段筛选可能暂时为空。
+                没有匹配的板块。扫描未完成时，自定义指标组合可能暂时为空。
               </p>
             )}
           </Panel>
@@ -999,7 +1271,7 @@ export function SectorLibrary() {
             title={selected ? `${selected.name} · ${selected.code}` : '指标图'}
             subtitle={
               selected
-                ? `${sourceLabel(selected.history_source_id ?? selected.source_id)} · 行情截至 ${formatDate(selectedResult?.asOf ?? selected.as_of)}`
+                ? `${sourceLabel(selected.history_source_id ?? selected.source_id)} · ${quoteLabel(selected, selectedResult)}`
                 : '请选择一个板块'
             }
           >
@@ -1010,8 +1282,8 @@ export function SectorLibrary() {
                   <strong>{formatPercent(selectedDayChange.change)}</strong>
                 </span>
                 <span>收盘 {numberText(current?.close, 2)}</span>
-                <span>白线DIF {numberText(current?.dif, 3)}</span>
-                <span>黄线DEA {numberText(current?.dea, 3)}</span>
+                <span>DIF快线 {numberText(current?.dif, 3)}</span>
+                <span>DEA慢线 {numberText(current?.dea, 3)}</span>
                 <span>MACD柱 {numberText(current?.macd, 3)}</span>
               </div>
             )}
@@ -1039,11 +1311,10 @@ export function SectorLibrary() {
                 <Chart
                   option={klineOption(selected, selectedResult)}
                   label={`${selected.name} K线以及 MACD、KDJ、RSI、WR 四类常用指标图`}
-                  height={760}
+                  height={960}
                 />
                 <p className="muted">
-                  MACD 白线为 DIF，黄线为 DEA；“零轴附近”按最新收盘价的 0.3% 以内判断。WR
-                  数值越低越接近近期高位，越高越接近近期低位。
+                  MACD：DIF为快线，DEA为慢线/信号线，MACD柱反映DIF与DEA差值；KDJ：K为快速线，D为慢速线，J对短期拐点更敏感；RSI6/12/24分别反映短、中、长周期相对强弱；WR数值越低越接近近期高位，越高越接近近期低位。
                 </p>
               </>
             )}
@@ -1051,7 +1322,7 @@ export function SectorLibrary() {
         </div>
       )}
       {showAddModal && (
-        <Modal title="添加板块/指数" onClose={() => setShowAddModal(false)}>
+        <Modal title="添加板块/指数/ETF" onClose={() => setShowAddModal(false)}>
           <div className="sector-add-modal">
             {searchResults.length ? (
               <>
@@ -1155,7 +1426,8 @@ export function SectorLibrary() {
                     <span>
                       <strong>{item.name}</strong>
                       <small>
-                        {item.code} · {item.universe_type === 'tracked_index' ? '参考指数' : item.kind} ·{' '}
+                        {item.code} ·{' '}
+                        {item.universe_type === 'tracked_index' ? '参考指数' : item.kind} ·{' '}
                         {sourceLabel(item.source_id)}
                       </small>
                     </span>

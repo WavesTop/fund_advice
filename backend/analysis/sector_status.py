@@ -272,7 +272,7 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
     calendar = get_calendar()
     calendar_error = None
     try:
-        price_cutoff = calendar.latest_completed(now)
+        price_cutoff = calendar.latest_market_price_session(now)
     except CalendarUnavailable as exc:
         # Keep old observations inspectable, but block every comparison below.
         price_cutoff, calendar_error = now.date(), str(exc)
@@ -333,7 +333,10 @@ def sector_opportunities(settings: Settings) -> dict[str, object]:
                 if period["status"] in ("strong", "neutral", "weak"):
                     period["historical"] = _historical_display(period, analyzed["as_of"])
                 period.update(status="stale", label="行情待更新", reason="本次采集失败，旧行情仅供核对，不参与当前判断。")
-        boards.append({**board, **analyzed})
+        latest = rows[-1] if rows else {}
+        boards.append({**board, **analyzed,
+                       "quote_as_of": latest.get("quote_as_of"),
+                       "quote_provisional": latest.get("provisional", False)})
     items = boards + items
     for item in items:
         if calendar_error:
