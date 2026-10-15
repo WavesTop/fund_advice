@@ -1,0 +1,2 @@
+# Batch launchers must retain Windows line endings on every checkout.
+*.bat text eol=crlf

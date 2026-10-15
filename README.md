@@ -125,6 +125,28 @@ uv run --locked --offline python -m scripts.research_pipeline \
 
 ## 完整启动流程
 
+### Windows 一键配置与启动
+
+Windows 10/11 x64（Windows 11 ARM64 需支持 x64 模拟）下载并解压完整项目后，双击根目录的 **`启动本地服务.bat`**。无需预装 Python、Node.js 或 uv，无需管理员权限。首次运行需要联网访问 Astral、Node.js、Python 与 npm 的官方下载／依赖来源，自动完成：
+
+1. 在 `runtime/tools/` 安装项目专用 uv、与 `frontend/package.json` 一致的 Node.js，并核对 Node.js 下载包的官方 SHA-256。
+2. 按 `.python-version` 准备 Python，在 `runtime/venv-windows/` 建立独立环境，按 `uv.lock` 和 `frontend/package-lock.json` 安装依赖；不修改系统 PATH 或全局 PowerShell 执行策略。
+3. 启动本机数据服务与网页，检查后端健康状态及网页代理后，自动打开 `http://127.0.0.1:5173`。
+
+保持启动窗口打开，按 **Enter** 或 **Ctrl+C** 停止本次启动的两项服务。再次双击会复用已下载的工具；前端依赖声明、锁文件、Node.js 版本或系统架构变化时会重装前端依赖。首次安装中断后可再次运行。两个端口（8000、5173）被占用时会明确提示，不自动关闭其他程序或切换端口。日志保存在 `runtime/logs/windows-时间/`，失败后窗口保留错误信息。
+
+只配置环境而暂不启动，可在项目目录的 PowerShell 中运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_windows.ps1 -SetupOnly
+```
+
+新电脑启动后会创建本机数据库；原电脑的 `runtime/` 数据不在 Git 仓库中，已有行情和持仓不会随代码下载。联网采集仍通过页面操作。
+
+启动器的独立检查（语法、下载校验、端口冲突、健康状态及提前退出处理）：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\test_windows_launcher.ps1`。完整首次安装与服务进程清理需在 Windows 实机验证。
+
+### 手动配置（macOS／Linux 等）
+
 需要安装 Git、[uv](https://docs.astral.sh/uv/) 和 Node.js 24 LTS。首次安装依赖需要联网；之后日常启动可以使用锁定文件和本地缓存。
 
 ### 1. 安装依赖
