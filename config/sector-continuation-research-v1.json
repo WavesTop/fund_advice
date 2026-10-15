@@ -1,0 +1,20 @@
+{
+  "version": "sector-continuation-research-v1",
+  "reference": "runtime/verification/sector-direction-screen-research-v1.json.gz",
+  "reference_sha256": "822e4751e3dae36e12d2fb208951dddea60cbb0d53707664fcaf5034c7973bd0",
+  "training_reference": "runtime/verification/sector-rank-risk-research-v1.json.gz",
+  "training_reference_sha256": "78ba73766f907838b94a307c54969ce7f3f2ffe96af4292d211d3aeae1024d55",
+  "periods": {"short": 20, "medium": 60, "long": 120},
+  "targets": ["positive_terminal_and_majority_above_entry_minus_half", "signed_log_path_efficiency"],
+  "path": "Nextclose entry,entry+20/60/120 close exit;exclude entry from occupancy,equal close counts half;positive terminal and occupancy>0.5 means persistent;efficiency=terminal logchange/sum absolute daily logchanges,flat=0",
+  "learning": "Same11past features,fit_ridge penalty1,1096calendar days,min24mature dates,10session training anchors,one-session after exit maturity;absolute outputs,no cross-sectional demeaning,no clipping to probability",
+  "top_n": 10,
+  "sorting": "Minimum of full86pool midpoint percentiles of the two raw predictions;no weight/threshold grid;code tiebreak",
+  "gates": "Reuse archived direction and state gates;positive variant additionally requires both absolute model outputs>0;not a calibrated probability or user risk preference",
+  "new_methods": ["continuation_top10", "direction_continuation", "state_continuation", "state_historical_continuation", "state_positive_continuation", "positive_count_state_return", "positive_count_state_low_vol", "positive_count_universe_return"],
+  "controls": ["return_top10", "maximin_top10", "direction_return", "direction_low_vol", "state_return", "state_maximin", "state_low_vol"],
+  "evaluation": "Same primary horizon+1 and secondary5session schedules;compare within identical gates and counts;no-selection,not-fitted,not-matured,incomplete stay distinct;retain nine original regime episodes",
+  "cost_stress_bps": [0, 20, 50, 100],
+  "selection_history": "After eligibility-first controls showed old rank targets failed to stably improve medium/long lists,freeze direct persistence/efficiency targets and ablations before new results;no model promotion or claimed unseen OOS",
+  "scope": "Retrospective current-survivor industry-price pattern research,not actual fund returns,continuous-account profits,calibrated win rates or certified investment recommendations. No production/trial replacement"
+}

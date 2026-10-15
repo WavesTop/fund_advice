@@ -1,0 +1,17 @@
+{
+  "version": "phased-class-trend-research-v1",
+  "reference": "runtime/verification/holding-release-research-v1.json.gz",
+  "selection": "Defined after calendar sensitivity survived exit-urgency and holding-expiry changes; no untouched OOS or search of phase offsets,blend weights,lookbacks,riskbudget",
+  "policies": ["dual_return60", "risky_pair60", "risky_pair_static60"],
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "variants": ["grid20", "grid5", "phaseblend"],
+  "phaseblend": "Four equallyweighted20sessionclassproposalviews offset0/5/10/15,commoninitialview. At each actual decision retain latestscheduledpastview peroffset,blendunscaledclassproposals,removeclassesfailingcurrentabsolute2/3vote(no gateforstatic),scaleusingcurrentactualfundcovariance. One real sharedcash/FIFO account,notaverageP&L or imaginarysegregatedfunds",
+  "review_clock": "Grid5forphaseblendandgrid5control,same initialdate; cashsettlementreinvestment unchanged. Holding-release optiondisabledforalltoisolateblend. Trueabsolute/current-riskreductionsunchanged,payrealdeclaredshortfee",
+  "stress": {"ordinary_fee_bps_each_side": [50, 100], "five_day_clock_phases": [1, 2, 3, 4], "grid20_phases": [5, 10, 15], "execution_lag_sessions": 2},
+  "phase_alias": "Shiftingallfourviewsby5/10/15isjustpermutation,sameblend,nottestedasindependentrobustness;testallfournonidentical1/2/3/4dayclockshiftswithcommoninitialentry",
+  "invariants": "Same funds,21/63/252signals,classbudgets,ordinary10bps,T+1confirmation,T+2settlement,7confirmationnaturaldaysmin,short150bpsfloor,nextNAV,3pp/25%band,10%desiredrisk,cash0interest,no leverage/shorts; cash proceeds cannot finance same-day buys",
+  "episodes": "Allninefrozenbull/bear/observationcalendarsegments,unchangedpartial/missingcoverage;fresh100kknown-end7dayentryguardandcarry-from-prior-sessioncutsseparate;labelsnotusedbystrategy",
+  "validation": "Independently rebuild eachviewdate,pastsignals,ownproposal,arithmeticblend,latestgate,currentfundcovariance,currentholdingsandsalereasons;realFIFOledger;rerun12grid20mainand36grid20phasecontrolsagainstfrozenpriorcostawaremetrics",
+  "motivation_sources": ["https://blog.thinknewfound.com/2018/04/diversifying-the-what-how-and-when-of-trend-following/", "https://blog.thinknewfound.com/2020/04/tranching-trend-and-mean-reversion/"],
+  "limitations": "Shared-accountproposalblendwithlatestgateisanadaptation,notexactpaperreplicationor4independentaccounts;paperUSexamplesnotChineseinvestmentreturns. Lesscalendarvarianceisnotalpha,feesandactualrisk/exposurecanchange;periodicforecastconstraintnotfuturevol/maxDDguarantee;already-viewedsurvivordataandunverifiedcontracts/NAV/dividendtiming"
+}

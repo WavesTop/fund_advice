@@ -1,0 +1,17 @@
+{
+  "version": "satellite-selection-diagnostic-v1",
+  "reference": "runtime/verification/trend-satellite-research-v1.json.gz",
+  "reference_sha256": "a7295c4a0f2988df13aa534adfe988c77e4647f2980599ff55d8100e250bbf99",
+  "reference_protocol": "config/trend-satellite-research-v1.json",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "random_policies": ["fixed20", "price_gap5"],
+  "random_seeds": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32],
+  "choice": "Only change which score>=60 and own21/63/252vote>=2/3 eligible stock is selected: minimumSHA256(seed|signaldate|code), not future returns. Same size/core/risk/FIFO/fees/exits/repair/gaps. Endogenous exit and reentry dates may differ; not a same-date paired treatment. Selection and scores rebuilt independently",
+  "selection_history": "Fixed before this diagnostic results, after observing v1: fixed20 modest modern gain and price_gap5 older9 gain prompted stress/random controls; all4cohorts and all32seeds retained; not independent holdout or significance test",
+  "stress_policies": ["matched_core", "fixed20", "price_gap5", "inverse20"],
+  "stress": {"fee_bps": [50,100], "core_and_check_phases": [5,10,15], "execution_lag_sessions": 2},
+  "compatibility": "All28previousmainaccountmetrics,fullaccountsanddailychecktracesunchanged; default random_seed=None only metadata adds seed field",
+  "summary": "All32seedROI/DD/vol/fee/trade/exposure metrics; mean,median,p10,p90 and observed trend rank within MonteCarlo candidates. These are conditional path percentiles, not future confidence or pvalues. Same9carryepisodes, no restarting cash or compound fresh episodes",
+  "retention": "Everyaccountandrawsignalcontroller independentlyaudited duringrun; randommetrics/events/carry retained for all; completeaccounts/checks retained onlyseed1and32 to limit artifact size. Other randompaths deterministically reproducible from frozeninputs/seed/source",
+  "scope": "No strategy tuning, no random winner chosen for investment; repeatedly reviewed surviving OTC funds, NAVpublication/historyfees/dividendrights/paymentunverified; not ETF; originalriskandexecutionassumptions unchanged"
+}

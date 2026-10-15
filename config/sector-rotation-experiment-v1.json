@@ -1,0 +1,22 @@
+{
+  "version": "sector-rotation-experiment-v1",
+  "selection_basis": "retrospective historical optimization; not out-of-sample validated",
+  "policy": {
+    "score_mode": "combined",
+    "entry_score": 60,
+    "exit_score": 45,
+    "review_sessions": 5,
+    "max_positions": 10,
+    "max_exposure": 1.0,
+    "regime": "benchmark",
+    "trailing_stop": 0.1,
+    "daily_exits": true,
+    "ma_exit": true,
+    "volume_gate": false,
+    "volatility_sizing": false,
+    "cooldown_sessions": 10,
+    "exit_confirm_sessions": 1,
+    "entry_state_gate": false,
+    "regime_exit": true
+  }
+}

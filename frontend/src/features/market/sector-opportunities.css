@@ -2,6 +2,21 @@
   display: grid;
   gap: 16px;
 }
+.sector-view-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #dce4e2;
+  margin-bottom: 18px;
+  font-size: 14px;
+}
+.sector-view-nav a { color: #52635f; padding: 7px 0; }
+.sector-view-nav a[aria-current='page'] {
+  color: #126657;
+  font-weight: 700;
+  border-bottom: 2px solid #126657;
+}
 .sector-library {
   display: grid;
   gap: 16px;

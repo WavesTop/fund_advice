@@ -1,0 +1,9 @@
+{
+  "version": "fund-allocation-defensive-universe-v1",
+  "selection": "Fixed duration/credit categories before inspecting their NAV return histories",
+  "funds": [
+    {"code": "000016", "theme": "纯债", "role": "defensive", "official_identity_source": "https://fund.chinaamc.com/portal/cn/hxxc/2013/hxcz/wd.html"},
+    {"code": "006669", "theme": "中短债", "role": "defensive", "official_identity_source": "https://m.chinaamc.com/activity/006668/index.html"},
+    {"code": "009803", "theme": "长期国开债", "role": "defensive", "official_identity_source": "https://e.efunds.com.cn/cart/aips?fundCode=009803"}
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "version": "satellite-market-gate-research-v1",
+  "reference": "runtime/verification/satellite-selection-diagnostic-v1.json.gz",
+  "reference_sha256": "b793bde6b4d1f6add731993bc14e330e914018bd267fa1dc1b63a82d6c2d236e",
+  "reference_protocol": "config/satellite-selection-diagnostic-v1.json",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "gates": ["direction_entry", "wide_entry", "wide_exit"],
+  "selection_history": "After prior random/stress tests showed stage-dependent20dayalpha, freeze three gates before current results; no threshold search, no untouched holdout claim",
+  "direction": "Equal-daily-return stock-class proxy past21and63logreturns both>1e-12. This is a signal, never a tradable free portfolio or label",
+  "wide": "Direction plus >=60% currently available stock fund totalreturnmarks above own120daymean*(1+1e-12). Gold/bonds excluded; no broadbenchmark unadjusted-NAV dividend bias",
+  "entry_vs_exit": "direction_entry and wide_entry only block new tilts, retain fixed20 funded-exposure expiry and daily own-failure/risk rules; wide_exit also ordinary withdrawals only the extra tilt at its5sessioncheck when gate closes, even pending funding. No whole-core liquidation",
+  "unchanged": "All core/size/risk/cash/FIFO/fees/check/cooldownrules from preceding fixed20; gate-off remains invested in neutralcore rather than assume interest-bearing cash; no calendarbull/bear labels used in trading",
+  "random_seeds": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32],
+  "random": "Same gates/size/exits/cashrules, only SHA256(seed|signaldate|code) eligible choice; all32retained, no random winner selected. Existingungatedrandomsummary referenced, not counted as newruns",
+  "stress_policies": ["direction_entry", "wide_entry", "wide_exit", "matched_core", "inverse20", "fixed20"],
+  "stress": {"fee_bps": [50,100], "core_and_check_phases": [5,10,15], "execution_lag_sessions": 2},
+  "episodes": "All9frozenepisodes; continuouscarry plus independentfresh100k knownend7dayguard for3gates. Missingandpartialcoveragekept, no fresh-return compounding",
+  "compatibility": "All28prior mainaccounts/checks plus16savedseed1/32randomaccounts/checks unchanged; policy metadata only adds gate fields",
+  "validation": "Independentpaststockclassreturns/rawstockbreadth, controllergate/actions/nonactions, actualunits/fees/cash/FIFO, input/calendar/reference/sourcehash checks. No sharedexecutionengine edits",
+  "retention": "All random metrics/events/carry/audits; fullrandomaccounts/checks onlyfirstandlastseed to limit artifact size. Endogenous timelines differ, conditionalpathpercentiles not pvalues or future confidence",
+  "scope": "Reviewed overlapping survivorOTCfundcohorts; true historicalcontracts/NAVpublication/dividendrights/paymentunverified. NotETF, notinvestmentrecommendation. 10%pastvolconstraint is not user-approved or future drawdown limit"
+}

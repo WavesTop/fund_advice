@@ -1,0 +1,23 @@
+{
+  "version": "satellite-member-exit-research-v1",
+  "references": {
+    "ordinary10": {"path": "runtime/verification/satellite-event-repair-research-v1.json.gz", "sha256": "00d712f3a9bbcecb27dbe24bb50a3a32b889e911093fc29f30000a7a24053b3c"},
+    "ordinary0": {"path": "runtime/verification/satellite-low-ordinary-fee-research-v1.json.gz", "sha256": "1be9c501c8b12392a5a9939104fb370c2c916e22b6893690f3df3eddda6f86d1"},
+    "separate": {"path": "runtime/verification/satellite-separate-repair-research-v1.json.gz", "sha256": "e39e5426a594c455027345055c97241747b54dbb1bcbafbb3f41408ee683f58f"},
+    "competition": {"path": "runtime/verification/satellite-competition-research-v1.json.gz", "sha256": "03ea7745015c1a81ff6c06cdcd3125f35dc2d4145da32fa6931aa5bffcd9ef93"},
+    "basket": {"path": "runtime/verification/satellite-basket-research-v1.json.gz", "sha256": "66d3807916069bfa76ef2de57d7b935cb5a8290df5100f31b496648e3baa0aa5"}
+  },
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "variants": ["funded2_fixed20", "funded3_fixed20", "individual2_fixed20", "individual3_fixed20"],
+  "ordinary_fees_bps": [0, 10],
+  "extra_fee_stress_bps": [50, 100],
+  "timing": [{"id": "default", "phase": 0, "lag": 1}, {"id": "phase5", "phase": 5, "lag": 1}, {"id": "phase10", "phase": 10, "lag": 1}, {"id": "phase15", "phase": 15, "lag": 1}, {"id": "lag2", "phase": 0, "lag": 2}],
+  "fresh_entry_dates": ["2024-07-29", "2025-01-02", "2025-07-01", "2026-01-05"],
+  "selection_history": "After together basket defaults exposed3modern survivor-containing exits and4older9top3exits, freeze funded-only partial failure and fully individual funding/lease variants before their returns. Two older9top3 failures occurred before shared funding; funded-only mode deliberately retains whole-basket failure before shared funding for a cleaner exit ablation. No size/mode/clock/winning phase selection",
+  "member_exit": "funded mode retains original common actual-funded20clock and whole-basket pre-funding failure/10timeout; after common funding only failed members retire. Individual mode records each own actual half-extra funding observation, own20expiry and own10funding timeout. No live slot refill; epoch ends only after all retire, then original cooldown5/full neutral restoration",
+  "quota": "Original plan member identity stays fixed until epoch end. At each signal compute original full-basket allocation as before, mask retired extras and restore their quota proportionally to original donor stock codes. Do not give retired quota to survivors. Scale active targets by the tighter10%risk factor of both full original plan and surviving plan, so at same rawcore/risk/date a survivor cannot exceed its full-plan target; risk may shrink further. Core updates and changing risk still change targets over time",
+  "unchanged": "Score/ownvote admission, top2/3 one-candidate fallback,10pp stock-only total,35%raw cap,0.5pp admission, whole combined immediate risk repair, ordinary holding/150bps short floor, confirmation1/settlement2/minbuy1, cash/FIFO/queued callbacks/terminal treatment unchanged. Shared engine/calendar/input not edited",
+  "compatibility": "88old defaults across4pools x2fees x11policies including previous baskets, complete account/metric/check exact and inverse trace canonical JSON key exact; member_exit defaulttogether only new metadata. Driver gains bounded protocol selector and factories; allowed source changes limited controller/auditor/driver",
+  "retention": "192new timing/cost variants plus120new fresh variants plus88compatibility=400formal runs,8fresh main defaults reused. Retain32new full defaults; other new runs audited before compact metrics/events/member reasons/9carry episodes. Old controls reused, not counted as new runs. No independent probability or missing-control zero fill",
+  "scope": "Repeatedly reviewed overlapping survivor OTC NAV histories and model costs/clocks, not real historical contracts/first-known NAV/dividend rights/ETF execution or unseen holdout. More flexible exits not assumed beneficial; no prototype/live promotion without robust advantage"
+}

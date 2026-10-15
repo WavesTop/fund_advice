@@ -1,0 +1,15 @@
+{
+  "version": "sector-rank-risk-research-v1",
+  "reference": "runtime/verification/sector-forecast-research-v1.json.gz",
+  "reference_sha256": "cbe0019e34d37c10e4117d0a362452038d125c208db2676991c168ed73c3b501",
+  "periods": {"short": 20, "medium": 60, "long": 120},
+  "targets": ["centered_midrank_forward_return", "centered_midrank_forward_max_drawdown"],
+  "rank_direction": "Higher future return or less negative future max drawdown ranks higher; exact decimal price ratios and midpoint ties; subtract0.5",
+  "unchanged": "Same11past features,fit_ridge penalty1,1096calendar days,24mature dates,10session training anchors,one-session post-exit maturity,full86pool,reference evaluation clocks",
+  "methods": ["return_top10", "magnitude_ridge_top10", "trend_gated", "low_vol_top10", "historical_rank_top10", "rank_top10", "safety_top10", "maximin_top10", "upward_quality", "upward_count_return"],
+  "maximin": "Minimum of current-peer midpoint percentiles of predicted return rank and predicted safety rank,no weight grid",
+  "upward_quality": "Positive observed window return and recent fitted return,both centered predictions>0; maximin ordering,up to10; no forced fill or zero-return cash assumption",
+  "top_n": 10,
+  "selection_history": "After magnitude RMSE improved without ranking gains,freeze ordinal return/risk targets and all controls before new results. No classifier probability claims,user drawdown cap,threshold or phase selection",
+  "scope": "Retrospective current-survivor industry price diagnostic,not executable investment returns or unseen OOS. No automatic production or trial promotion"
+}

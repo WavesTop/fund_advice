@@ -1,0 +1,18 @@
+{
+  "version": "sector-horizon-research-v1",
+  "price_input_sha256": "55b468940aeacc2a0132d303f8986382b1e2dcc45e6f01179e4324907b171b85",
+  "as_of": "2026-10-14",
+  "periods": {"short": 20, "medium": 60, "long": 120},
+  "methods": ["return_top10", "trend_top10", "trend_gated", "state_gated_return", "matched_count_return"],
+  "top_n": 10,
+  "score_floor": 60,
+  "states": ["steady_up", "strengthening"],
+  "entry": "next_session_close",
+  "exit": "entry_plus_period_sessions_close",
+  "primary": "first_window_then_stride_horizon_plus_one",
+  "secondary": "five_session_signal_stride_overlapping_descriptive",
+  "coverage": "complete_frozen_pool_at_signal_and_outcome_no_future_filtering",
+  "cost_stress_bps": [0, 20, 50, 100],
+  "selection_history": "After fixed20/60/120 lookbacks were mainly evaluated over5/20 forward sessions, bind each period to its own forward horizon. Freeze existing v2 score/state gate and all five controls before matched-horizon outcomes. No tuning or winning-horizon selection",
+  "scope": "Board opportunity short/medium/long candidate research, not a replacement for the product. Index price labels, not executable fund returns; no unseen OOS or investment certification. Allow no selection and insufficient history"
+}

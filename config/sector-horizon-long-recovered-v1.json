@@ -1,0 +1,13 @@
+{
+  "version": "sector-horizon-long-recovered-v1",
+  "collection": "runtime/verification/sector-long-history-recovered-v1",
+  "collection_manifest_sha256": "3ae6e3753bf1036536d6e7698e52e99d62b8aa423b2db976312de71f1bd2ae65",
+  "collection_protocol_sha256": "e5e31e09426d8646a083536b8a852eb6e647526fa86587600f9c9b051fbb5450",
+  "base_report": "runtime/verification/sector-horizon-research-v1-reviewed.json",
+  "base_report_sha256": "846d702c07884b334f4b82836f19ff01c8d621a0a68f0b88bc6be9fd9ad8d40f",
+  "periods": {"short": 20, "medium": 60, "long": 120},
+  "score_and_schedule": "Exactly frozen matched-horizon v1 rules and first long study anchors; no changes to model,threshold,phase or full86pool",
+  "failed_history": "Only502/504 transport recovery under separate frozen protocol. Permanent missing or invalid annual rows remain rejected; preserve full86pool and fixed2017anchors",
+  "interpretation": "Recovery sensitivity after first long-history results, not unseen OOS or independent market evidence",
+  "promotion": "No automatic production or trial change"
+}

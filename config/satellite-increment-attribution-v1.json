@@ -1,0 +1,11 @@
+{
+  "version": "satellite-increment-attribution-v1",
+  "reference": "runtime/verification/satellite-event-repair-research-v1.json.gz",
+  "reference_sha256": "00d712f3a9bbcecb27dbe24bb50a3a32b889e911093fc29f30000a7a24053b3c",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "factorial_arms": ["matched_core", "fixed20", "event_core", "event_fixed20"],
+  "nonoverlapping_sessions": 252,
+  "scope": "Descriptive paired controller ablations, not causal stock-level alpha, independent probability or a new executable strategy. Analyze all existing main, stress, fresh-entry and carry bull/bear episodes; never pick a best period or parameter. Different funded exposures and endogenous events are part of each complete strategy path. Terminal liquidation and receivables remain in original account wealth. History was repeatedly viewed; product contract qualification remains incomplete",
+  "hypothesis": "Separate a trend overlay increment from the effect of its check/repair cadence. Use same-policy core rather than only stronger unmatched inverse20, and retain inverse20 as practical benchmark. Exact cumulative-return percentage-point identity is descriptive; drawdowns are not additive",
+  "decision_use": "Positive partial contributions do not qualify the strategy. Determine whether any observed advantage survives comparable core, timing/cost stresses and new entries before adding another model or live advice"
+}

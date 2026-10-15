@@ -1,0 +1,11 @@
+{
+  "version": "sector-long-history-recovery-v1",
+  "original": "runtime/verification/sector-long-history-v1",
+  "original_manifest_sha256": "d4e1e60bfeaef3e8f48e9868ca8aa9b80fcc938aa407d77db8cb21178849f592",
+  "retry_http_statuses": [502, 504],
+  "maximum_requests": 23,
+  "minimum_interval_seconds": 1,
+  "workers": 1,
+  "rule": "One new attempt for every original502/504 only, regardless of year or sector; no404,parse,OHLC,calendar,overlap relaxation. Original manifest and raw responses remain immutable. Same source URLs,no cookies or access-control bypass",
+  "selection_history": "Transport-only recovery after original data collection and first long-horizon report. No outcome-based inclusion,model changes or date reanchoring"
+}

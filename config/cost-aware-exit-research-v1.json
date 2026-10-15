@@ -1,0 +1,15 @@
+{
+  "version": "cost-aware-exit-research-v1",
+  "reference": "runtime/verification/market-regime-strategy-research-pair-v2.json.gz",
+  "selection": "Defined after observing event-review short fees and pair-regime failures; not untouched OOS; no scanning of return thresholds or risk/holding parameters",
+  "policies": ["dual_return60", "risky_pair60", "risky_pair_static60"],
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "schedules": ["grid20", "event20"],
+  "exit_mode": "absolute_or_current_risk",
+  "urgency": "At each actual decision, rebuild current fund-value weights against wealth including cash and receivables. Past60actualfundcovariance risk>10% or held class vote<2/3 allows early redemption; static control has no absolute trend gate. Relative ranking loss or scaled new proposal alone is ordinary. Explicit urgent reductions also bypass rebalance band; ordinary reductions retain original7confirmationnaturaldaysminimum at execution,not automatic sale exactly7dayslater",
+  "invariants": "No change in class ranking/proposal,10%desired-riskconstraint,60%riskbudget,fees,nextNAV,confirmation,settlement,cashinterest,band,initialentry,terminalredemption,no leverage/shorts. Risk exits still pay applicable short fee; pending-order guard and liquidity remain",
+  "stress": {"ordinary_fee_bps_each_side": [50, 100], "grid20_common_entry_phases": [5, 10, 15], "execution_lag_sessions": 2},
+  "episodes": "Use all nine frozen regime episodes with identical complete/partial/missing coverage; fresh100kknown-end7dayguard and carry-from-prior-session slices separately. Retrospective labels never feed decisions",
+  "validation": "Rebuild past signals, desired and current risk, exit urgency, current fund units versus audited account wealth, and executed sale reasons independently. Re-run all24legacyfullcontrols against frozen results before interpreting changes",
+  "limitations": "A risk check only at decision dates is not a guaranteed future volatility or hard intraday cap; delayed execution, queued orders, redemption confirmation and settlement constrain compliance. Actual risk/wealth paths change. Already-viewed survivor data, hypothetical ordinary contract fees and retrospective NAV/dividend timing; costs alone are not alpha"
+}

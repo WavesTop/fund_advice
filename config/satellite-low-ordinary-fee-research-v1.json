@@ -1,0 +1,20 @@
+{
+  "version": "satellite-low-ordinary-fee-research-v1",
+  "reference": "runtime/verification/satellite-event-repair-research-v1.json.gz",
+  "reference_sha256": "00d712f3a9bbcecb27dbe24bb50a3a32b889e911093fc29f30000a7a24053b3c",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "policies": ["matched_core", "fixed20", "event_core", "event_fixed20", "inverse20"],
+  "ordinary_fee_bps_each_side": 0,
+  "scenarios": [
+    {"id": "default", "phase": 0, "lag": 1},
+    {"id": "phase5", "phase": 5, "lag": 1},
+    {"id": "phase10", "phase": 10, "lag": 1},
+    {"id": "phase15", "phase": 15, "lag": 1},
+    {"id": "lag2", "phase": 0, "lag": 2}
+  ],
+  "fresh_entry_dates": ["2024-07-29", "2025-01-02", "2025-07-01", "2026-01-05"],
+  "selection_history": "Freeze all five policies, four pools, five joint low-fee timing scenarios and four fresh starts after paired attribution showed long-pool negative increments and modern event overlay positive in only one of six ordinary-cost stresses. No score, threshold, hold-age, fee or winning phase search",
+  "unchanged": "Shared source/input/calendar digests must equal the frozen event report. Only ordinary BUY/SELL bps change to0; confirmed calendar holding age under7 still150bps, ordinary7day wait, confirmation1session, settlement2sessions, minbuy1, risk exits, signal sizing, private controller state and terminal treatment unchanged. Model clocks remain unverified product scenarios; no ETF claim",
+  "retention": "Full accounts and controller traces retained for all20default runs. All other80timing runs and75new fresh runs audited with full accounts before retaining metrics, audit results, events and every9carry episodes; modern first fresh entry reuses5default runs. No duplicate count or independent probability claim",
+  "scope": "Low ordinary fee is a counterfactual sensitivity, not actual historical product fee schedules. Cumulative wealth includes terminal receivables, not fully available cash. Survivorship, repeated history inspection, NAV first-known and contract qualification limitations unchanged"
+}

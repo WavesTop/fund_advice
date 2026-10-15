@@ -1,0 +1,8 @@
+{
+  "base_protocol": "config/trend-friction-diagnostic-v1.json",
+  "version": "trend-friction-diagnostic-v2-full-exit-fix",
+  "reference": "runtime/verification/trend-friction-diagnostic-v1.json.gz",
+  "implementation_correction": "Full target exits now consume each eligible lot exactly instead of a rounded sum of units. Tiny residual lots/receivables previously triggered phantom settlement decisions; old monetary-tolerance audits did not enforce full-exit state. New independent lot-exhaustion checks reject that defect",
+  "reference_comparison": "Pre-fix reference retained for audit,notcurrentinvestmentreturns. Recompute allscenarioaccountsandbaselinefreshcases;recordeverychangedoldbaseline metric instead of weakening an unchanged-result gate. Same scores,fees,calendar andinput; economic full-exit semantics corrected",
+  "validation": "Independent cash/FIFO plus exact full-exit lot exhaustion and no eligible leftovers; all corrected current risk/signal checks; no claimall36oldbaseline metrics unchanged after economic bugfix"
+}

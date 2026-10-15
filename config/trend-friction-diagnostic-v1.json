@@ -1,0 +1,19 @@
+{
+  "version": "trend-friction-diagnostic-v1",
+  "reference": "runtime/verification/phased-class-trend-research-v1.json.gz",
+  "selection": "Diagnostic chosen after phaseblend failed simplecontrols; no parametersearch,unseenOOS or assumptionthatfeesexplainallfailure",
+  "policies": ["dual_return60", "risky_pair60", "risky_pair_static60"],
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "variants": ["grid20", "grid5", "phaseblend"],
+  "scenarios": {
+    "baseline": {"ordinary_fee_bps": 10, "short_redemption_bps": 150, "minimum_holding_days": 7},
+    "ordinary_free": {"ordinary_fee_bps": 0, "short_redemption_bps": 150, "minimum_holding_days": 7},
+    "all_fee_free": {"ordinary_fee_bps": 0, "short_redemption_bps": 0, "minimum_holding_days": 7},
+    "fee_free_no_wait": {"ordinary_fee_bps": 0, "short_redemption_bps": 0, "minimum_holding_days": 0}
+  },
+  "phase_diagnostic": {"scenario": "all_fee_free", "policies": ["dual_return60", "risky_pair_static60"], "five_day_clock_phases": [1, 2, 3, 4], "grid20_phases": [5, 10, 15]},
+  "episodes": "Allninefrozencalendarbull/bear/observationgroupswithunchangedmissing/partialcoverageandfullaccountcarryslicesforallscenarios. Forlong4andall13dual_return60,alsofreshall_fee_freeforallthreevariants,comparewithfrozenbaselinefreshcases. No extra freshno-waitclaims",
+  "invariants": "SamefundNAVsignals,21/63/252scores,classproposals,riskbudget,actualriskexitclassification,cashscaled10%desiredvol,T+1confirmation,T+2settlement,nextNAV,cash0interest,FIFO,commonentry,band,no leverage/shorts. Embeddedmanagement/custody/salesexpensesinNAVremain. Freshknown-end7dayentryguardunchanged",
+  "validation": "All36mainbaseline metrics equal frozen report; independentlyauditledger,fees,holdingages,currentholdings,pastsignalsandphaseblendviews; zeroallfeesactuallysumzero; ordinary-freekeepsshort150bpsfloor; carryslicesfromprior-sessionwealth",
+  "limitations": "OptimisticdiagnosticsnotavailablefundcontractsorETFpricebacktests,notsuitableasrealinvestmentreturn,nonstrictmathematicalupperbound. Changingfees/waitchangescash,positions,riskexits,ordersandpath,notfixedtradefeeaddback. Current-survivorhistories,repeateddata,NAVfirstavailability/dividendpayment/contractassumptionsremainunverified"
+}

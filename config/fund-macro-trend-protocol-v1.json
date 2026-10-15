@@ -1,0 +1,30 @@
+{
+  "version": "lpr-confirmed-risk-budget-v1",
+  "registered_before_new_return_runs": true,
+  "source": "PBC individual monthly LPR announcements, reformed mechanism from 2019-08-20",
+  "availability": "max(announcement date, displayed publication date) + 1 natural day; sensitivity 7 and 30 days",
+  "signal": "mean of 1y and 5y LPR is below its as-of-known level 90 natural days ago; no interpolation or pre-reform backfill",
+  "stock_budgets": {
+    "static40_vol10": "40%",
+    "quality_vol10": "35% + 25% * signed 60/120-session regression fit quality",
+    "easing_vol10": "50% if recent LPR reduction, otherwise 40%",
+    "easing_confirmed_vol10": "50% only if recent LPR reduction and price quality > 0, otherwise 40%",
+    "easing_caution_vol10": "30% only if recent LPR reduction and price quality < 0, otherwise 40%"
+  },
+  "gold_budget": 0.2,
+  "remaining": "equal bond funds, per-fund cap 90%; same past-only 10% projected-volatility constraint for all policies",
+  "fund_warmup_sessions": 120,
+  "review_sessions": 10,
+  "absolute_band": 0.03,
+  "relative_band": 0.25,
+  "fees": "normal buy/sell 10bps each scenario; redemption under 7 confirmation natural days at least 150bps",
+  "stress": "fee50/100bps, phases2/5/7, execution lag2, announcement lag7/30days",
+  "cohorts": ["all13+3bonds", "older9+purebond", "older4+purebond", "long4:HS300/CSI500/gold/purebond"],
+  "historical_limits": "Already-viewed fund histories, current survivor lists, no untouched independent forward sample; displayed PBC timestamps remain conditional availability evidence"
+  ,"followup_controls": {
+    "added_after_initial_five_policy_run": true,
+    "static50_vol10": "fixed 50% stock, 20% gold, remaining bonds, identical volatility and execution constraints",
+    "static30_vol10": "fixed 30% stock, 20% gold, remaining bonds, identical volatility and execution constraints",
+    "purpose": "Separate timing value from simply using more or less equity; not a new untouched validation sample"
+  }
+}

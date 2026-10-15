@@ -1,0 +1,12 @@
+{
+  "version": "sector-horizon-long-v1",
+  "collection": "runtime/verification/sector-long-history-v1",
+  "collection_protocol_sha256": "e5e31e09426d8646a083536b8a852eb6e647526fa86587600f9c9b051fbb5450",
+  "base_report": "runtime/verification/sector-horizon-research-v1-reviewed.json",
+  "base_report_sha256": "846d702c07884b334f4b82836f19ff01c8d621a0a68f0b88bc6be9fd9ad8d40f",
+  "periods": {"short": 20, "medium": 60, "long": 120},
+  "score_and_schedule": "Exactly frozen matched-horizon v1 rules, all five selectors, no weight, threshold, phase or universe optimisation",
+  "failed_history": "Preserve full86pool; incomplete historical signals/outcomes remain incomplete. Original primary anchors stay fixed, never reanchor to first successful date",
+  "interpretation": "Longer retrospective current-survivor industry price diagnostic, not unseen OOS or executable fund investment performance",
+  "promotion": "No automatic production or trial change from this report"
+}

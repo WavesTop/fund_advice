@@ -1,0 +1,13 @@
+{
+  "version": "net-horizon-predictivity-v1",
+  "reference": "runtime/verification/gradual-class-allocation-research-v2.json.gz",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "horizons": [3, 10, 20, 60, 120],
+  "modes": ["class_mean", "trend_ridge"],
+  "learning": "Same3/13pastfeatures,min24dates,penalty1,last1096naturalfeaturedays. Separate model per horizon,10sessiontraininggrid;labelmaturesonlyatT+2redemptionsettlement,notexitNAVdate. All labels are freshunitcapitalclassholdings",
+  "labels": "NextNAVpurchase,holdexactdeclaredsessions,fixedfundunits,equalinitialclasscapital,cashdividendsnotreinvested,buydaydividendexcluded,ordinary10bpsbuy/sell,shortsell150bpsfloorunder7confirmationnaturaldays. NAVembeddedexpensesremain. Futurefee/datefieldslabels-only,notfeatures",
+  "evaluation": "Observation dates spacedmax(10,horizon),same dates for both models,all andbothabsoluteeligibleStock-GoldspreadRMSE/winneraccuracy;eligiblepositiveforecastprecisionandcoverage. No trivial3classICasprimarymetric,no winner-horizon selection",
+  "probe": "Independentlyrebuildpastfeatures/unitcashlabels/datefees;constantunitnetlabelscheckedagainstaudited100kFIFOholdaccountswithcent-roundingcapitalcorrection. Initialonlyreview,no dividend reentry,terminalfeesandreceivablesincluded. Probes are100%classunitlabels,notthe10%riskportfolio",
+  "episodes": "All9frozenbull/bear/observationwindows,onlyevaluationwindowswhollycontainedthroughsettlement;insufficient/partialhistoryexplicit,noregimetagusedforprediction",
+  "limitations": "Predictiondiagnosticnotinvestablecontinuousaccountorstrategyreturns. Label assumesfreshentryandterminalexit,notincumbentpartialaction;trainingoverlap/cohortcorrelation/survivorbias/alreadyviewedhistory/unverifiedpublication/dividend/contracts. NotETF. Horizonsnotselectedbybesthistoricalprofit"
+}

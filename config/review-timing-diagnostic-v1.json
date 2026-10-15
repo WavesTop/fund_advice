@@ -1,0 +1,13 @@
+{
+  "version": "review-timing-diagnostic-v1",
+  "reference": "runtime/verification/broad-return-ranking-stress-v1.json.gz",
+  "selected_after_reference_results": true,
+  "fund_codes": ["000217", "000051", "000008", "000016"],
+  "policies": ["dual_return60", "dual_leader60", "fixed_cash_equal", "fixed_cash_gold60", "inverse_vol_cap60"],
+  "phases": [0, 5, 10, 15],
+  "comparison": "Original entry waits for phase; matched-entry has one additional review at common start, retaining later20sessionphasegrid and same settlement reinvestments",
+  "execution": "252warmup,nextNAV,T+1confirmation,T+2settlement,ordinary10bpseach,shortredemptionfloor150bps,absolute3pp/relative25%bands,forecastvol10%cashscale,no leverage/shorts",
+  "source_change": "Only fund_allocation.py optional timing arguments,research_cross_asset_trends.py optional forwarding/outputversion and research_broad_return_ranking.py guard/outputversion may differ from frozen reference sources; disabled defaults must exactly reproduce all selected prior main/phase metrics",
+  "diagnostic": "Continuous-account calendar-year returns and relative log wealth attribution, not fresh annual account returns; phased curves must share every date; initial trades must match across matched-entry phases",
+  "limitations": "Same repeatedly viewed survivor funds and retrospective NAV/distribution assumptions,not independent OOS or causal estimate of all costs; equalinitialentry does not eliminate future rebalance timing luck or make strategies risk-equivalent"
+}

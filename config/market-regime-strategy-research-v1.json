@@ -1,0 +1,30 @@
+{
+  "version": "market-regime-strategy-research-v1",
+  "selection": "Fixed calendar episodes after prior full-history studies but before new strategy-segment outcomes; never choose strategy by the best hindsight regime",
+  "policies": ["dual_return60", "dual_leader60", "fixed_cash_equal", "fixed_cash_gold60", "inverse_vol_cap60", "risky_pair60", "risky_pair_static60"],
+  "pair_followup_after_initial_regime_results": {
+    "hypothesis": "Winner-take-all can miss concurrent stock/gold trends and force young relative-rotation exits; share same60%riskybudget among qualifying stock/gold by inversepastvol,no new returnthreshold",
+    "risky_pair60": "Stock/gold vote>=2/3; botheligible split60%inversevol,singleeligible60%;bond40%ifanyriskyeligibleor60%ifnone,onlyifbondvote>=2/3;remaindercash",
+    "risky_pair_static60": "Matched risk-budget/volatility allocation control without trend gates:stocks/goldalways share60%inversevol,bondalways40%",
+    "invariants": "Same funds,reviewclocks,fees,settlement,riskexitrules andforecast10%constraint; no leverage or scanning ofriskbudget"
+  },
+  "schedules": ["grid10", "grid20", "grid40", "event20", "daily", "adaptive"],
+  "adaptive": "Same common initial purchase; thereafter after20sessions when currentbenchmarkabove200MAand63returnpositive,5whenbelowandnegative,10otherwise; clock uses only current/past NAV,not episode label; no interval grid optimisation",
+  "episodes": [
+    {"id": "bull_2014_2015", "start": "2014-10-01", "end": "2015-06-30", "evaluation_group": "bull"},
+    {"id": "bear_2015_2016", "start": "2015-07-01", "end": "2016-02-29", "evaluation_group": "bear"},
+    {"id": "bull_2017", "start": "2017-01-01", "end": "2017-12-31", "evaluation_group": "bull"},
+    {"id": "bear_2018", "start": "2018-01-01", "end": "2018-12-31", "evaluation_group": "bear"},
+    {"id": "bull_2019_2020", "start": "2019-01-01", "end": "2020-12-31", "evaluation_group": "bull"},
+    {"id": "bear_2021_2023", "start": "2021-03-01", "end": "2023-12-31", "evaluation_group": "bear"},
+    {"id": "recovery_2024", "start": "2024-09-01", "end": "2024-12-31", "evaluation_group": "up_observation"},
+    {"id": "up_2025", "start": "2025-01-01", "end": "2025-12-31", "evaluation_group": "up_observation"},
+    {"id": "down_2026", "start": "2026-01-01", "end": "2026-10-12", "evaluation_group": "down_observation"}
+  ],
+  "episode_labels": "Gross HS300linkedfund000051totalreturnproxy from precedingexchangeclose to episodeend: stated bull/bear groups require fullrequestedwindow>=20%or<=-20%.Calendarblocks for evaluation,not official market peak/bottom dates; shorter observations separate",
+  "cohorts": ["all13+3bonds", "older9+purebond", "older4+purebond", "long4:HS300/CSI500/gold/purebond"],
+  "coverage": "Never backfill nonexistent funds; partial segments explicitly mark effective dates after common252warmup,missing episodes retained; no selected-best asset replacement",
+  "accounts": "Both fresh100ksegmentaccounts and slicesofcontinuousaccounts; freshsegmentknownend7dayentryguard,terminalredemptioncharged; carryslicestartfromprecedingsessionequity,localDDreset,noextraendliquidationexceptglobalterminaldate",
+  "execution": "NextNAV,T+1confirmation,T+2settlement,ordinary10bpseachside,under7confirmationnaturaldaysfloor150bps,same3pp/relative25%band,past60fundcov10%cashriskconstraint,cash0interest,no leverage/shorts",
+  "limitations": "Previouslyviewedcurrent-survivorhistories andretrospective NAV/distribution assumptions,no untouched OOS; retrospective marketlabels never feed scheduling/selection; adaptiveclockchangesrisk/selectionupdatetiming together,notproof ofpuretrendalpha; forecastvolnotfuturevol/maxDDguarantee"
+}

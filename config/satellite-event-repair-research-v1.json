@@ -1,0 +1,21 @@
+{
+  "version": "satellite-event-repair-research-v1",
+  "reference": "runtime/verification/satellite-headroom-research-v1.json.gz",
+  "reference_sha256": "8c7abd324cdbbfec425ed562f5e1239b2669eccf074dcaafc926b34a75391a86",
+  "reference_protocol": "config/satellite-headroom-research-v1.json",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "variants": ["event_core", "event_fixed20", "event_headroom20"],
+  "comparison_policies": ["inverse20", "matched_core", "fixed20", "headroom_fixed20"],
+  "stress_policies": ["inverse20", "matched_core", "event_core", "event_fixed20", "event_headroom20"],
+  "stress": {"fee_bps": [50, 100], "core_and_check_phases": [5, 10, 15], "execution_lag_sessions": 2},
+  "fresh_entry_dates": ["2024-07-29", "2025-01-02", "2025-07-01", "2026-01-05"],
+  "selection_history": "After prior headroom results exposed large lag/entry dependence and feasibility diagnosis found only1shared date of lower-score alternatives, freeze3event-repair ablations before their actual historical returns. No score/threshold/holding-period search, no untouched holdout claim",
+  "risk_repair": "Current actual projected risk>10% still urgently scales all executed holdings to10%, with the same engine enforcement. After that signal set memory.work=false rather than automatically repair the former core/satellite goal next day. New core20day review, new eligible satellite entry, or satellite expiry/failure/timeout/score event may request a fresh goal as before. This is not a mandatory20day cash lock or a ban on every risk-day trade",
+  "controls": "event_core has no satellite and isolates changed repair lifecycle. event_fixed20 uses original whole-target risk scaling; event_headroom20 uses unchanged headroom quadratic sizing. Compare every overlay with both event_core and stronger inverse20, not only old weakened matched_core",
+  "unchanged": "Trend scores, ownvotes,10pp transfer and35%cap,0.5ppminimum,core20/check5,actualfunding age20,cooldown5,FIFO,cash,fees,confirmation,settlement,initial100k and terminal treatment all unchanged; market gates off. Only immediate post-risk work flag changes. No shared execution engine edits",
+  "fresh": "All4fixed dates x all4cohorts, new100k cash/private-controller state, first session after shared252warmup and common end2026-10-12, no known-end entry guard. Reuse5main results only when actualstart equals main start, not counted as extra runs; do not compound fresh accounts",
+  "episodes": "All9prior continuouscarry bull/bear/observation intervals, missing/partial retained; labels not trading inputs",
+  "compatibility": "All24previous saved main accounts/metrics/daily checks and inverse signal traces exact; old policy metadata gains risk_repair default only. Current driver gains bounded protocol selection and factories; every frozen execution/data/feature source remains unchanged",
+  "validation": "Independent rawpast risk and action/nonaction/work-state reconstruction, exact oldmain compatibility, realcash/FIFO/fees/units checks, input/calendar/reference/sourcehash guards and archived source before run. Whole-target event overlay may shift gold/bond targets as before; headroom overlay must retain same-day defensive targets",
+  "scope": "Previously reviewed overlapping survivor OTC funds; actual historical contracts/NAVpublication/dividendrights/settlement still unverified. 10%pastvol is not drawdown guarantee or user preference. Research trial remains prior frozenV1; no real trading recommendation"
+}

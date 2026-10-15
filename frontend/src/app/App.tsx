@@ -33,6 +33,7 @@ import {
   Monitor,
   ChevronRight,
   CircleHelp,
+  FlaskConical,
 } from 'lucide-react';
 import { EmptyState, searchInputProps } from '../shared/ui';
 import { DemoProvider } from '../shared/store';
@@ -64,12 +65,18 @@ const ReviewPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import('../features/settings/RealSettingsPage').then((module) => ({ default: module.RealSettingsPage })),
 );
+const StrategyTrialPage = lazy(() =>
+  import('../features/trial/StrategyTrialPage').then((module) => ({
+    default: module.StrategyTrialPage,
+  })),
+);
 
 const navigation = [
   { to: '/funds', label: '基金与板块', caption: '发现投资机会', icon: Layers3 },
   { to: '/portfolio', label: '我的持仓', caption: '看清资产与记录', icon: Wallet },
   { to: '/advice', label: '建议与决策', caption: '让每次选择有据可循', icon: Compass },
   { to: '/review', label: '收益与复盘', caption: '比较、验证与改良', icon: ChartNoAxesCombined },
+  { to: '/trial', label: '策略研究试用', caption: '冻结历史，观察风险', icon: FlaskConical },
 ];
 function Shell() {
   const location = useLocation();
@@ -77,6 +84,7 @@ function Shell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
   const isMarket = /^\/(funds|sectors)/.test(location.pathname);
+  const isTrial = location.pathname === '/trial';
   const active = navigation.find((item) =>
     item.to === '/funds' ? isMarket : location.pathname.startsWith(item.to),
   );
@@ -195,9 +203,15 @@ function Shell() {
           </Link>
         </header>
         <div className="data-banner">
-          <span className="data-tag">本机真实数据</span>
-          <span>基金、板块、持仓、策略建议和历史验证均读取本地正式接口；资料缺失会明确保留为空。</span>
-          <Link to="/settings">核对数据状态 <ArrowUpRight size={13} /></Link>
+          <span className="data-tag">{isTrial ? '冻结研究数据' : '本机真实数据'}</span>
+          <span>
+            {isTrial
+              ? '当前为只读历史模拟，不是实时行情、正式建议或实盘账户。'
+              : '基金、板块、持仓、策略建议和历史验证均读取本地正式接口；资料缺失会明确保留为空。'}
+          </span>
+          <Link to="/settings">
+            核对数据状态 <ArrowUpRight size={13} />
+          </Link>
         </div>
         <main id="main-content" className="main-content" tabIndex={-1}>
           <Suspense
@@ -217,6 +231,7 @@ function Shell() {
               <Route path="/portfolio/*" element={<PortfolioPage />} />
               <Route path="/advice/*" element={<AdvicePage />} />
               <Route path="/review/*" element={<ReviewPage />} />
+              <Route path="/trial" element={<StrategyTrialPage />} />
               <Route path="/settings/*" element={<SettingsPage />} />
               <Route
                 path="*"

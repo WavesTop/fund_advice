@@ -1,0 +1,12 @@
+{
+  "version": "gate-universe-alignment-v1",
+  "reference": "runtime/verification/satellite-market-gate-research-v1.json.gz",
+  "reference_sha256": "5237864122b13f29e11072c1fc103166480ce7d7f7dde59b07fbcf6088931c17",
+  "start_date": "2024-07-29",
+  "policies": ["matched_core", "inverse20", "fixed20", "wide_exit"],
+  "universes": ["older9_pure", "all13_pure", "all13_threebonds"],
+  "selection_history": "Post-current-gate-result diagnostic to separate date/starting-state and bond/stock-universe confounds, not a preregistered holdout or tuned investment universe",
+  "controls": "All fresh100k same date and end, same warm-history signals/fees/risk/lag/initialreview; older9_pure uses8stocks+gold+000016, all13_pure uses12stocks+gold+000016, all13_threebonds original12stocks+gold+3bonds",
+  "validation": "Independent rawledgerandcontrollergateaudit, all4modern-originalaccounts/checks unchanged after exactJSONroundtrip(horizonkeysstrings,no numeric tolerance), frozenreference/input/calendar/source snapshots",
+  "scope": "Not evidence to retrospectively select best fundpool. Same reviewed survivor data and all fee/publication/dividend limitations apply"
+}

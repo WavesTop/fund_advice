@@ -1,0 +1,17 @@
+{
+  "version": "sector-long-history-v1",
+  "base_report": "runtime/verification/sector-horizon-research-v1-reviewed.json",
+  "base_report_sha256": "846d702c07884b334f4b82836f19ff01c8d621a0a68f0b88bc6be9fd9ad8d40f",
+  "calendar": "config/research-exchange-calendar-2009-2026-v2.json",
+  "pool_count": 86,
+  "years": [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
+  "overlap_year": 2025,
+  "probe_manifest": "runtime/verification/sector-extended-history-probe-20261015-network/probe.json",
+  "probe_sha256": "3db5fbf1ad18ca42cdfc0d2c2a315403ff6c2059172595fec479eb1701dc36e0",
+  "workers": 2,
+  "minimum_interval_seconds": 0.5,
+  "timeout_seconds": 15,
+  "attempts_per_url": 1,
+  "publication": "Exact2025overlap required; prepend complete years backward from2024,stop at first invalid year; preserve all86original boards and rows,no future-performance selection",
+  "purpose": "Same-sector-pool short20/medium60/long120 horizon research including older calendar bull/bear episodes; not historical-membership reconstruction or investment certification"
+}

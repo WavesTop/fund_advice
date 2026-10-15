@@ -1,0 +1,23 @@
+{
+  "version": "sector-forecast-research-v1",
+  "reference": "runtime/verification/sector-horizon-long-recovered-v1-reviewed.json.gz",
+  "reference_sha256": "a02a5c2d31dc602d4a4fd54880b54dc67baca341b930d23eddc89ab686349408",
+  "periods": {"short": 20, "medium": 60, "long": 120},
+  "training_stride": 10,
+  "training_calendar_days": 1096,
+  "minimum_dates": 24,
+  "penalty": 1,
+  "label_ready": "one_exchange_session_after_exit_close",
+  "targets": ["absolute_price_return", "same_date_equal_weight_pool_excess"],
+  "features": ["return", "recent_fit_return", "r2", "recent_r2", "efficiency", "up_day_ratio", "drawdown", "volatility", "fast_ma_bias", "ma_spread", "relative_percentile"],
+  "methods": ["return_top10", "trend_top10", "trend_gated", "historical_mean_top10", "ridge_top10", "ridge_gated", "ridge_positive", "positive_count_return"],
+  "top_n": 10,
+  "positive_absolute_floor": 0.002,
+  "positive_excess_floor": 0,
+  "gated": "Same original score>=60 and steady_up/strengthening membership; only ranking changes",
+  "mean_control": "Same matured dates,per-sector historical mean absolute/excess labels,no current price descriptors",
+  "schedules": "Exactly reference primary and five-session secondary anchors; new methods unavailable before24mature dates,never substitute a fallback return",
+  "selection_history": "After expanded-history fixed-score comparison, freeze period-specific11features,two outputs and all controls before new fitted outcomes. Existing fit_ridge,penalty1,1096calendar days,24mature dates,10session training stride reused; no hyperparameter search or inner-validation activation gate",
+  "interpretation": "Repeatedly studied current-survivor price histories; chronological past-only replay,not unseen OOS or executable fund investment returns",
+  "promotion": "No automatic production or trial promotion"
+}

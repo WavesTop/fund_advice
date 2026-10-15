@@ -1,0 +1,20 @@
+{
+  "version": "satellite-competition-research-v1",
+  "references": {
+    "ordinary10": {"path": "runtime/verification/satellite-event-repair-research-v1.json.gz", "sha256": "00d712f3a9bbcecb27dbe24bb50a3a32b889e911093fc29f30000a7a24053b3c"},
+    "ordinary0": {"path": "runtime/verification/satellite-low-ordinary-fee-research-v1.json.gz", "sha256": "1be9c501c8b12392a5a9939104fb370c2c916e22b6893690f3df3eddda6f86d1"},
+    "separate": {"path": "runtime/verification/satellite-separate-repair-research-v1.json.gz", "sha256": "e39e5426a594c455027345055c97241747b54dbb1bcbafbb3f41408ee683f58f"}
+  },
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "variants": ["competition_entry", "competition_exit"],
+  "ordinary_fees_bps": [0, 10],
+  "extra_fee_stress_bps": [50, 100],
+  "timing": [{"id": "default", "phase": 0, "lag": 1}, {"id": "phase5", "phase": 5, "lag": 1}, {"id": "phase10", "phase": 10, "lag": 1}, {"id": "phase15", "phase": 15, "lag": 1}, {"id": "lag2", "phase": 0, "lag": 2}],
+  "fresh_entry_dates": ["2024-07-29", "2025-01-02", "2025-07-01", "2026-01-05"],
+  "selection_history": "After old default fixed20 entry opportunity counts showed long4 all58single candidates and older4 53/61single, freeze minimum2qualified choices before new returns. This is a conditional-pool gate, not diversified holdings. Old entry counts do not describe every future-check date; new paths can create different entries. No count threshold, score, phase or winner search",
+  "gate": "At each past-known signal, count stock funds with own21/63/252 votes>=2/3 and medium score>=60. Require count>=2 before a new single-top-ranked tilt. Entry-only retains normal20funded-session lease; exit variant withdraws only tilt on the5session check if count falls below2, with original cooldown and neutral restoration. Absolute failure/daily actual-risk priority and fees remain unchanged. Gold/bonds do not count; not market direction/breadth60% gate",
+  "unchanged": "Original combined repair, whole-target risk scaling, score/ownvote criteria,10pp stock transfer,35%cap,0.5pp admission, actual-funded age20, cooldown5, ordinary holding7/calendar floor150bps, confirmation1/settlement2,minbuy1,cash/queued-order constraints and full terminal treatment. Shared engine/data/calendar unchanged",
+  "compatibility": "56olddefault full accounts:40combined across fee0/10 x4pools x5policies and16separate defaults across fee0/10 x4pools x2policies. Metrics/account/checks exact, inverse numeric-key JSON trace exact. Only gateenum and independent qualified-code reconstruction added",
+  "retention": "96new gate timing/cost runs plus60new fresh runs plus56compatibility runs=212formal runs,4fresh main defaults reused. Full16new defaults retained; other new runs audited before keeping all metrics/events/gate counts/audits/9carry phases. Frozen same-condition core/inverse controls reused, not counted as new runs. Missing original fixed20 nondefault10/50/100 controls remain missing",
+  "scope": "Repeatedly viewed overlapping surviving OTC NAV histories; historical contracts, first-known NAV, dividend rights and actual channel execution unverified. No independent success probability, ETF or live investment certification"
+}

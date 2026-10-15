@@ -1,0 +1,15 @@
+{
+  "version": "holding-release-research-v1",
+  "reference": "runtime/verification/cost-aware-exit-research-v1.json.gz",
+  "selection": "Defined after cost-aware exit timing and bull/bear failures; no untouched OOS, return-threshold or waiting-period grid search",
+  "policies": ["dual_return60", "risky_pair60", "risky_pair_static60"],
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "schedules": ["grid20", "event20"],
+  "exit_mode": "absolute_or_current_risk",
+  "holding_release": "An actually blocked ordinary lot reduction requests earliest future fresh decision whose delayed execution can confirm at>=7holdingnaturaldays. Uses purchase date and exchange/confirmation calendar only,never future NAV. Re-evaluate newest trend and actual holdings; no queued old target. Keep overdue requests while orders pending,drop sold lots; no new order on terminal day. True risk/absolute failures unchanged and stillpay150bpsifshort",
+  "invariants": "Same scores,class budgets,desired10%covariance risk,fees,minholding7,T+1confirmation,T+2settlement,nextNAV,3pp/25%band,cash0interest,commonfirstentry,no leverage/shorts. Only add holding-expiry decision clock; orders/liquidity guards unchanged",
+  "stress": {"ordinary_fee_bps_each_side": [50, 100], "grid20_common_entry_phases": [5, 10, 15], "execution_lag_sessions": 2},
+  "episodes": "All nine frozen calendar bull/bear/observation segments,identical missing/partial coverage; fresh100kknown-end7dayentryguard and carry-in slices separately; episode labels never feed decisions",
+  "validation": "Re-run all24priorcost-awarefullcontrols unchanged; independent ledger,currentholdings,risk,confirmation-calendar release deadlines,pending-order checks,fresh signal dates and targettrace checks",
+  "limitations": "Waiting expiry is not costless predictive alpha; more decision dates can create new trades or urgent short sells. Desired risk and periodic actualriskchecks are not guaranteed future vol/maxDD; already-viewed survivor histories and unverified product-specific NAV/dividend/ordinary contractfee assumptions"
+}

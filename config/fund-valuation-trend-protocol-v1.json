@@ -1,0 +1,23 @@
+{
+  "version": "valuation-conditioned-budget-v1",
+  "scope": "Conditional research, not deployment: CSI raw peg matches dated rolling P/E factsheets but historical formula/revisions and first publication remain unverified",
+  "input": "CSI 000300 and 000905 candidate rolling valuation from 2009-2026 public history, non-sessions excluded, positive valid readings only",
+  "availability": "at least 1 trading session after quote, max 3 sessions stale beyond the declared information lag; stresses 2 and 5 sessions lag",
+  "history": "Trailing 1260 market sessions before the known quote, at least 252 positive readings and >=95% valid readings since first positive observation within that window; current quote excluded from reference percentile",
+  "percentile": "midpoint ties percentile of latest known reading separately for each index; mean of the two index percentiles for equity budget context",
+  "policies": {
+    "static40_vol10": "40% stock proposal",
+    "static50_vol10": "50% stock proposal",
+    "static30_vol10": "30% stock proposal",
+    "quality_vol10": "35% + 25% signed average 60/120-day regression fit quality",
+    "value_vol10": "60% - 40% valuation percentile; unknown defaults 40%",
+    "value_confirmed_vol10": "50% if percentile <=20% and quality >0; 30% if percentile >=80% and quality <0; otherwise 40%",
+    "value_hybrid_vol10": "mean of valuation-proposed and quality-proposed equity budgets; unknown uses quality-proposed budget"
+  },
+  "risk_execution": "Same 20% proposed gold, remainder bonds, per-bond 90% cap, past60 covariance 10% projected volatility constraint, 10session reviews, absolute3pp/relative25% bands",
+  "fees": "normal buy/sell each 10bps scenario, under7 confirmation natural days at least150bps; confirmationT+1, settlementT+2, terminal redemptions included",
+  "fund_account_start": "120 past fund sessions; unknown early valuations do not exclude fund dates, passive fallback as declared",
+  "calendar": "research-exchange-calendar-2009-2026-v2, corrected 2018-12-31 closure; old original retained and base-control impact independently replayed",
+  "stress": "main13:fee50/100bps,phases2/5/7,executionlag2; all cohorts:valuationlag2/5",
+  "validation": "independent asof/percentile rebuild, ledger rebuild, past-return risk rebuild, archived row identity/hash checks; historical data already viewed, not untouched OOS"
+}

@@ -1,0 +1,20 @@
+{
+  "version": "sector-direction-screen-research-v1",
+  "reference": "runtime/verification/sector-rank-risk-research-v1.json.gz",
+  "reference_sha256": "78ba73766f907838b94a307c54969ce7f3f2ffe96af4292d211d3aeae1024d55",
+  "periods": {"short": 20, "medium": 60, "long": 120},
+  "gates": {
+    "direction": "observed return,fitted return,recent fitted return,fast MA bias,fast/slow MA spread all strictly positive",
+    "state": "existing steady_up or strengthening state;no score60 floor"
+  },
+  "sorts": ["return", "rank", "maximin", "low_vol"],
+  "controls": ["return_top10", "rank_top10", "maximin_top10", "low_vol_top10", "upward_quality", "direction_count_return", "state_count_return"],
+  "top_n": 10,
+  "forecast": "Reuse archived centered return/safety predictions;no refit,new targets,weight tuning or positive-prediction gate. Maximin percentiles always use full86pool,not filtered gate",
+  "availability": "Common full86pool,fitted dates for every new rule including simple controls;retain original frozen controls unchanged;no-selection is missing return,not zero cash",
+  "evaluation": "Original primary horizon+1 and secondary5session clocks,nextclose entry,exit+20/60/120;full future pool required;secondary overlaps are descriptive",
+  "quality": "Fraction of selected members with terminal price>entry and strictly more than half future closes above entry (ties half);also mean above-entry occupancy and signed log path efficiency;not investment win probabilities",
+  "cost_stress_bps": [0, 20, 50, 100],
+  "selection_history": "After current maximin lists were found short10/10down,medium10/10weakening,long6/10down:freeze two interpretable eligibility screens and same-gate sorting controls before examining their historical results. Reused history is not unseen OOS",
+  "scope": "Three-horizon candidate diagnostic,not real fund returns or a certified investment strategy. No automatic production,trial snapshot or model promotion"
+}

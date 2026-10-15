@@ -1,0 +1,16 @@
+{
+  "version": "trend-satellite-research-v1",
+  "reference": "runtime/verification/holding-action-diagnostic-v1.json.gz",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "selection": "Exploratory protocol after20positive/60negativeactiondiagnostic, frozen before these continuous results; no winner threshold search and no unseen OOS claim",
+  "policies": ["matched_core", "fixed20", "fixed60", "score_gap5", "score_gap0", "price_gap5", "inverse20"],
+  "core": "Past60classvolinverse allocation betweenstock/gold,total60%,bond40%;20sessioncache;cashscale10%freshfundcov;matchedcore has same daily actualrisk guard and targetrepair as overlays",
+  "entry": "Every5sessions plus initial, own21/63/252positivevotes>=2/3 and mediumscore>=60;highestscore/lexicaltie. Transfermin(10pp,otherstockbudget,35%candidateheadroom) within cachedcorestockweights, never increase classstockbudget; require>=0.5pp finalexcessaftercurrentcashriskcap",
+  "funding": "Age starts when observed actual candidateweight reaches entryneutralweight+halfinitialrequestedexcess, not decision-date paper age; pendingmaximum10sessions. Retain target, actualsettledcashonly; core20refresh and freshriskcap can change repairweights",
+  "exit": "Dailycandidateabsolutefailure urgently removes onlyoverweightbacktoneutralcore, notcoreposition. Fixed20/60agefromfundedobservation; scoreexit every5:score<55 or peakscore-drop>=10; priceexit every5:logdrawdownfromfundedmarkpeak>=max(1%,2sigma60*sqrt(5/252)); no wholeaccount expiry",
+  "gap": "Exitdecision+5sessioncooldown,or0ablation; additionally wait actual fullportfolio within neutralcore3pp/25%band before newentry. Daily actualcurrentrisk>10% overrides repair with uniform actualholdingsreduction; ordinary exit waits7confirmationnaturaldays, urgent fees still apply",
+  "stress": {"fee_bps": [50,100], "core_and_check_phases": [5,10,15], "execution_lag_sessions": 2, "score_check_sessions": [1,10]},
+  "episodes": "All9frozenepisodes, continuous carry cuts plus independentfresh100k knownend7dayentryguard; no concatenation of fresh returns; 2024/2025/2026 observations not complete bulls/bears",
+  "validation": "Independent actualFIFOledger, rawpastscore/vote/classvol/risk rebuild, controllerstate/targets/events/actions/nonactions/cash-repair clocks, appliedstate/tradeurgency, inverse20control exact previousaccount compatibility; inputs/calendar/reference/source frozen",
+  "scope": "Actual OTC fund NAV fee-scenario simulation; publication/historyproductfees/dividendrights/payment unverified, survivor bias and repeatedly reviewed correlated cohorts. Past10%vol cap not future guarantee; not ETF or investment recommendation"
+}

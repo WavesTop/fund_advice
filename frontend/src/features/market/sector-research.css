@@ -1,0 +1,252 @@
+.sector-research {
+  min-width: 0;
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  color: #263a3c;
+}
+.sector-research p {
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.sector-research h2 {
+  font-size: 19px;
+  margin: 0;
+}
+.sector-research h3 {
+  font-size: 15px;
+  margin: 20px 0 8px;
+}
+.sr-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 16px 0;
+  font-size: 12px;
+  color: #5c686c;
+}
+.sr-provenance strong {
+  color: #916326;
+}
+.sr-horizons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid #cdd8d7;
+  margin-top: 8px;
+}
+.sr-horizons button {
+  min-height: 122px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: #f3f6f5;
+  color: #586965;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.sr-horizons button[aria-selected='true'] {
+  border-bottom-color: #197565;
+  background: #e9f3ef;
+  color: #15584e;
+}
+.sr-horizons strong {
+  font-size: 17px;
+}
+.sr-horizons span {
+  font-size: 13px;
+}
+.sr-horizons small {
+  font-size: 11px;
+}
+.sr-section {
+  padding: 24px 0;
+  border-bottom: 1px solid #dce4e2;
+}
+.sr-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 16px;
+  margin: 18px 0 10px;
+}
+.sr-controls label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: #52635f;
+  min-width: 0;
+}
+.sr-controls select,
+.sr-controls input {
+  min-height: 38px;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid #c5d1cd;
+  border-radius: 5px;
+  padding: 8px 10px;
+  font: inherit;
+  background: white;
+  color: #263a3c;
+}
+.sr-controls > span {
+  font-size: 12px;
+  margin-bottom: 10px;
+  color: #5c686c;
+}
+.sr-caption {
+  color: #62716c;
+}
+.sr-direction-note {
+  padding: 16px 0;
+  border-bottom: 1px solid #dce4e2;
+  font-size: 13px;
+}
+.sr-direction-note strong {
+  color: #375f54;
+}
+.sr-direction-caution {
+  color: #916326;
+  border-left: 3px solid #c4a56b;
+  padding-left: 12px;
+}
+.sr-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  min-width: 0;
+  border-top: 1px solid #dce4e2;
+  margin: 14px 0;
+}
+.sector-research table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+.sector-research th,
+.sector-research td {
+  padding: 12px;
+  border-bottom: 1px solid #e4eae7;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.sector-research thead th {
+  background: #f2f5f3;
+  color: #62716c;
+  font-weight: 500;
+}
+.sector-research tbody th {
+  font-weight: 500;
+}
+.sector-research td small,
+.sector-research th small {
+  display: block;
+  margin-top: 6px;
+  color: #6f7b77;
+  font-size: 11px;
+  font-weight: 400;
+}
+.sector-research tr[data-selected='true'] {
+  background: #edf6f2;
+}
+.sr-sector-button {
+  background: none;
+  border: 0;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+  color: #126657;
+  cursor: pointer;
+}
+.sr-sector-button:hover {
+  text-decoration: underline;
+}
+.sr-membership {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: #59665e;
+}
+.sr-gain {
+  color: #126c5d;
+}
+.sr-loss {
+  color: #b14255;
+}
+.sr-empty {
+  padding: 28px 12px;
+  font-size: 13px;
+  color: #666c65;
+}
+.sr-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 32px;
+  padding: 12px 0;
+}
+.sr-factors {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 12px;
+  margin: 22px 0;
+}
+.sr-factors div {
+  min-width: 0;
+}
+.sr-factors dt {
+  font-size: 11px;
+  color: #6f7b77;
+}
+.sr-factors dd {
+  margin: 8px 0 0;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.sector-research details {
+  border-top: 1px solid #dce4e2;
+  padding: 16px 0;
+  min-width: 0;
+}
+.sector-research summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sr-footer {
+  padding: 22px 0;
+  font-size: 13px;
+}
+.sr-footer code {
+  display: block;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .sr-detail {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .sr-horizons button {
+    padding: 10px 7px;
+    min-height: 108px;
+  }
+  .sr-horizons span {
+    font-size: 11px;
+  }
+  .sr-controls label {
+    flex: 1 1 100%;
+  }
+  .sr-controls select,
+  .sr-controls input {
+    width: 100%;
+  }
+  .sector-research th,
+  .sector-research td {
+    padding: 10px;
+  }
+}

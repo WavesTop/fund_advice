@@ -1,0 +1,19 @@
+{
+  "version": "class-return-forecast-research-v1",
+  "reference": "runtime/verification/trend-friction-diagnostic-v2.json.gz",
+  "selection": "Defined after zero-trading-cost diagnostics still failed modern themes; no teacher-pool transfer,phase/penalty/featureweight search,or untouched OOS",
+  "modes": ["raw", "class_mean", "trend_ridge", "static"],
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "reviews": [20, 5],
+  "learning": "Common252warmup,records every10sessions,nextNAVbuy then60holding sessions,fixedunitsperfund,equalinitialclasscapital,cashdividendsnotreinvested,buydaydividendexcluded,grossbeforetradingfees. Eachfit onlylast1096naturaldaysfeaturedateswithlabelend<=asof,min24distinctdates,penalty1;innerfinal20%purgedvalidationmetadataonly,notactivationgate",
+  "class_mean": "Classonehotonly(3features),same fitting/maturity/proposal/cost/risk machinery as trend model; still samecurrentabsolute trendeligibility,notcalledfullynontrendstrategy",
+  "trend_ridge": "Sameonehotplus21/63/252logreturns,past60vol,normalisedscore,positivevote,63dayfitreturn/r2/efficiency/drawdown;13features. Actualgrossholdingreturnlabels,norisk-denominator labels,nosame-stock-peer centering",
+  "capital_choice": "Amongcash,eligiblebond60,eligibleStock60+Bond40,eligibleGold60+Bond40,andeligiblerisky_pair60;compareclasspredictedgrossreturnsweightedbycurrent10%fundcovcash-scaledtargetsminusordinaryfee*perfundabsoluteweightturnover. Tie1e-10fraction deterministiclexical,nooptimisedthreshold. Shortfees/fundingdelaysnotexactlypredicted,actualFIFOaccountstillchargesandsettlesall. Belowphysical-100%predictionsclippedat-1,noupperclip",
+  "fallback": "Rawdual_return60beforemodelhas24matureddates,identicalforbothlearningmodes;notenoughhistorynotmanufacturedforecast",
+  "stress": {"ordinary_fee_bps_each_side": [50, 100], "five_day_phases": [1, 2, 3, 4], "twenty_day_phases": [5, 10, 15], "execution_lag_sessions": 2},
+  "prediction_check": "Distinctevaluationdates60sessionsapart,nextNAV-to-next60close returnsnonoverlap. ReportStock-GoldspreadRMSEandwinneraccuracyamongdateswithbothmodelsfitted,nottrivial3classICdominatedbylow-volbond;traininglabelsstilloverlapandcohorts/assetscorrelated",
+  "episodes": "Allninefrozenbull/bear/observationcalendarwindows,fresh100kknown-end7dayentryguardandcarry-from-prior-sessioncutsseparate,unchangedpartial/missingcoverage;labelsneverfeedchoices",
+  "invariants": "Postfull-exitprecisionfixFIFO,stateaudits,ordinary10bpsandshort150bpsfloor,min7confirmationnaturaldays,T+1confirmation,T+2settlement,nextNAV,cash0interest,no leverage/shorts,3pp/25%band,commoninitialentry,noholding-expiryclock;actualriskclassificationunchanged",
+  "validation": "Independentlyrebuildpastfeatures,fixedunitcashlabels,maturedtrainingstandardization/normal-equations/purgedmetadata,predictions,candidateproposalsandcapitalpayoffs,currentfundcov/holdings,andexactfull-exitledger. Re-run16raw/staticmaincontrolsagainstcorrectedfrozenreport",
+  "limitations": "Pointgrossforecastsnotprofitprobabilities,ordinaryturnoverpenaltynotcompletefeasibleexpectednetwealth,60daylabelnotforced60dayholding,repeatedsurvivorhistorieswithno untouchedOOS,unverifiedpublication/dividend/contractassumptions,10%predvolnotfuturevol/maxDDguarantee;notETFdata"
+}

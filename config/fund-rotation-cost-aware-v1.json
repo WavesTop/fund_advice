@@ -1,0 +1,45 @@
+{
+  "version": "sector-rotation-experiment-v1",
+  "status": "retrospective_research_not_live_investment_advice",
+  "policy": {
+    "score_mode": "combined",
+    "entry_score": 55,
+    "exit_score": 45,
+    "review_sessions": 10,
+    "max_positions": 10,
+    "max_exposure": 1.0,
+    "regime": "benchmark",
+    "trailing_stop": 0.2,
+    "daily_exits": true,
+    "ma_exit": true,
+    "volume_gate": false,
+    "volatility_sizing": false,
+    "cooldown_sessions": 10,
+    "exit_confirm_sessions": 1,
+    "entry_state_gate": false,
+    "regime_exit": true,
+    "soft_exit_min_calendar_days": 30,
+    "allow_defensive_assets": true,
+    "entry_ma_sessions": 60,
+    "exit_ma_sessions": 120,
+    "recent_return_sessions": 30,
+    "benchmark_ma_sessions": 200,
+    "entry_min_days_to_liquidation": 0
+  },
+  "holding_costs": {
+    "short_holding_days": 7,
+    "short_redemption_bps": 150,
+    "confirmation_lag_sessions": 1,
+    "settlement_lag_sessions": 2,
+    "minimum_purchase_amount": 1
+  },
+  "ordinary_fee_bps_each_side": 10,
+  "finite_horizon_entry_guard_calendar_days": 7,
+  "limits": [
+    "Parameters selected after inspecting expanded historical NAV results",
+    "Full product-specific fee contracts and historical subscription availability not verified",
+    "NAV assumed available before the next-session order deadline; publication timestamps unavailable",
+    "Cash distributions inferred from NAV pairs; payment dates approximated",
+    "No guaranteed positive window returns or future performance"
+  ]
+}

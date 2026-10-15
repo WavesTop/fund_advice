@@ -1,0 +1,27 @@
+{
+  "version": "sector-shadow-account-v1",
+  "reference": "runtime/verification/sector-rank-risk-research-v1.json.gz",
+  "reference_sha256": "78ba73766f907838b94a307c54969ce7f3f2ffe96af4292d211d3aeae1024d55",
+  "periods": {"short": 20, "medium": 60, "long": 120},
+  "methods": ["return_top10", "low_vol_top10", "rank_top10", "maximin_top10", "upward_quality", "upward_count_return", "exposure_matched_all", "all_industries"],
+  "initial_equity": 100000,
+  "sizing": "10%per selected candidate,no fill of missing slots;all_industries equally invests100%;exposure_matched_all equals upward_quality slot budget",
+  "main_start": "First weekly fitted observation of each period,not selected by return;all controls in a period share cash start",
+  "review": "Every20/60/120sessions from first source+phase,all on frozen5session grid;queued-order blocking defers application of the already known source,not a future signal",
+  "repair": "On review set target work;afterwards only repair until3pp/25%relative band reached,then hold until next review. Event-only ablation applies review once without funding repair",
+  "scenarios": [
+    {"id": "fee10_default", "fee": 10, "phase": 0, "lag": 1, "repair": true},
+    {"id": "fee0_default", "fee": 0, "phase": 0, "lag": 1, "repair": true},
+    {"id": "fee50_default", "fee": 50, "phase": 0, "lag": 1, "repair": true},
+    {"id": "fee100_default", "fee": 100, "phase": 0, "lag": 1, "repair": true},
+    {"id": "fee10_phase5", "fee": 10, "phase": 5, "lag": 1, "repair": true},
+    {"id": "fee10_phase10", "fee": 10, "phase": 10, "lag": 1, "repair": true},
+    {"id": "fee10_phase15", "fee": 10, "phase": 15, "lag": 1, "repair": true},
+    {"id": "fee10_lag2", "fee": 10, "phase": 0, "lag": 2, "repair": true},
+    {"id": "fee10_event_only", "fee": 10, "phase": 0, "lag": 1, "repair": false}
+  ],
+  "fresh_entry_dates": ["2024-07-29", "2025-01-02", "2025-07-01", "2026-01-05"],
+  "execution": "Existing simulate_allocations,signal-close money/unit plans,next-session close,7confirmation-calendar-day ordinary wait,150bps short floor,T+1confirmation,T+2settlement,minbuy1yuan,cash0interest;no leverage,no added stop/risk cap,terminal costs and receivables included",
+  "retention": "312accounts=216main timing/cost/repair plus96fresh;retain24full default accounts,other accounts audited before compacting;all9continuous calendar episodes and annual slices retained",
+  "scope": "Hypothetical fractional industry-index price accounts with model retail-fund mechanics;not tradable indices,actual fundNAVs,ETF fills,verified contracts or unseen OOS. No production/trial promotion"
+}

@@ -1,0 +1,21 @@
+{
+  "version": "portfolio-increment-research-v1",
+  "reference": "runtime/verification/net-horizon-predictivity-v1.json.gz",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "models": ["state_only", "trend"],
+  "holding_sessions": 20,
+  "selection": "Research chosen after net-unit-return calibration failed to establish capital value; fixed20dayroutine,notbesthorizonclaim,nounseenOOS",
+  "core": "40%stockequal,20%gold,40%bond;eachfundown21/63/252positivevote>=2/3elsecash;35%single-stockcap;initialpastfundcovuniformcashscale10%",
+  "candidates": "20%stockequal+20%singleeligiblefund+20%gold+40%bond,or20%stocks+20%gold+40%bond+20%cash;samefundgates,riskcapandfees. No eligible redistribution. Candidateavailabilityenforcedlive",
+  "labels": "Per10sessionfeaturedate,replayactual100k20dayclosedcoreandallcandidateswithdailypast-cov/own-voteurgentsafety,FIFO,fees,dividendsandnextNAV. Outcome=(candidateaccountreturn-coreaccountreturn)/100,noclasspeerreturndemean. Onlycashsettled20+3labelsfit",
+  "features": "Statecontrolonehotfund/cashidentity+candidateavailability+stock/gold/bondeligibilityfractions+core/candidateentryriskscales+ownpast60vol. Trendadds11establishedpaststockfeatures:3scores,5/20/60/120returns,60DD/bias/efficiency/R2;volnotduplicated,benchmarkfeaturesomitted;cashusespaststockfeaturemean",
+  "learning": "Localonly,no teacher transfer,1096naturalfeaturedaywindow,min24matureddates,penalty1;innerpurgedICmetadataonly,nogate. Beforefitcore. Forecastincrementnotassetreturn,no-100%clip. Positiveincrement>1e-10theneligiblebest,tielexical;elsecore",
+  "lease": "Singleentry,fixedinitialfundunitsunlessriskrequiresreduction,no dividendreentry,expiry20sessionsafteractualentrydecision,saleslag1andcashwaitT2. Evenearlyall-exitwaitoriginalcyclecashdate. Dailychecks,riskbeforeordinaryexpiry. Late-lagconflictriskclosesallmaturedpositionsbeforeexpirywithoutnewentry",
+  "execution": "Ordinary10bps/side,short150bpsfloorunder7confirmationnaturaldays,ordinary7daywait,T+1confirmation,T+2settlement,3pp/25%bands,enforcedactualriskorown-votefailure,cash0interest,no leverage/short;fundpublication/contracts/dividendpaymentassumptionsunverified",
+  "controls": ["core", "static_core", "inverse_static", "inverse_unleased20"],
+  "stress": {"actual_fee_bps_each_side": [50,100], "entry_defer_sessions": [1,2,3,4], "execution_lag_sessions": 2},
+  "stress_scope": "Learninglabelsremainbaseline10bps;higherfeesexplicitcontract-misspecificationstress,notretrainedcostawareness. Phaseisinitialentrydefer,notsame-entryreviewoffset",
+  "episodes": "All9frozenbull/bearandobservationwindows,freshaccountswithknownend7dayentryguardandcontinuouscutsseparate;missing/partialsharedcoverageunchanged",
+  "validation": "ActualFIFOanddailychecksreconstructedfromrawmarks/executedunits,entrybudget/eligibility/risk,safety/actions/nonactions,cycle/receiptclock,pastfeatures,teacheroutcomedifference,maturity/normal-equations/predictions/selection. Frozeninputs/calendar/sourcehashes;ROI/DD/exposure/fees/trades",
+  "limitations": "Historicalsurvivor/alreadyreviewedcorrelateddata;target10%notfuturevol/DDguarantee;fixedcashleasechargesexit/reentryunlikeholdbenchmark. NotETFdata,notinvestmentrecommendation"
+}

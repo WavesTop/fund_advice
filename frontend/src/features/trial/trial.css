@@ -1,0 +1,240 @@
+.strategy-trial {
+  max-width: 1200px;
+  margin: 0 auto;
+  min-width: 0;
+}
+.trial-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 24px;
+}
+.trial-controls > label,
+.trial-filter {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  color: #546271;
+}
+.trial-controls select,
+.trial-filter select {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #cdd7db;
+  border-radius: 6px;
+  background: white;
+  color: #27343b;
+}
+.trial-segments {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+.trial-segments legend {
+  margin-bottom: 8px;
+  color: #546271;
+  font-size: 13px;
+}
+.trial-segments label {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  cursor: pointer;
+}
+.trial-segments input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  z-index: 1;
+  cursor: pointer;
+}
+.trial-segments span {
+  display: block;
+  padding: 11px 14px;
+  border: 1px solid #cdd7db;
+  font-size: 13px;
+  background: white;
+  color: #546271;
+}
+.trial-segments label:first-of-type span {
+  border-radius: 6px 0 0 6px;
+}
+.trial-segments label:last-of-type span {
+  border-radius: 0 6px 6px 0;
+}
+.trial-segments label + label span {
+  border-left: 0;
+}
+.trial-segments input:checked + span {
+  color: #12644f;
+  background: #e9f4ef;
+  box-shadow: inset 0 -2px #237c69;
+}
+.trial-segments input:focus-visible + span {
+  outline: 2px solid #237c69;
+  outline-offset: 2px;
+}
+.trial-segments.compact span {
+  padding: 8px 12px;
+}
+.trial-caption {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #596875;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.trial-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 22px 0 0;
+  padding: 22px 0;
+  border-block: 1px solid #dce4e4;
+  gap: 24px;
+}
+.trial-metrics div {
+  min-width: 0;
+}
+.trial-metrics dt {
+  color: #596875;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.trial-metrics dd {
+  margin: 0;
+  color: #283a36;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.trial-gain {
+  color: #196c57;
+}
+.trial-loss {
+  color: #b33e55;
+}
+.trial-section {
+  padding: 26px 0;
+  border-bottom: 1px solid #dce4e4;
+  min-width: 0;
+}
+.trial-section h2 {
+  font-size: 17px;
+  margin: 0 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trial-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.trial-section-heading h2 {
+  margin: 0;
+}
+.trial-filter {
+  width: 180px;
+  margin-bottom: 16px;
+}
+.trial-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.trial-table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.trial-table th,
+.trial-table td {
+  padding: 13px 12px;
+  border-bottom: 1px solid #e6ebeb;
+  text-align: right;
+  white-space: nowrap;
+}
+.trial-table th:first-child {
+  text-align: left;
+  width: 44%;
+}
+.trial-table thead {
+  color: #596875;
+  background: #eef3f2;
+}
+.trial-table tbody th {
+  font-weight: 500;
+}
+.trial-table small {
+  display: block;
+  font-size: 11px;
+  color: #596875;
+  margin-top: 5px;
+  font-weight: 400;
+}
+.trial-method p {
+  font-size: 13px;
+  color: #546271;
+  line-height: 1.9;
+  margin: 12px 0;
+}
+.trial-method summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: #196c57;
+}
+.trial-method details p {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .trial-table {
+    font-size: 12px;
+  }
+  .trial-table th,
+  .trial-table td {
+    padding: 12px 5px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .trial-table th:first-child {
+    width: 40%;
+  }
+  .trial-table small {
+    font-size: 10px;
+  }
+  .trial-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 14px;
+  }
+  .trial-metrics dd {
+    font-size: 20px;
+  }
+  .trial-controls {
+    align-items: stretch;
+    gap: 16px;
+  }
+  .trial-controls > label,
+  .trial-controls > fieldset {
+    width: 100%;
+  }
+  .trial-controls .trial-segments label {
+    flex: 1;
+  }
+  .trial-controls .trial-segments span {
+    width: 100%;
+    text-align: center;
+  }
+  .trial-section-heading {
+    flex-wrap: wrap;
+  }
+}

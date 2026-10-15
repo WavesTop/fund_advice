@@ -1,0 +1,25 @@
+{
+  "version": "fund-rotation-expanded-universe-v1",
+  "selection": "Fixed theme coverage before examining expanded NAV performance; not a historical popularity ranking",
+  "funds": [
+    {"code": "000376", "theme": "医药", "role": "sector"},
+    {"code": "000217", "theme": "黄金", "role": "sector"},
+    {"code": "001595", "theme": "银行", "role": "sector"},
+    {"code": "001553", "theme": "证券保险", "role": "sector"},
+    {"code": "005693", "theme": "军工", "role": "sector"},
+    {"code": "004753", "theme": "传媒", "role": "sector"},
+    {"code": "007301", "theme": "半导体", "role": "sector"},
+    {"code": "008021", "theme": "人工智能", "role": "sector"},
+    {"code": "011513", "theme": "新能源车", "role": "sector"},
+    {"code": "011103", "theme": "光伏", "role": "sector"},
+    {"code": "008280", "theme": "煤炭", "role": "sector"},
+    {"code": "014881", "theme": "机器人", "role": "sector"},
+    {"code": "012414", "theme": "白酒", "role": "sector"},
+    {"code": "161725", "theme": "白酒长期样本", "role": "historical_sector"},
+    {"code": "161024", "theme": "军工长期样本", "role": "historical_sector"},
+    {"code": "161032", "theme": "煤炭长期样本", "role": "historical_sector"},
+    {"code": "161726", "theme": "医药长期样本", "role": "historical_sector"},
+    {"code": "000051", "theme": "沪深300", "role": "benchmark"},
+    {"code": "000008", "theme": "中证500", "role": "benchmark"}
+  ]
+}

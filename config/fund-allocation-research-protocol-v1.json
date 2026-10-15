@@ -1,0 +1,23 @@
+{
+  "version": "fund-allocation-research-v1",
+  "registered_date": "2026-10-13",
+  "history_previously_viewed": true,
+  "scope": "Historical research, not untouched out-of-sample performance",
+  "cohorts": ["all_13_themes", "themes_available_2020", "themes_available_2015", "long_multi_asset"],
+  "warmup_sessions": 252,
+  "candidate_count": 12,
+  "review_sessions": 20,
+  "minimum_holding_calendar_days": 7,
+  "rebalance_band": 0.05,
+  "confirmation_lag_sessions": 1,
+  "settlement_lag_sessions": 2,
+  "fee_bps_each_side": 10,
+  "short_fee_floor_bps": 150,
+  "training_calendar_years": 3,
+  "selection_utility": "training CAGR percent minus half absolute training max drawdown percent",
+  "cash_selection_floor": 0,
+  "test_segment": "next calendar year; final year may be partial",
+  "baselines": ["same-universe equal-weight buy-and-hold", "same-universe equal-weight monthly rebalance", "previous frozen rotation on identical dates"],
+  "progress_gate": "Net return and risk must be compared with baselines, annual validation folds and cost/timing stress; positive cumulative return alone is insufficient",
+  "limitations": ["Already-viewed NAV histories and current-survivor products", "No product-specific full fee schedule or historical subscription restrictions", "Gold and cash are the only defensive assets in this first round", "No future profit guarantee or claimed statistical significance"]
+}

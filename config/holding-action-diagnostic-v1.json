@@ -1,0 +1,17 @@
+{
+  "version": "holding-action-diagnostic-v1",
+  "reference": "runtime/verification/portfolio-increment-research-v1.json.gz",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "horizons_sessions": [20, 60],
+  "sample_stride_sessions": 60,
+  "first_sample_index": 272,
+  "action_size": 0.1,
+  "parent": "Own-vote gated 40stock/20gold/40bond core, 20-session allocation reviews and daily safety; no routine expiry or forced liquidation",
+  "branches": "Same actual prior-close checkpoint, inherited orders honored; hold with daily safety versus one requested 10pp stock-to-selected-fund rotation (35% single-stock cap), or 10pp stock reduction to cash. If no stock donors, use cash toward selected stock up to 40% stock budget. Ordinary constraints may prevent or partially fill an action; no invented funding. Staged variant retries the initial frozen target using actual settled cash until candidate reaches its 3pp/25% band; daily safety has priority, failed candidate cancels intent, no forced end exit. Healthy targets can rebalance during funding repair",
+  "selection_history": "Exploratory adaptive diagnostic, not preregistered: staged repair added after first one-shot run identified possible unfilled orders. No threshold chosen by highest ROI; 20/60 horizons and all frozen cohorts retained",
+  "risk": "Own21/63/252positivevotes>=2/3; past covariance10% uniform cash scaling; urgent exit on vote failure or current risk breach",
+  "valuation": "NAV mark including unsettled receipts at signal+H+1; no terminal sale or fabricated exit fee. This is not liquidated cash return, not concatenatable strategy performance. Future order queues retained",
+  "ranking_test": "Choose highest existing 60-session trend score among currently eligible stocks; compare its actual marked account increment with equal-probability eligible stock action mean, hold=zero, cash action, and hindsight best. No hindsight winner used for trading",
+  "validation": "Independent FIFO/cash/dividend audit and checkpoint parent ancestry, exact continuous-versus-resumed curves/trades/final state, frozen input/source checks, rerun all24previousmainaccounts unchanged",
+  "scope": "Diagnostic, not a deployed investment strategy or unseen out-of-sample evidence. Overlapping cohorts and reviewed history; no ETF approximation; OTC publication/payment/product-contract and survivor caveats unchanged"
+}

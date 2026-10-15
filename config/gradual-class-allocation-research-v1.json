@@ -1,0 +1,20 @@
+{
+  "version": "gradual-class-allocation-research-v1",
+  "reference": "runtime/verification/class-return-forecast-research-v1.json.gz",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "modes": ["class_mean", "trend_ridge"],
+  "actions": ["stay_choice", "partial_choice"],
+  "reviews": [20, 5],
+  "selection": "Predefined causal action-space ablation after immediate forecast failed; no optimal-speed or payoff-threshold search, no unseen OOS",
+  "stay_choice": "Add actual incumbent fund weights to all immediately achievable class candidates; zero failed-class holdings and cash-scale past covariance to10% before scoring incumbent",
+  "partial_choice": "Same incumbent plus each immediate cash-scaled class target mixed toward by min(1,actualsessionssincelastdecision/60); first decision fraction1. Reassess all partial candidate payoffs, not mechanically mix previous winner. Safety removal and risk reduction precede partial movement",
+  "clock": "Previous actual callback date, not nominal review or order count; extra settlement callbacks consume onlyelapsed time. Fraction is an exponential-like time constant, not full60day holding or forecast-decay estimate",
+  "learning": "Identical mature60day fixedunit gross labels,1096day window,min24dates,penalty1,features and first-year raw fallback to reference. Before fitted preserve immediate raw rule exactly",
+  "payoff": "Fundtarget-weighted class gross forecasts minus ordinary absolute fundweightturnover penalty; same physical -100% lower clip and1e-10tie. No exact prediction of150bpsshortfee,FIFOmaturity,fundingdelay,terminalfeeorfeasiblecashbudget",
+  "execution": "Keep nextNAV/T+1confirmation/T+2settlement,min7confirmationdays,FIFO,ordinary10bps,short150bpsfloor,initialcommondecision,3pp/25%band,cash0interest,no leverage or short; actualcurrentrisk/absolutefailureurgent. No holding release extra clock",
+  "stress": {"ordinary_fee_bps_each_side": [50, 100], "five_day_phases": [1, 2, 3, 4], "twenty_day_phases": [5, 10, 15], "execution_lag_sessions": 2},
+  "episodes": "All9frozenhistoricalbull/bearandobservationwindows;newfresh100kaccountswithknownend7dayentryguardandterminalcost;carrybasedonpriorsessionwealth. Missing/partialcoverageunchanged. Immediate fresh controls explicitly reused from frozen reference, not called rerun",
+  "validation": "Independentlyrebuildforecasts,actualincumbent,eligibility,covariance,mixclock,candidatepayoffs,selection,currentholdingsandFIFO. Re-runall32immediateraw/static/mean/trendmainaccountsagainstreferenceexactmetrics",
+  "reference_source_changes_allowed": [],
+  "limitations": "No claim dynamicoptimalpolicy,provenalpha,decayestimatedorETFreturns; current-survivor selection, unverifiedNAVpublication/dividend/contracts, past histories already reviewed and correlated"
+}

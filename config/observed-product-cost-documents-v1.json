@@ -1,0 +1,40 @@
+{
+  "version": "observed-product-cost-documents-v1",
+  "archive": "runtime/verification/product-terms-20261014/manifest.json",
+  "archive_sha256": "15948b3962b79a6b5f1b58847b7b3e085a88f5ea25133377e6ac8519e43cb19e",
+  "knowledge_basis": "Conservative archive-complete timestamp, not manager first-publication time. Initial collector fetched_at recorded request start; preserve that original manifest and do not treat it as response availability",
+  "reviewed_documents": {
+    "000217-20260317-overview": {"sha256": "0350e538577c3aefc50a4a2c102d369a76a2c5d5200e667dc31e9ecc8759e42e", "code": "000217", "share_class": "C", "identity_page": 1, "fee_page": 2},
+    "000217-20260317-prospectus": {"sha256": "a6fb7e3d5a395511f613ffdf52f5c068aee14b2c1d7f1ad4a61662403655c3e7", "code": "000217", "share_class": "C", "reviewed_physical_pages": [8, 86, 87, 88, 89, 90, 93, 94, 126]},
+    "007301-20250516-overview": {"sha256": "439f67bd782a0c528f7e5469f7c82bd057e99b94186e253243292eea34c55e0c", "code": "007301", "share_class": "C", "identity_page": 1, "fee_page": 3},
+    "007301-20220518-overview": {"sha256": "d42a6dd5276aaa4c00e78ce96271733db085ee5ca85f652464af9d809d72efc6", "code": "007301", "share_class": "C", "identity_page": 1, "fee_page": 3}
+  },
+  "profiles": {
+    "000217": {
+      "name": "华安黄金ETF联接C", "share_class": "C", "purchase_bps": "0",
+      "redemption_bands": [{"until_days": 7, "bps": "150"}, {"until_days": 30, "bps": "10"}, {"until_days": null, "bps": "0"}],
+      "sources": ["000217-20260317-overview", "000217-20260317-prospectus"],
+      "holding_age_basis": "Subscription confirmation inclusive to redemption confirmation exclusive; calendar date difference",
+      "normal_confirmation_sessions": 1, "query_available_from_sessions": 2,
+      "redemption_right_from_purchase_sessions": 2, "normal_payment_within_sessions": 7,
+      "exact_payment_sessions": null, "payment_may_extend_in_special_conditions": true,
+      "nav_publication": "NAV_T computed after T close and announced within T+1; disclosure also specifies no later than next day. No exact pre15:00 publication promise",
+      "first_known_before_next_cutoff_verified": false,
+      "standard_min_purchase_by_channel": {"agency_or_manager_electronic_C": "0.1", "manager_counter": "100000"},
+      "standard_min_redemption_units": "1", "actual_channel_rules_verified": false,
+      "historical_effective_range_verified": false, "latest_all_amendments_verified": false,
+      "investment_eligible": false
+    },
+    "007301": {
+      "name": "国联安中证半导体ETF联接C", "share_class": "C", "purchase_bps": "0",
+      "redemption_bands": [{"until_days": 7, "bps": "150"}, {"until_days": null, "bps": "0"}],
+      "sources": ["007301-20250516-overview", "007301-20220518-overview"],
+      "holding_age_basis": null, "normal_confirmation_sessions": null, "query_available_from_sessions": null,
+      "redemption_right_from_purchase_sessions": null, "normal_payment_within_sessions": null,
+      "exact_payment_sessions": null, "first_known_before_next_cutoff_verified": false,
+      "actual_channel_rules_verified": false, "historical_effective_range_verified": false,
+      "latest_all_amendments_verified": false, "investment_eligible": false
+    }
+  },
+  "scope": "Observed document fields only. Two agreeing snapshots do not prove an uninterrupted historical effective range. No incomplete fund may receive default zero fees or investment eligibility. Operating expenses embedded in NAV are not charged again. Fixed-gross current-document sensitivity is not a historical executable net-return replay"
+}

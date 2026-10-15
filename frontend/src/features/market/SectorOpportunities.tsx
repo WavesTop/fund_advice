@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
 import { Badge, EmptyState, Notice, Panel, searchInputProps } from '../../shared/ui';
@@ -16,6 +16,9 @@ import './fund-directory.css';
 import { priceDisplay, type HistoricalPrice } from './sector-history-display';
 import { readSectorCache, writeSectorCache, sectorCacheRevision } from './sector-request-state';
 import { sectorSortNotice } from './sector-ranking-state';
+const SectorResearchTrial = lazy(() =>
+  import('./SectorResearchTrial').then((module) => ({ default: module.SectorResearchTrial })),
+);
 
 type PeriodStatus = 'strong' | 'neutral' | 'weak' | 'insufficient' | 'stale';
 type PeriodRisk = 'elevated' | 'normal' | 'unknown';
@@ -583,6 +586,35 @@ export function OpportunityCard({ item, heatBasis, from }: { item: SectorOpportu
 }
 
 export function SectorOpportunities() {
+  const [params] = useSearchParams();
+  const research = params.get('view') === 'research';
+  const marketParams = new URLSearchParams(params);
+  if (research) marketParams.delete('view');
+  for (const key of ['horizon', 'rule', 'research_q', 'sector']) marketParams.delete(key);
+  const researchParams = new URLSearchParams(params);
+  researchParams.set('view', 'research');
+  return (
+    <>
+      <nav className="sector-view-nav" aria-label="板块机会视图">
+        <Link to={`/sectors${marketParams.size ? `?${marketParams}` : ''}`} aria-current={!research ? 'page' : undefined}>
+          行情与证据
+        </Link>
+        <Link to={`/sectors?${researchParams}`} aria-current={research ? 'page' : undefined}>
+          趋势研究试用
+        </Link>
+      </nav>
+      {research ? (
+        <Suspense fallback={<p role="status">研究快照载入中</p>}>
+          <SectorResearchTrial />
+        </Suspense>
+      ) : (
+        <MarketSectorOpportunities />
+      )}
+    </>
+  );
+}
+
+function MarketSectorOpportunities() {
   const [data, setData] = useState<OpportunitiesResponse | null>(readSectorCache);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>(() => readSectorCache() ? 'ready' : 'loading');
   const [loadError, setLoadError] = useState('');

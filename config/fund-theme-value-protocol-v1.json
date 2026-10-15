@@ -1,0 +1,21 @@
+{
+  "version": "theme-specific-valuations-and-trend-tilts-v1",
+  "history_access": "HTTP403 stop respected; cached history only until authorised data or external availability change; incomplete themes remain in investible fund universe",
+  "mapping": "Current THS fund benchmark 95% named index matched uniquely to CSI official catalogue and publication date; historical benchmark changes remain unverified",
+  "signal_information": "Provisional same-date factsheet rolling P/E/API peg match required separately per theme, no pre-publication data, lag1 market session with max3 extra stale sessions, 1260 prior session reference, >=252 positive readings and >=95% coverage, midpoint ties; lag2/5 stress",
+  "quality": "Per-stock mean of signed r2 of 60/120-session log-price regressions, not future growth/profit probability",
+  "allocation": "40% proposed stocks,20% gold,40% bonds; all variants same past60 covariance 10% projected volatility constraint; per-stock sleeve cap2/N, unknown themes keep exactly1/N before volatility scale",
+  "rules": {
+    "equal40": "equal stock sleeve",
+    "trend_tilt40": "all stocks multiplier1+0.5quality",
+    "trend_matched40": "only currently valuation-ready stocks multiplier1+0.5quality; unknown stock weights neutral",
+    "theme_value40": "valuation-ready stocks multiplier1.5-own historical valuation percentile; unknown neutral",
+    "theme_blend40": "valuation-ready multiplier1+0.25quality+0.5*(0.5-percentile); unknown neutral",
+    "theme_confirmed40": "valuation-ready multiplier1.5 if percentile<=20% and quality>0,0.5 if percentile>=80% and quality<0,otherwise1;unknown neutral"
+  },
+  "known_subgroup": "Known K stocks share exactlyK/N total stock-sleeve weight; proportional positive multipliers capped at2/K before subgroup budget; other N-K stocks each1/N",
+  "execution": "review10sessions,absolute3pp/relative25% bands,normal buy/sell10bps each scenario,under7 confirmation natural days redemption>=150bps,T+1confirmation,T+2settlement,terminal costs included",
+  "validation": "same-date field evidence, source archive hashes and reconstruction, ledger, past-only per-theme percentile audit, distribution and volatility rebuild; no current constituents reconstructed back in time",
+  "historical_scope": "all13+3bonds,older9+purebond,older4+purebond; corrected v2 research calendar, warmup120fundsessions; full/annual/20,60,120session windows and fee50/100,phases2/5/7,executionlag2 stresses",
+  "limitations": "Already viewed fund histories/current survivor and access-dependent source coverage; current snapshots are not preserved first-publication vintages; no untouched OOS or verified product fees/limits; incomplete input cannot establish full13-theme strategy validity"
+}

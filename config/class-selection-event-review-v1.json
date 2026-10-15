@@ -1,0 +1,14 @@
+{
+  "version": "class-selection-event-review-v1",
+  "reference": "runtime/verification/review-timing-diagnostic-v1.json.gz",
+  "added_after_matched_entry_failure": true,
+  "fund_codes": ["000217", "000051", "000008", "000016"],
+  "policies": ["dual_return60", "dual_leader60", "fixed_cash_equal", "fixed_cash_gold60", "inverse_vol_cap60"],
+  "phases": [0, 5, 10, 15],
+  "modes": "Matched initial purchase grid20; grid20 plus extra review when set of positive-proposal asset classes changes from previous session; daily review canonical phase0",
+  "event": "Membership change only, not continuously changing volatility weights, profit dates or retrospective price turning points; all flags use current/past NAV; initial session always reviewed,settlementreinvestmentunchanged",
+  "fees": "Ordinary10bpseach and50/100bps pressure for phase0 of each mode; under7confirmationnaturaldaysfloor150bps,minimumordinaryholding7; risk/classzeroexitsstillpayfloor",
+  "risk": "Same60pastfundcov10%forecastvolcashscale,no leverage/shorts; not futurevol/maxDDguarantee",
+  "baseline_gate": "All20matched-entry prior metrics must exactly reproduce before interpreting new outcomes",
+  "limitations": "Previously viewed survivor histories and retrospective NAV/distribution/fee assumptions; event rule selected after timing diagnosis,not untouched OOS; changing review frequency can change both selection and risk-update timing,no single-cause alpha attribution"
+}

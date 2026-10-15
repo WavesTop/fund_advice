@@ -1,0 +1,23 @@
+{
+  "version": "satellite-defensive-restore-research-v1",
+  "references": {
+    "ordinary10": {"path": "runtime/verification/satellite-event-repair-research-v1.json.gz", "sha256": "00d712f3a9bbcecb27dbe24bb50a3a32b889e911093fc29f30000a7a24053b3c"},
+    "ordinary0": {"path": "runtime/verification/satellite-low-ordinary-fee-research-v1.json.gz", "sha256": "1be9c501c8b12392a5a9939104fb370c2c916e22b6893690f3df3eddda6f86d1"},
+    "separate": {"path": "runtime/verification/satellite-separate-repair-research-v1.json.gz", "sha256": "e39e5426a594c455027345055c97241747b54dbb1bcbafbb3f41408ee683f58f"},
+    "competition": {"path": "runtime/verification/satellite-competition-research-v1.json.gz", "sha256": "03ea7745015c1a81ff6c06cdcd3125f35dc2d4145da32fa6931aa5bffcd9ef93"},
+    "basket": {"path": "runtime/verification/satellite-basket-research-v1.json.gz", "sha256": "66d3807916069bfa76ef2de57d7b935cb5a8290df5100f31b496648e3baa0aa5"},
+    "member_exit": {"path": "runtime/verification/satellite-member-exit-research-v1.json.gz", "sha256": "4ab5930a1345b47f075a54ab28ae5e67be5577bae5fe93259ff6c730ff7c65c8"}
+  },
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "variants": ["restore_funded2_fixed20", "restore_funded3_fixed20", "restore_individual2_fixed20", "restore_individual3_fixed20"],
+  "ordinary_fees_bps": [0, 10],
+  "extra_fee_stress_bps": [50, 100],
+  "timing": [{"id": "default", "phase": 0, "lag": 1}, {"id": "phase5", "phase": 5, "lag": 1}, {"id": "phase10", "phase": 10, "lag": 1}, {"id": "phase15", "phase": 15, "lag": 1}, {"id": "lag2", "phase": 0, "lag": 2}],
+  "fresh_entry_dates": ["2024-07-29", "2025-01-02", "2025-07-01", "2026-01-05"],
+  "selection_history": "Freeze all four member exit variants after the static budget diagnostic and before restored-account returns. No choice of winning pool, phase, size, mode or threshold",
+  "restoration": "Only while original members are partly retired, raise gold/bond goals toward the same-date scaled neutral goals. Keep all stock goals exactly unchanged. Maximum interpolation bounded by total target weight <=1 and past projected annual volatility <=10%. No new cash assumption: actual queued execution, settlement and FIFO remain unchanged",
+  "unchanged": "Admission scores, original member identities, stock donor quota, member funding/expiry/timeout clocks, cooldown, immediate risk exits, fees and trading engine unchanged; restore_defensive defaults false",
+  "compatibility": "120 previous defaults across four pools and two fees, full account/metrics/check exact, inverse trace canonical JSON exact. Only controller, independent auditor and shared research driver may differ",
+  "retention": "432 formal runs =120 compatibility +192 timing/cost +120 fresh; 8 fresh defaults reused. Retain32 full new defaults; audit every account before compacting. Include9 continuous-account bull/bear/observation episodes and matched no-restoration comparisons",
+  "scope": "Overlapping previously studied survivor NAV histories and model contracts, not unseen holdout or verified executable investment performance. Predicted volatility is not a drawdown guarantee. No automatic trial promotion or live orders"
+}

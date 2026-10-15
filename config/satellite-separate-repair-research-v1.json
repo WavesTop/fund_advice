@@ -1,0 +1,19 @@
+{
+  "version": "satellite-separate-repair-research-v1",
+  "references": {
+    "ordinary10": {"path": "runtime/verification/satellite-event-repair-research-v1.json.gz", "sha256": "00d712f3a9bbcecb27dbe24bb50a3a32b889e911093fc29f30000a7a24053b3c"},
+    "ordinary0": {"path": "runtime/verification/satellite-low-ordinary-fee-research-v1.json.gz", "sha256": "1be9c501c8b12392a5a9939104fb370c2c916e22b6893690f3df3eddda6f86d1"}
+  },
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "variants": ["separate_core", "separate_fixed20"],
+  "ordinary_fees_bps": [0, 10],
+  "extra_fee_stress_bps": [50, 100],
+  "timing": [{"id": "default", "phase": 0, "lag": 1}, {"id": "phase5", "phase": 5, "lag": 1}, {"id": "phase10", "phase": 10, "lag": 1}, {"id": "phase15", "phase": 15, "lag": 1}, {"id": "lag2", "phase": 0, "lag": 2}],
+  "fresh_entry_dates": ["2024-07-29", "2025-01-02", "2025-07-01", "2026-01-05"],
+  "selection_history": "Freeze two repair-queue variants across all pools/fees/timings/fresh dates after prior low-fee full-path replay showed band sensitivity. No score/age/band/phase selection or untouched holdout claim",
+  "repair_scope": "Core review work checks every target; satellite-only work and closing restoration check stock targets only. Core work has priority. Every actual repair still submits original full risk-scaled goal, so defensive targets/orders are NOT isolated. Actual risk>10% still urgently cuts all held exposures; immediate risk repair creates core work. Band values, entry/funding/exit/cooldown clocks unchanged",
+  "controls": "separate_core must match same-condition original matched_core account metrics exactly. Retain inverse20 opportunity cost. Retain original fixed20 comparisons where frozen references actually contain them; never fabricate a missing normal-fee timing overlay",
+  "compatibility": "Replay40original full main accounts across fee0/10 and4pools x5old policies: account/metrics/daily checks exact, inverse trace JSON canonical keys exact. Default policy gains repair_scope metadata only; shared engine/data/calendar unchanged",
+  "retention": "96new variant timing/cost runs plus60new fresh runs plus40compatibility runs=196formal runs;4fresh defaults reused. Full accounts/checks retained16new defaults; all other new runs independently audited before compacting metrics/events/audits and9carry phases. Not196independent market samples",
+  "scope": "Research on repeatedly reviewed surviving OTC NAV histories; confirmed short fee150bps and cash lags remain model scenarios, not verified product contracts, NAV first-known or ETF execution. No live recommendation/prototype replacement without robust advantage"
+}

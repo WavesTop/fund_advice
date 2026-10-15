@@ -1,0 +1,12 @@
+{
+  "version": "broad-return-ranking-stress-v1",
+  "added_after": "fund-cross-asset-trends-return-v3: long4 dual_return60 improved cumulative return and drawdown, other theme pools did not",
+  "purpose": "Validate the promising broad-stock/gold/bond candidate against matched nontrend and original trend controls, rather than require one rule to beat every unrelated fund universe",
+  "fund_codes": ["000217", "000051", "000008", "000016"],
+  "policies": ["dual_return60", "dual_leader60", "fixed_cash_equal", "fixed_cash_gold60", "inverse_vol_cap60"],
+  "reference": "runtime/verification/fund-cross-asset-trends-return-v3.json.gz",
+  "invariants": "252warmup,review20,absolute3pp/relative25%bands,T+1confirmation,T+2settlement,nextNAVexecution,10%pastfundcovrisk,cash0interest,no leverage/shorts,terminalredemptioncharged,under7confirmationnaturaldayredemptionfloor150bps",
+  "scenarios": "Main10bpseachside,50/100bpseachside,reviewphases5/10/15,executionlag2",
+  "rolling": "Nonoverlapping20/60/120sessionfreshaccounts from first warm date,known-deadline-entry-guard7days",
+  "limitations": "Repeated viewed survivor histories and retrospective NAV/distribution versions,ordinaryfeesandNAVfirstpublication/productlimitassumptions; no untouched OOS; forecastvol10%notfuturevol/maxDDguarantee; promising-domain selection after results is research selection, not independent discovery"
+}

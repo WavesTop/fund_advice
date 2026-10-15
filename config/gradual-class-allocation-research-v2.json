@@ -1,0 +1,16 @@
+{
+  "version": "gradual-class-allocation-research-v2",
+  "reference": "runtime/verification/gradual-class-allocation-research-v1.json.gz",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "modes": ["class_mean", "trend_ridge"],
+  "reviews": [20, 5],
+  "action": "intent_choice",
+  "selection": "Defined after verified constant-NAV band stall; fixes mechanism rather than selecting profitable cadence or speed. No unseen OOS",
+  "intent": "Partial candidates originate from prior actual decision's target fund weights rather than reset to current holdings; every date remove newly failed classes and scale previous plan using current past covariance. Incumbent still actual safe holdings. Selecting incumbent resets plan. Unfitted period still identical raw fallback",
+  "clock": "Fraction=min(1,actualsessionssincelastcallback/60), firstcallback1; reuse no future plans. Do not lower3pp/25%bands,ignore7daywait,spendpendingredemptions,orcountintentasactualunits",
+  "safety": "Originalcurrentriskandabsoluteurgencyunchanged; staletargetneverholdsfailedclassoroverriskbudget. No leverage or short",
+  "stress": {"ordinary_fee_bps_each_side": [50, 100], "five_day_phases": [1, 2, 3, 4], "twenty_day_phases": [5, 10, 15], "execution_lag_sessions": 2},
+  "reference_source_changes_allowed": ["backend/analysis/gradual_class_allocation.py", "scripts/validate_gradual_class_allocation.py", "scripts/research_gradual_class_allocations.py"],
+  "validation": "Rerunall16oldpartialmainaccountswithidenticalmetrics; independentlyauditpreviousactualdecisiontargets,currentfundweights,elapsedclock,forecastvisibility,payoffs,safetyandFIFO. New16main+104stress+92fresh;recomputeintentandpartialcontinuouscuts. Immediate/staticcontrolsfromfrozenv1,clearlymarkednotnewreplays",
+  "limitations": "Partialintentheuristicnotdynamicoptimalityorlearnedalpha decay. Samegross60dayforecast,ordinaryfeeproxyignoresactualshortfeeandfundingdelay. Originalsurvivor/NAVpublication/dividend/contract/OOSlimitationspersist. NotETFdata"
+}

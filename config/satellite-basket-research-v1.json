@@ -1,0 +1,21 @@
+{
+  "version": "satellite-basket-research-v1",
+  "references": {
+    "ordinary10": {"path": "runtime/verification/satellite-event-repair-research-v1.json.gz", "sha256": "00d712f3a9bbcecb27dbe24bb50a3a32b889e911093fc29f30000a7a24053b3c"},
+    "ordinary0": {"path": "runtime/verification/satellite-low-ordinary-fee-research-v1.json.gz", "sha256": "1be9c501c8b12392a5a9939104fb370c2c916e22b6893690f3df3eddda6f86d1"},
+    "separate": {"path": "runtime/verification/satellite-separate-repair-research-v1.json.gz", "sha256": "e39e5426a594c455027345055c97241747b54dbb1bcbafbb3f41408ee683f58f"},
+    "competition": {"path": "runtime/verification/satellite-competition-research-v1.json.gz", "sha256": "03ea7745015c1a81ff6c06cdcd3125f35dc2d4145da32fa6931aa5bffcd9ef93"}
+  },
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "variants": ["basket2_fixed20", "basket3_fixed20"],
+  "ordinary_fees_bps": [0, 10],
+  "extra_fee_stress_bps": [50, 100],
+  "timing": [{"id": "default", "phase": 0, "lag": 1}, {"id": "phase5", "phase": 5, "lag": 1}, {"id": "phase10", "phase": 10, "lag": 1}, {"id": "phase15", "phase": 15, "lag": 1}, {"id": "lag2", "phase": 0, "lag": 2}],
+  "fresh_entry_dates": ["2024-07-29", "2025-01-02", "2025-07-01", "2026-01-05"],
+  "selection_history": "After candidate-count gate failed, freeze actual top2/top3 holdings before their returns. No basket-size, score, cap, age, phase or pool winner selected. Fallback to one if only one qualifies; no minimum2 gate. Conditional entry/exit paths differ and are not same-date causal rank treatments",
+  "basket": "TopK among score>=60 and ownvotes>=2/3, score desc/code asc. Equal per-member addition up to min(10pp,rawstockdonorbudget)/K capped35% individually; unused capped quota stays with donors. Donors are other stock codes, reduced proportionally. Allstockselected has no donor and no admissible tilt. Same whole-portfolio10%past risk scaling; require positive post-scale extra for every selected member and totalextra>=0.5pp",
+  "lease": "Each member must actually reach its entry neutral weight plus half its initial extra before the shared20session clock starts. No funding within10sessions cancels basket. Any member absolute failure withdraws whole basket tilt, urgently flagging only failed codes, healthy core remains; ordinary expiry20, cooldown5 and full neutral restoration unchanged. Scalar peak fields are leader metadata only; price/score exits unsupported for multi baskets",
+  "compatibility": "72previous defaults across4pools x2fees x9policies: combined5,separate2,competition2; metrics/account/checks exact and inverse trace canonical JSON keys exact. Default basket_size1 gains only policy metadata; old memory shape and engine unchanged",
+  "retention": "96new timing/cost basket accounts plus60new fresh basket accounts plus72compatibility accounts=228formal runs;4fresh default reuses. Retain16new full defaults; other new accounts independently audited before keeping all metrics/events/9carry phases. Frozen same-condition core/inverse controls reused, missing original nondefault10/50/100 overlay kept missing",
+  "scope": "Repeatedly inspected overlapping surviving OTC NAV histories, not independent holdout or ETF/actual contract performance. Confirmation/settlement/short fee stay research scenarios. More funds need not be less correlated or guarantee lower drawdown. No automatic prototype/live advice promotion"
+}

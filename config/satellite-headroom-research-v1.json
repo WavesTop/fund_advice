@@ -1,0 +1,19 @@
+{
+  "version": "satellite-headroom-research-v1",
+  "reference": "runtime/verification/satellite-selection-diagnostic-v1.json.gz",
+  "reference_sha256": "b793bde6b4d1f6add731993bc14e330e914018bd267fa1dc1b63a82d6c2d236e",
+  "reference_protocol": "config/satellite-selection-diagnostic-v1.json",
+  "cohorts": ["long4", "older4", "older9", "all13"],
+  "variants": ["headroom_fixed20", "headroom_score"],
+  "stress_policies": ["inverse20", "fixed20", "score_gap5", "headroom_fixed20", "headroom_score"],
+  "stress": {"fee_bps": [50, 100], "core_and_check_phases": [5, 10, 15], "execution_lag_sessions": 2},
+  "fresh_entry_dates": ["2024-07-29", "2025-01-02", "2025-07-01", "2026-01-05"],
+  "selection_history": "After repeatedly reviewed satellite/gate results showed fragility, freeze two sizing ablations before current historical outcomes. No threshold search, no untouched holdout or investment certification claim",
+  "sizing": "Compute the same-day risk-scaled neutral core first, transfer <=10pp inside stock budget only, retain donor proportions and candidate35%cap. Choose the largest fraction of that transfer with past60day fund covariance volatility<=10%. No rescaling of gold/bond/cash targets caused by the tilt. Neutral core and actual-holdings daily urgent risk reductions still operate normally",
+  "unchanged": "Same trend>=60, own21/63/252vote>=2/3, 0.5pp minimum excess, core20/check5 clocks, pending funding limit10, observed funding age, cooldown5, score exits55or10peakdrop, fixed20 expiry, FIFO/cash/fees/confirmation/settlement. No market gate, core expiry or known-end entry guard",
+  "fresh": "Fresh100k cash account at each date's first session after shared252warmup, same original frozen funds and common end2026-10-12; start resets private controller state and clocks. Not carry slices, not actual random-entry probability. Reuse main run without recounting when entry equals main start; retain all dates and cohorts, no compound of fresh returns",
+  "episodes": "All9previously fixed bull/bear/observation episodes as continuous carry slices only; partial/missing retained, phase labels never trading inputs",
+  "compatibility": "All28previous main metrics/full accounts/daily checks remain exact. Optional policy metadata adds sizing. No shared execution engine changes",
+  "validation": "Independent raw-past return standard deviation and bisection reproduce quadratic sizing, plus all controller actions/nonactions, actual cash/FIFO/fees/units audits. Verify reference/input/calendar/source hashes; snapshot sources before run and reject mid-run changes",
+  "scope": "Surviving OTC fund samples, correlated pools and repeatedly viewed history; real historical contracts/publication/dividend rights/settlement not fully verified. Not ETF or live advice. 10%forecast volatility is not a maximum drawdown guarantee. Trial remains the previous frozen research snapshot"
+}
